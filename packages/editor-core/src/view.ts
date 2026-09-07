@@ -1,6 +1,6 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { createEditorState } from './state.ts';
+import { createEditorState, type EditorMode, setModeEffect } from './state.ts';
 
 export interface Editor {
   readonly view: EditorView;
@@ -8,15 +8,31 @@ export interface Editor {
   getDoc(): string;
   /** Replace the document. Resets undo history, as opening a file should. */
   setDoc(doc: string): void;
+  getMode(): EditorMode;
+  /** Switch between live preview and plain source. The buffer is untouched. */
+  setMode(mode: EditorMode): void;
   destroy(): void;
 }
 
-export function createEditor(parent: HTMLElement, doc = '', extra: Extension[] = []): Editor {
-  const view = new EditorView({ state: createEditorState(doc, extra), parent });
+export interface EditorOptions {
+  extra?: Extension[];
+  mode?: EditorMode;
+}
+
+export function createEditor(parent: HTMLElement, doc = '', options: EditorOptions = {}): Editor {
+  const extra = options.extra ?? [];
+  let mode: EditorMode = options.mode ?? 'edit';
+  const view = new EditorView({ state: createEditorState(doc, { extra, mode }), parent });
   return {
     view,
     getDoc: () => view.state.doc.toString(),
-    setDoc: (next) => view.setState(createEditorState(next, extra)),
+    setDoc: (next) => view.setState(createEditorState(next, { extra, mode })),
+    getMode: () => mode,
+    setMode: (next) => {
+      if (next === mode) return;
+      mode = next;
+      view.dispatch({ effects: setModeEffect(next) });
+    },
     destroy: () => view.destroy(),
   };
 }

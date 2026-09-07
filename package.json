@@ -12,8 +12,9 @@
     "format": "biome format --write .",
     "typecheck": "pnpm -r --if-present run check",
     "check": "pnpm lint && pnpm typecheck",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --project '!bench'",
+    "test:watch": "vitest",
+    "bench": "vitest run --project bench"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",

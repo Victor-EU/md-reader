@@ -11,7 +11,8 @@ Markdown viewer and editor for the AI round trip. Working title.
 ```
 apps/desktop      Tauri 2 app: src-tauri/ (thin Rust binary) and src/ (Svelte shell)
 packages/markdown Lezer grammar extensions, renderer, extraction. Pure TypeScript.
-packages/editor-core  CodeMirror 6 extensions. Framework free.
+packages/editor-core  CodeMirror 6 extensions: live preview, reveal rule, widgets. Framework free.
+tools/bench       Keystroke latency harness (browser runner); results under tools/bench/results
 crates/core       File IO, watcher, history, diff, search. No Tauri types.
 crates/app        Tauri command handlers. Thin.
 docs/             Design, plan, ADRs
@@ -35,6 +36,7 @@ pnpm tauri dev      # the app, with hot reload
 pnpm tauri build    # unsigned bundle under target/release/bundle
 pnpm check          # Biome, tsc, svelte-check
 pnpm test           # Vitest: node projects and browser projects (Chromium, WebKit)
+pnpm bench          # keystroke latency on 100 KB and 1 MB documents, both browsers
 cargo clippy --workspace --all-targets
 cargo test --workspace
 ```

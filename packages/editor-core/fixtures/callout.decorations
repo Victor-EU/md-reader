@@ -1,0 +1,109 @@
+0-0 line mdr-quote mdr-callout {"data-callout":"note"}
+0-0 line mdr-callout-header
+0-1 mark mdr-quote-mark ">"
+2-9 mark mdr-callout-marker "[!note]"
+10-10 line mdr-quote mdr-callout {"data-callout":"note"}
+10-11 mark mdr-quote-mark ">"
+32-32 line mdr-quote mdr-callout {"data-callout":"warning"}
+32-32 line mdr-callout-header
+32-33 mark mdr-quote-mark ">"
+34-44 mark mdr-callout-marker "[!warning]"
+58-59 hide "*"
+58-68 mark mdr-em "*emphasis*"
+67-68 hide "*"
+69-69 line mdr-quote mdr-callout {"data-callout":"warning"}
+69-70 mark mdr-quote-mark ">"
+86-86 line mdr-quote mdr-callout {"data-callout":"warning"}
+86-87 mark mdr-quote-mark ">"
+104-104 line mdr-quote mdr-callout {"data-callout":"tip"}
+104-104 line mdr-callout-header
+104-105 mark mdr-quote-mark ">"
+106-113 mark mdr-callout-marker "[!tip]-"
+132-132 line mdr-quote mdr-callout {"data-callout":"tip"}
+132-133 mark mdr-quote-mark ">"
+156-156 line mdr-quote mdr-callout {"data-callout":"note"}
+156-156 line mdr-callout-header
+156-157 mark mdr-quote-mark ">"
+158-165 mark mdr-callout-marker "[!NOTE]"
+166-166 line mdr-quote mdr-callout {"data-callout":"note"}
+166-167 mark mdr-quote-mark ">"
+194-194 line mdr-quote mdr-callout {"data-callout":"info"}
+194-194 line mdr-callout-header
+194-195 mark mdr-quote-mark ">"
+196-204 mark mdr-callout-marker "[!info]+"
+211-211 line mdr-quote mdr-callout {"data-callout":"info"}
+211-212 mark mdr-quote-mark ">"
+213-213 line mdr-quote mdr-callout {"data-callout":"info"}
+213-213 line mdr-li {"style":"padding-left:4ch;text-indent:-4ch"}
+213-214 mark mdr-quote-mark ">"
+215-217 widget BulletWidget "- "
+224-224 line mdr-quote mdr-callout {"data-callout":"info"}
+224-224 line mdr-li {"style":"padding-left:4ch;text-indent:-4ch"}
+224-225 mark mdr-quote-mark ">"
+226-228 widget BulletWidget "- "
+240-240 line mdr-quote mdr-callout {"data-callout":"info"}
+240-240 line mdr-li {"style":"padding-left:4ch;text-indent:-4ch"}
+240-241 mark mdr-quote-mark ">"
+242-242 line mdr-quote mdr-callout {"data-callout":"info"}
+242-242 line mdr-fence
+242-242 line mdr-fence-edge mdr-fence-dim
+242-243 mark mdr-quote-mark ">"
+250-250 line mdr-quote mdr-callout {"data-callout":"info"}
+250-250 line mdr-fence
+260-260 line mdr-quote mdr-callout {"data-callout":"info"}
+260-260 line mdr-fence
+260-260 line mdr-fence-edge mdr-fence-dim
+267-267 line mdr-quote mdr-callout {"data-callout":"question"}
+267-267 line mdr-callout-header
+267-268 mark mdr-quote-mark ">"
+269-280 mark mdr-callout-marker "[!question]"
+287-287 line mdr-quote mdr-callout {"data-callout":"question"}
+287-287 line mdr-quote mdr-callout {"data-callout":"note"}
+287-287 line mdr-callout-header
+287-288 mark mdr-quote-mark ">"
+289-290 mark mdr-quote-mark ">"
+291-298 mark mdr-callout-marker "[!note]"
+305-305 line mdr-quote mdr-callout {"data-callout":"question"}
+305-305 line mdr-quote mdr-callout {"data-callout":"note"}
+305-306 mark mdr-quote-mark ">"
+307-308 mark mdr-quote-mark ">"
+331-331 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+331-333 widget BulletWidget "- "
+343-343 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+343-343 line mdr-quote mdr-callout {"data-callout":"example"}
+343-343 line mdr-callout-header
+345-346 mark mdr-quote-mark ">"
+347-357 mark mdr-callout-marker "[!example]"
+358-358 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+358-358 line mdr-quote mdr-callout {"data-callout":"example"}
+360-361 mark mdr-quote-mark ">"
+391-391 line mdr-quote mdr-callout {"data-callout":"weird-type_2"}
+391-391 line mdr-callout-header
+391-392 mark mdr-quote-mark ">"
+393-408 mark mdr-callout-marker "[!weird-type_2]"
+409-409 line mdr-quote mdr-callout {"data-callout":"weird-type_2"}
+409-410 mark mdr-quote-mark ">"
+457-457 line mdr-quote
+457-458 mark mdr-quote-mark ">"
+459-460 hide "["
+459-475 mark mdr-link "[!not a callout]"
+474-475 hide "]"
+497-497 line mdr-quote
+497-498 mark mdr-quote-mark ">"
+521-521 line mdr-quote
+521-522 mark mdr-quote-mark ">"
+523-524 hide "["
+523-526 mark mdr-link "[!]"
+525-526 hide "]"
+556-556 line mdr-quote
+556-557 mark mdr-quote-mark ">"
+557-558 hide "["
+557-563 mark mdr-link "[!bug]"
+562-563 hide "]"
+604-604 line mdr-quote
+604-605 mark mdr-quote-mark ">"
+617-617 line mdr-quote
+617-618 mark mdr-quote-mark ">"
+619-620 hide "["
+619-626 mark mdr-link "[!note]"
+625-626 hide "]"

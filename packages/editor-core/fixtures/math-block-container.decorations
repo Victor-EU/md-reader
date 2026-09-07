@@ -1,0 +1,12 @@
+0-0 line mdr-quote
+0-0 line mdr-math-block
+0-1 mark mdr-quote-mark ">"
+2-4 mark mdr-dim "$$"
+5-5 line mdr-quote
+5-5 line mdr-math-block
+33-33 line mdr-math-block
+33-35 mark mdr-dim "$$"
+36-36 line mdr-math-block
+46-46 line mdr-math-block
+60-60 line mdr-math-block
+60-62 mark mdr-dim "$$"

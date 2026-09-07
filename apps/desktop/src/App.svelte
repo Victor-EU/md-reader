@@ -1,5 +1,5 @@
 <script lang="ts">
-import { createEditor, type Editor } from '@mdreader/editor-core';
+import { createEditor, type Editor, type EditorMode } from '@mdreader/editor-core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { onMount } from 'svelte';
 import { openDocument, saveDocumentDebug } from './lib/ipc';
@@ -8,6 +8,7 @@ let host: HTMLElement;
 let editor: Editor | undefined;
 let path = $state<string | null>(null);
 let status = $state('No file open. Press Open to pick a markdown file.');
+let mode = $state<EditorMode>('edit');
 
 onMount(() => {
   editor = createEditor(host, '');
@@ -31,6 +32,11 @@ async function pickAndOpen() {
   }
 }
 
+function toggleMode() {
+  mode = mode === 'edit' ? 'source' : 'edit';
+  editor?.setMode(mode);
+}
+
 async function saveDebug() {
   if (!path || !editor) return;
   try {
@@ -46,6 +52,7 @@ async function saveDebug() {
   <header class="bar">
     <button type="button" onclick={pickAndOpen}>Open</button>
     <button type="button" onclick={saveDebug} disabled={path === null}>Save (debug)</button>
+    <button type="button" onclick={toggleMode}>{mode === 'edit' ? 'Source' : 'Edit'}</button>
     <span class="path">{path ?? ''}</span>
   </header>
   <main class="page" bind:this={host}></main>

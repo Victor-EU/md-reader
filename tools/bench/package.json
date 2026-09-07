@@ -1,0 +1,19 @@
+{
+  "name": "@mdreader/bench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Performance harness: synthetic fixtures and keystroke latency measurements in the browser runner.",
+  "type": "module",
+  "scripts": {
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@codemirror/language": "~6.12.4",
+    "@codemirror/state": "~6.7.4",
+    "@codemirror/view": "~6.43.11",
+    "@mdreader/editor-core": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

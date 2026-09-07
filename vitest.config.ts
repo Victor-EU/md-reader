@@ -34,6 +34,20 @@ export default defineConfig({
           },
         },
       },
+      {
+        // Excluded from `pnpm test`; run with `pnpm bench`. Writes JSON to tools/bench/results.
+        test: {
+          name: 'bench',
+          include: ['tools/bench/src/**/*.bench.test.ts'],
+          testTimeout: 300_000,
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            instances: [{ browser: 'chromium' }, { browser: 'webkit' }],
+          },
+        },
+      },
     ],
   },
 });

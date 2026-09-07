@@ -1,0 +1,68 @@
+0-0 line mdr-frontmatter
+0-3 mark mdr-dim "---"
+4-4 line mdr-frontmatter
+24-24 line mdr-frontmatter
+24-27 mark mdr-dim "---"
+29-29 line mdr-h1
+29-31 hide "# "
+38-38 line mdr-quote mdr-callout {"data-callout":"note"}
+38-38 line mdr-callout-header
+38-39 mark mdr-quote-mark ">"
+40-47 mark mdr-callout-marker "[!note]"
+56-56 line mdr-quote mdr-callout {"data-callout":"note"}
+56-57 mark mdr-quote-mark ">"
+58-60 hide "=="
+58-65 mark mdr-mark "==Key=="
+63-65 hide "=="
+74-75 hide "$"
+74-84 mark mdr-math "$E = mc^2$"
+83-84 hide "$"
+97-122 mark mdr-comment "<!-- question: units? -->"
+123-123 line mdr-quote mdr-callout {"data-callout":"note"}
+123-124 mark mdr-quote-mark ">"
+125-125 line mdr-quote mdr-callout {"data-callout":"note"}
+125-125 line mdr-math-block
+125-126 mark mdr-quote-mark ">"
+127-129 mark mdr-dim "$$"
+130-130 line mdr-quote mdr-callout {"data-callout":"note"}
+130-130 line mdr-math-block
+173-173 line mdr-quote mdr-callout {"data-callout":"note"}
+173-173 line mdr-math-block
+175-177 mark mdr-dim "$$"
+179-179 line mdr-li {"style":"padding-left:3ch;text-indent:-3ch"}
+179-181 mark mdr-ol-mark "1."
+188-190 hide "=="
+188-196 mark mdr-mark "==step=="
+194-196 hide "=="
+197-197 line mdr-li {"style":"padding-left:3ch;text-indent:-3ch"}
+197-199 mark mdr-ol-mark "2."
+212-213 hide "$"
+212-217 mark mdr-math "$x_1$"
+216-217 hide "$"
+218-218 line mdr-li {"style":"padding-left:5ch;text-indent:-5ch"}
+221-223 hide "- "
+223-227 widget CheckboxWidget unchecked "[ ] "
+237-239 hide "=="
+237-250 mark mdr-mark "==highlight=="
+248-250 hide "=="
+251-251 line mdr-li {"style":"padding-left:5ch;text-indent:-5ch"}
+254-256 hide "- "
+256-260 widget CheckboxWidget checked "[x] "
+265-266 hide "$"
+265-268 mark mdr-math "$y$"
+267-268 hide "$"
+270-270 line mdr-table
+289-289 line mdr-table
+299-299 line mdr-table
+326-326 line mdr-fence
+326-326 line mdr-fence-edge mdr-fence-dim
+336-336 line mdr-fence
+375-375 line mdr-fence
+375-375 line mdr-fence-edge mdr-fence-dim
+386-388 hide "~~"
+386-396 mark mdr-del "~~struck~~"
+394-396 hide "~~"
+397-399 hide "=="
+397-416 mark mdr-mark "==and highlighted=="
+414-416 hide "=="
+417-436 mark mdr-comment "<!-- keep: good -->"

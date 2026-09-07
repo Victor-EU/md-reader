@@ -188,6 +188,9 @@ importers:
       '@lezer/common':
         specifier: ~1.5.2
         version: 1.5.2
+      '@lezer/highlight':
+        specifier: ~1.2.3
+        version: 1.2.3
       '@lezer/markdown':
         specifier: ~1.7.2
         version: 1.7.2
@@ -195,6 +198,9 @@ importers:
         specifier: workspace:*
         version: link:../markdown
     devDependencies:
+      '@types/node':
+        specifier: ^24
+        version: 24.13.3
       typescript:
         specifier: ~5.9.3
         version: 5.9.3
@@ -214,6 +220,25 @@ importers:
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+
+  tools/bench:
+    dependencies:
+      '@codemirror/language':
+        specifier: ~6.12.4
+        version: 6.12.4
+      '@codemirror/state':
+        specifier: ~6.7.4
+        version: 6.7.4
+      '@codemirror/view':
+        specifier: ~6.43.11
+        version: 6.43.11
+      '@mdreader/editor-core':
+        specifier: workspace:*
+        version: link:../../packages/editor-core
+    devDependencies:
       typescript:
         specifier: ~5.9.3
         version: 5.9.3

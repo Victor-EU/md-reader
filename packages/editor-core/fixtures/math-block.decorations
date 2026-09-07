@@ -1,0 +1,57 @@
+0-0 line mdr-math-block
+0-2 mark mdr-dim "$$"
+3-3 line mdr-math-block
+12-12 line mdr-math-block
+12-14 mark mdr-dim "$$"
+16-16 line mdr-math-block
+16-18 mark mdr-dim "$$"
+33-35 mark mdr-dim "$$"
+54-54 line mdr-math-block
+54-56 mark mdr-dim "$$"
+57-57 line mdr-math-block
+66-66 line mdr-math-block
+66-68 mark mdr-dim "$$"
+92-92 line mdr-math-block
+92-94 mark mdr-dim "$$"
+111-111 line mdr-math-block
+121-121 line mdr-math-block
+128-128 line mdr-math-block
+142-144 mark mdr-dim "$$"
+146-146 line mdr-quote
+146-146 line mdr-math-block
+146-147 mark mdr-quote-mark ">"
+148-150 mark mdr-dim "$$"
+151-151 line mdr-quote
+151-151 line mdr-math-block
+165-165 line mdr-quote
+165-165 line mdr-math-block
+167-169 mark mdr-dim "$$"
+171-171 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+171-173 widget BulletWidget "- "
+178-178 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+178-178 line mdr-math-block
+180-182 mark mdr-dim "$$"
+183-183 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+183-183 line mdr-math-block
+192-192 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+192-192 line mdr-math-block
+194-196 mark mdr-dim "$$"
+197-197 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+197-199 widget BulletWidget "- "
+210-210 line mdr-math-block
+210-212 mark mdr-dim "$$"
+213-213 line mdr-math-block
+251-251 line mdr-math-block
+251-253 mark mdr-dim "$$"
+254-254 line mdr-math-block
+266-266 line mdr-quote
+266-266 line mdr-math-block
+266-267 mark mdr-quote-mark ">"
+268-270 mark mdr-dim "$$"
+271-271 line mdr-quote
+271-271 line mdr-math-block
+279-279 line mdr-quote
+279-279 line mdr-math-block
+285-285 line mdr-quote
+285-285 line mdr-math-block
+287-289 mark mdr-dim "$$"
