@@ -7,18 +7,30 @@
 
 use std::path::PathBuf;
 
-use mdreader_core::Document;
+use mdreader_core::{Document, Error, FileFormat, SaveResult};
 
 /// Read a document from disk and return its content and metadata.
 #[tauri::command]
-fn open_document(path: PathBuf) -> Result<Document, String> {
-    mdreader_core::read_document(&path).map_err(|e| e.to_string())
+fn open_document(path: PathBuf) -> Result<Document, Error> {
+    mdreader_core::read_document(&path)
 }
 
-/// Debug save (WP 0.1): write the buffer back byte for byte.
+/// Save the buffer in the file's stored form, refusing when the file on
+/// disk no longer matches `expected_hash` (design 6.4).
 #[tauri::command]
-fn save_document_debug(path: PathBuf, content: String) -> Result<(), String> {
-    mdreader_core::write_document_bytes(&path, &content).map_err(|e| e.to_string())
+fn save_document(
+    path: PathBuf,
+    content: String,
+    expected_hash: Option<String>,
+    format: FileFormat,
+) -> Result<SaveResult, Error> {
+    mdreader_core::save_document(&path, &content, expected_hash.as_deref(), &format)
+}
+
+/// Rewrite a non-UTF-8 file as UTF-8 and return it freshly read.
+#[tauri::command]
+fn convert_document_to_utf8(path: PathBuf) -> Result<Document, Error> {
+    mdreader_core::convert_to_utf8(&path)
 }
 
 /// Build and run the application with the given generated context.
@@ -28,7 +40,11 @@ fn save_document_debug(path: PathBuf, content: String) -> Result<(), String> {
 pub fn run(context: tauri::Context) {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_document, save_document_debug])
+        .invoke_handler(tauri::generate_handler![
+            open_document,
+            save_document,
+            convert_document_to_utf8
+        ])
         .run(context)
         .expect("error while running tauri application");
 }
