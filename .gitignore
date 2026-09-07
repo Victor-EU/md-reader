@@ -5,3 +5,4 @@ dist/
 *.tsbuildinfo
 apps/desktop/src-tauri/gen/schemas/
 .vitest/
+.env

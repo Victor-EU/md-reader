@@ -90,25 +90,46 @@ async function main() {
   const manifestPath = join(opts.out, 'manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8').catch(() => '[]'));
   const date = new Date().toISOString().slice(0, 10);
-  for (let i = 0; i < opts.count; i++) {
-    const seed = (manifest.length * 31 + i * 17) % 1024;
-    const text = prompt(opts.category, seed);
-    const body = await call(opts.model, text);
-    const promptSha = createHash('sha256').update(text).digest('hex').slice(0, 12);
-    const file = `${String(manifest.length).padStart(4, '0')}-${opts.category}-${opts.model.replace(/[^a-z0-9]+/gi, '-')}.md`;
-    await writeFile(join(opts.out, file), body.endsWith('\n') ? body : `${body}\n`);
-    manifest.push({
-      file,
-      provider: opts.provider,
-      model: opts.model,
-      category: opts.category,
-      promptSha,
-      date,
-      bytes: Buffer.byteLength(body),
-    });
-    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    console.log(`wrote ${file}`);
-  }
+  const names = opts.category === 'all' ? Object.keys(categories) : [opts.category];
+  // Indices are allocated up front so concurrent requests never collide on a file name.
+  const jobs = Array.from({ length: opts.count }, (_, i) => ({
+    index: manifest.length + i,
+    category: names[i % names.length],
+    seed: ((manifest.length + i) * 31 + i * 17) % 1024,
+  }));
+  const results = new Array(jobs.length);
+  let next = 0;
+  let failures = 0;
+  const worker = async () => {
+    for (;;) {
+      const job = jobs[next++];
+      if (!job) return;
+      const text = prompt(job.category, job.seed);
+      try {
+        const body = await call(opts.model, text);
+        const promptSha = createHash('sha256').update(text).digest('hex').slice(0, 12);
+        const file = `${String(job.index).padStart(4, '0')}-${job.category}-${opts.model.replace(/[^a-z0-9]+/gi, '-')}.md`;
+        await writeFile(join(opts.out, file), body.endsWith('\n') ? body : `${body}\n`);
+        results[job.index - manifest.length] = {
+          file,
+          provider: opts.provider,
+          model: opts.model,
+          category: job.category,
+          promptSha,
+          date,
+          bytes: Buffer.byteLength(body),
+        };
+        console.log(`wrote ${file}`);
+      } catch (e) {
+        failures++;
+        console.error(`failed ${job.index} (${job.category}): ${e.message}`);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, opts.concurrency) }, worker));
+  manifest.push(...results.filter(Boolean));
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`done: ${results.filter(Boolean).length} written, ${failures} failed`);
 }
 
 main().catch((e) => {
