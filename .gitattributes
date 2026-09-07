@@ -1,0 +1,3 @@
+* text=auto eol=lf
+# Corpus fixtures must keep their exact bytes (CRLF, BOM, trailing whitespace).
+# Overrides for corpus/** arrive with WP 0.5.

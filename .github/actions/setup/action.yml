@@ -1,0 +1,25 @@
+name: Setup toolchain
+description: pnpm, Node, the pinned Rust toolchain, caches, and Linux webkit dependencies.
+runs:
+  using: composite
+  steps:
+    - name: Linux system dependencies for Tauri
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+          libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+    # No `toolchain` input: the action reads rust-toolchain.toml.
+    - uses: dtolnay/rust-toolchain@master
+    - uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: '. -> target'
+    - name: Install workspace
+      shell: bash
+      run: pnpm install --frozen-lockfile

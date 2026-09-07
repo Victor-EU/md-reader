@@ -1,0 +1,80 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bar-bg: #f3f3f1;
+  --bar-fg: #333;
+  --page-bg: #fff;
+  --border: #ddd;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bar-bg: #1f1f1f;
+    --bar-fg: #ddd;
+    --page-bg: #171717;
+    --border: #333;
+  }
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+.frame {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--bar-bg);
+  color: var(--bar-fg);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  user-select: none;
+}
+
+.bar.status {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+
+.path {
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page {
+  flex: 1;
+  min-height: 0;
+  background: var(--page-bg);
+}
+
+.page .cm-editor {
+  height: 100%;
+  font-size: 15px;
+}
+
+.page .cm-scroller {
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+.page .cm-content {
+  max-width: 68ch;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+.page .cm-editor.cm-focused {
+  outline: none;
+}

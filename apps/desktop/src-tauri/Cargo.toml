@@ -1,0 +1,24 @@
+[package]
+name = "mdreader-desktop"
+description = "Markdown viewer and editor for the AI round trip"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "mdreader-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+mdreader-app = { workspace = true }
+tauri = { workspace = true }
+# Plugins must be direct dependencies of the crate that runs tauri-build,
+# otherwise their permissions are unknown to the capability check.
+tauri-plugin-dialog = { workspace = true }
+
+[lints]
+workspace = true
