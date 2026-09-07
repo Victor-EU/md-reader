@@ -8,13 +8,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsc -p tsconfig.json"
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
   },
   "dependencies": {
     "@lezer/common": "~1.5.2",
+    "@lezer/highlight": "~1.2.3",
     "@lezer/markdown": "~1.7.2"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "typescript": "~5.9.3"
   }
 }

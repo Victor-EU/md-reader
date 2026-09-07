@@ -1,0 +1,6 @@
+Document 0-52
+  Frontmatter 0-28
+    FrontmatterMark 0-3 "---"
+    FrontmatterContent 4-24 "title: Dots close it"
+    FrontmatterMark 25-28 "..."
+  Paragraph 29-51 "Paragraph right after."

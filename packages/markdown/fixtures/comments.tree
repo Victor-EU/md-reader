@@ -1,0 +1,15 @@
+Document 0-395
+  Paragraph 0-55
+    Comment 12-44 "<!-- note: inline after text -->"
+  CommentBlock 57-119 "<!-- question: on its own line, anchored to the next bloc..."
+  Paragraph 120-135 "The next block."
+  CommentBlock 137-178 "<!-- rewrite: too long\nspanning lines -->"
+  CommentBlock 180-216 "<!-- Attention: capitalized kind -->"
+  CommentBlock 218-245 "<!-- todo: unknown kind -->"
+  CommentBlock 247-264 "<!-- no colon -->"
+  CommentBlock 266-334 "<!-- keep: trailing text on the line --> keeps text insid..."
+  Paragraph 336-394
+    Highlight 346-361
+      HighlightMark 346-348 "=="
+      HighlightMark 359-361 "=="
+    Comment 362-387 "<!-- remove: cut this -->"

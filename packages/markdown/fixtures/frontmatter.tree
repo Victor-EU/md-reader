@@ -1,0 +1,8 @@
+Document 0-69
+  Frontmatter 0-39
+    FrontmatterMark 0-3 "---"
+    FrontmatterContent 4-35 "title: Frontmatter\ntags: [a, b]"
+    FrontmatterMark 36-39 "---"
+  ATXHeading1 41-56
+    HeaderMark 41-42 "#"
+  Paragraph 58-68 "Body text."

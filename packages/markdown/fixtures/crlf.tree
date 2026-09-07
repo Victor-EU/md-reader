@@ -1,0 +1,24 @@
+Document 0-73
+  Frontmatter 0-22
+    FrontmatterMark 0-3 "---"
+    FrontmatterContent 5-17 "title: crlf\r"
+    FrontmatterMark 18-21 "---"
+  Blockquote 25-55
+    QuoteMark 25-26 ">"
+    CalloutHeader 27-40
+      CalloutMark 27-29 "[!"
+      CalloutType 29-33 "note"
+      CalloutMark 33-34 "]"
+      CalloutTitle 35-40 "Title"
+    QuoteMark 42-43 ">"
+    Paragraph 44-55
+      Highlight 44-50
+        HighlightMark 44-46 "=="
+        HighlightMark 48-50 "=="
+      InlineMath 51-54
+        MathMark 51-52 "$"
+        MathMark 53-54 "$"
+  BlockMath 58-72
+    MathMark 58-60 "$$"
+    MathContent 62-68 "a = b\r"
+    MathMark 69-71 "$$"

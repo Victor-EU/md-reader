@@ -1,0 +1,4 @@
+Document 0-56
+  FencedCode 0-56
+    CodeMark 0-3 "```"
+    CodeText 4-56 "unclosed fence swallows\n$$\n==everything==\n> [!note]\n"

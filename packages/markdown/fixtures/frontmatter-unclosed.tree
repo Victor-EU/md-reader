@@ -1,0 +1,6 @@
+Document 0-45
+  HorizontalRule 0-3 "---"
+  Paragraph 4-26 "title: no closing line"
+  ATXHeading1 28-37
+    HeaderMark 28-29 "#"
+  Paragraph 39-44 "Text."

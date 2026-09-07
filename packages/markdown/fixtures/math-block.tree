@@ -1,0 +1,55 @@
+Document 0-290
+  BlockMath 0-14
+    MathMark 0-2 "$$"
+    MathContent 3-11 "E = mc^2"
+    MathMark 12-14 "$$"
+  BlockMath 16-35
+    MathMark 16-18 "$$"
+    MathContent 18-33 "x^2 + y^2 = z^2"
+    MathMark 33-35 "$$"
+  Paragraph 37-53 "The equation is:"
+  BlockMath 54-68
+    MathMark 54-56 "$$"
+    MathContent 57-65 "E = mc^2"
+    MathMark 66-68 "$$"
+  Paragraph 69-90 "and the text goes on."
+  BlockMath 92-144
+    MathMark 92-94 "$$"
+    MathContent 95-141 "\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}"
+    MathMark 142-144 "$$"
+  Blockquote 146-169
+    QuoteMark 146-147 ">"
+    BlockMath 148-169
+      MathMark 148-150 "$$"
+      QuoteMark 151-152 ">"
+      MathContent 153-164 "\\frac{1}{2}"
+      QuoteMark 165-166 ">"
+      MathMark 167-169 "$$"
+  BulletList 171-208
+    ListItem 171-196
+      ListMark 171-172 "-"
+      Paragraph 173-177 "item"
+      BlockMath 180-196
+        MathMark 180-182 "$$"
+        MathContent 185-191 "\\alpha"
+        MathMark 194-196 "$$"
+    ListItem 197-208
+      ListMark 197-198 "-"
+      Paragraph 199-208 "next item"
+  BlockMath 210-232
+    MathMark 210-212 "$$"
+    MathContent 213-232 "unclosed then blank"
+  Paragraph 234-249 "after the blank"
+  BlockMath 251-264
+    MathMark 251-253 "$$"
+    MathContent 254-264 "\\int_0^1 f"
+  Blockquote 266-289
+    QuoteMark 266-267 ">"
+    BlockMath 268-289
+      MathMark 268-270 "$$"
+      QuoteMark 271-272 ">"
+      MathContent 273-279 "a + b\n"
+      QuoteMark 279-280 ">"
+      MathContent 281-284 "= c"
+      QuoteMark 285-286 ">"
+      MathMark 287-289 "$$"

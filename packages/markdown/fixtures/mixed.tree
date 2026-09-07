@@ -1,0 +1,92 @@
+Document 0-438
+  Frontmatter 0-27
+    FrontmatterMark 0-3 "---"
+    FrontmatterContent 4-23 "title: Kitchen sink"
+    FrontmatterMark 24-27 "---"
+  ATXHeading1 29-36
+    HeaderMark 29-30 "#"
+  Blockquote 38-177
+    QuoteMark 38-39 ">"
+    CalloutHeader 40-55
+      CalloutMark 40-42 "[!"
+      CalloutType 42-46 "note"
+      CalloutMark 46-47 "]"
+      CalloutTitle 48-55 "Summary"
+    QuoteMark 56-57 ">"
+    Paragraph 58-122
+      Highlight 58-65
+        HighlightMark 58-60 "=="
+        HighlightMark 63-65 "=="
+      InlineMath 74-84
+        MathMark 74-75 "$"
+        MathMark 83-84 "$"
+      Comment 97-122 "<!-- question: units? -->"
+    QuoteMark 123-124 ">"
+    QuoteMark 125-126 ">"
+    BlockMath 127-177
+      MathMark 127-129 "$$"
+      QuoteMark 130-131 ">"
+      MathContent 132-172 "\\nabla \\cdot E = \\frac{\\rho}{\\epsilon_0}"
+      QuoteMark 173-174 ">"
+      MathMark 175-177 "$$"
+  OrderedList 179-268
+    ListItem 179-196
+      ListMark 179-181 "1."
+      Paragraph 182-196
+        Highlight 188-196
+          HighlightMark 188-190 "=="
+          HighlightMark 194-196 "=="
+    ListItem 197-268
+      ListMark 197-199 "2."
+      Paragraph 200-217
+        InlineMath 212-217
+          MathMark 212-213 "$"
+          MathMark 216-217 "$"
+      BulletList 221-268
+        ListItem 221-250
+          ListMark 221-222 "-"
+          Task 223-250
+            TaskMarker 223-226 "[ ]"
+            Highlight 237-250
+              HighlightMark 237-239 "=="
+              HighlightMark 248-250 "=="
+        ListItem 254-268
+          ListMark 254-255 "-"
+          Task 256-268
+            TaskMarker 256-259 "[x]"
+            InlineMath 265-268
+              MathMark 265-266 "$"
+              MathMark 267-268 "$"
+  Table 270-324
+    TableHeader 270-288
+      TableDelimiter 270-271 "|"
+      TableCell 272-279 "Formula"
+      TableDelimiter 280-281 "|"
+      TableCell 282-286 "Note"
+      TableDelimiter 287-288 "|"
+    TableDelimiter 289-298 "|---|---|"
+    TableRow 299-324
+      TableDelimiter 299-300 "|"
+      TableCell 301-306
+        InlineMath 301-306
+          MathMark 301-302 "$"
+          MathMark 305-306 "$"
+      TableDelimiter 307-308 "|"
+      TableCell 309-322
+        Highlight 309-322
+          HighlightMark 309-311 "=="
+          HighlightMark 320-322 "=="
+      TableDelimiter 323-324 "|"
+  FencedCode 326-378
+    CodeMark 326-329 "```"
+    CodeInfo 329-335 "python"
+    CodeText 336-374 "x = \"$not math$ and ==not highlight==\""
+    CodeMark 375-378 "```"
+  Paragraph 380-437
+    Strikethrough 386-396
+      StrikethroughMark 386-388 "~~"
+      StrikethroughMark 394-396 "~~"
+    Highlight 397-416
+      HighlightMark 397-399 "=="
+      HighlightMark 414-416 "=="
+    Comment 417-436 "<!-- keep: good -->"

@@ -1,18 +1,32 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { commonmarkLanguage, markdown } from '@codemirror/lang-markdown';
+import { foldNodeProp } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import { EditorState, type Extension } from '@codemirror/state';
 import { drawSelection, EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
 
 /**
- * The markdown language for the editor: CodeMirror's GFM base plus this
- * app's dialect extensions, with fence languages loaded lazily.
+ * The markdown language for the editor: CodeMirror's CommonMark base plus
+ * the whole dialect from `@mdreader/markdown`, with fence languages loaded
+ * lazily. The base is CommonMark, not `markdownLanguage`, because that one
+ * adds Subscript, Superscript, and Emoji, which design 5.1 leaves out and
+ * the headless parser does not have. Only the table folding rule from that
+ * bundle is kept.
  */
 export function markdownSupport(): Extension {
   return markdown({
-    base: markdownLanguage,
-    extensions: dialect,
+    base: commonmarkLanguage,
+    extensions: [
+      dialect,
+      {
+        props: [
+          foldNodeProp.add({
+            Table: (tree, state) => ({ from: state.doc.lineAt(tree.from).to, to: tree.to }),
+          }),
+        ],
+      },
+    ],
     codeLanguages: languages,
     addKeymap: true,
   });

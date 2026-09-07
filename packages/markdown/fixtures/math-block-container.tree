@@ -1,0 +1,12 @@
+Document 0-63
+  Blockquote 0-13
+    QuoteMark 0-1 ">"
+    BlockMath 2-13
+      MathMark 2-4 "$$"
+      QuoteMark 5-6 ">"
+      MathContent 7-13 "inside"
+  Paragraph 14-31 "outside the quote"
+  BlockMath 33-62
+    MathMark 33-35 "$$"
+    MathContent 36-59 "lazy line\n> not a quote"
+    MathMark 60-62 "$$"

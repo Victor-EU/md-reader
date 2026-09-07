@@ -1,0 +1,6 @@
+Document 0-52
+  Frontmatter 0-45
+    FrontmatterMark 0-3 "---"
+    FrontmatterContent 4-41 "title: x\n# not a heading\n- not a list"
+    FrontmatterMark 42-45 "---"
+  Paragraph 46-51 "after"

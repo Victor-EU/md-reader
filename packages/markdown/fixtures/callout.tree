@@ -1,0 +1,131 @@
+Document 0-674
+  Blockquote 0-30
+    QuoteMark 0-1 ">"
+    CalloutHeader 2-9
+      CalloutMark 2-4 "[!"
+      CalloutType 4-8 "note"
+      CalloutMark 8-9 "]"
+    QuoteMark 10-11 ">"
+    Paragraph 12-30 "A plain note body."
+  Blockquote 32-102
+    QuoteMark 32-33 ">"
+    CalloutHeader 34-68
+      CalloutMark 34-36 "[!"
+      CalloutType 36-43 "warning"
+      CalloutMark 43-44 "]"
+      CalloutTitle 45-68
+        Emphasis 58-68
+          EmphasisMark 58-59 "*"
+          EmphasisMark 67-68 "*"
+    QuoteMark 69-70 ">"
+    Paragraph 71-102
+      QuoteMark 86-87 ">"
+  Blockquote 104-154
+    QuoteMark 104-105 ">"
+    CalloutHeader 106-131
+      CalloutMark 106-108 "[!"
+      CalloutType 108-111 "tip"
+      CalloutMark 111-112 "]"
+      CalloutFold 112-113 "-"
+      CalloutTitle 114-131 "Folded by default"
+    QuoteMark 132-133 ">"
+    Paragraph 134-154 "Hidden until opened."
+  Blockquote 156-192
+    QuoteMark 156-157 ">"
+    CalloutHeader 158-165
+      CalloutMark 158-160 "[!"
+      CalloutType 160-164 "NOTE"
+      CalloutMark 164-165 "]"
+    QuoteMark 166-167 ">"
+    Paragraph 168-192 "GitHub style, uppercase."
+  Blockquote 194-265
+    QuoteMark 194-195 ">"
+    CalloutHeader 196-210
+      CalloutMark 196-198 "[!"
+      CalloutType 198-202 "info"
+      CalloutMark 202-203 "]"
+      CalloutFold 203-204 "+"
+      CalloutTitle 205-210 "Title"
+    QuoteMark 211-212 ">"
+    QuoteMark 213-214 ">"
+    BulletList 215-241
+      ListItem 215-223
+        ListMark 215-216 "-"
+        Paragraph 217-223 "a list"
+      QuoteMark 224-225 ">"
+      ListItem 226-241
+        ListMark 226-227 "-"
+        Paragraph 228-239 "in the body"
+        QuoteMark 240-241 ">"
+    QuoteMark 242-243 ">"
+    FencedCode 244-265
+      CodeMark 244-247 "```"
+      CodeInfo 247-249 "js"
+      QuoteMark 250-251 ">"
+      CodeText 252-259 "code();"
+      QuoteMark 260-261 ">"
+      CodeMark 262-265 "```"
+  Blockquote 267-329
+    QuoteMark 267-268 ">"
+    CalloutHeader 269-286
+      CalloutMark 269-271 "[!"
+      CalloutType 271-279 "question"
+      CalloutMark 279-280 "]"
+      CalloutTitle 281-286 "Outer"
+    QuoteMark 287-288 ">"
+    Blockquote 289-329
+      QuoteMark 289-290 ">"
+      CalloutHeader 291-304
+        CalloutMark 291-293 "[!"
+        CalloutType 293-297 "note"
+        CalloutMark 297-298 "]"
+        CalloutTitle 299-304 "Inner"
+      QuoteMark 305-306 ">"
+      QuoteMark 307-308 ">"
+      Paragraph 309-329 "Nested callout body."
+  BulletList 331-389
+    ListItem 331-389
+      ListMark 331-332 "-"
+      Paragraph 333-342 "list item"
+      Blockquote 345-389
+        QuoteMark 345-346 ">"
+        CalloutHeader 347-357
+          CalloutMark 347-349 "[!"
+          CalloutType 349-356 "example"
+          CalloutMark 356-357 "]"
+        QuoteMark 360-361 ">"
+        Paragraph 362-389 "Callout inside a list item."
+  Blockquote 391-455
+    QuoteMark 391-392 ">"
+    CalloutHeader 393-408
+      CalloutMark 393-395 "[!"
+      CalloutType 395-407 "weird-type_2"
+      CalloutMark 407-408 "]"
+    QuoteMark 409-410 ">"
+    Paragraph 410-455 "Also fine without the space after the marker."
+  Blockquote 457-519
+    QuoteMark 457-458 ">"
+    Paragraph 459-519
+      Link 459-475
+        LinkMark 459-460 "["
+        LinkMark 474-475 "]"
+      QuoteMark 497-498 ">"
+  Blockquote 521-554
+    QuoteMark 521-522 ">"
+    Paragraph 523-554
+      Link 523-526
+        LinkMark 523-524 "["
+        LinkMark 525-526 "]"
+  Blockquote 556-602
+    QuoteMark 556-557 ">"
+    Paragraph 557-602
+      Link 557-563
+        LinkMark 557-558 "["
+        LinkMark 562-563 "]"
+  Blockquote 604-673
+    QuoteMark 604-605 ">"
+    Paragraph 606-673
+      QuoteMark 617-618 ">"
+      Link 619-626
+        LinkMark 619-620 "["
+        LinkMark 625-626 "]"

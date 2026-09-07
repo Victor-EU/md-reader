@@ -1,0 +1,62 @@
+Document 0-415
+  Paragraph 0-50
+    Highlight 6-21
+      HighlightMark 6-8 "=="
+      HighlightMark 19-21 "=="
+    Highlight 31-44
+      HighlightMark 31-33 "=="
+      HighlightMark 42-44 "=="
+  Paragraph 52-129
+    Emphasis 59-94
+      EmphasisMark 59-60 "*"
+      Highlight 69-86
+        HighlightMark 69-71 "=="
+        HighlightMark 84-86 "=="
+      EmphasisMark 93-94 "*"
+    Highlight 99-128
+      HighlightMark 99-101 "=="
+      StrongEmphasis 116-126
+        EmphasisMark 116-118 "**"
+        EmphasisMark 124-126 "**"
+      HighlightMark 126-128 "=="
+  Paragraph 131-238
+    Highlight 194-217
+      HighlightMark 194-196 "=="
+      HighlightMark 215-217 "=="
+  Paragraph 240-301
+    Highlight 254-263
+      HighlightMark 254-256 "=="
+      HighlightMark 261-263 "=="
+    Highlight 269-276
+      HighlightMark 269-271 "=="
+      HighlightMark 274-276 "=="
+  Paragraph 303-372
+    Link 313-349
+      LinkMark 313-314 "["
+      Highlight 314-327
+        HighlightMark 314-316 "=="
+        HighlightMark 325-327 "=="
+      LinkMark 327-328 "]"
+      LinkMark 328-329 "("
+      URL 329-348 "https://example.com"
+      LinkMark 348-349 ")"
+    InlineCode 354-371
+      CodeMark 354-355 "`"
+      CodeMark 370-371 "`"
+  Table 374-414
+    TableHeader 374-383
+      TableDelimiter 374-375 "|"
+      TableCell 376-377 "a"
+      TableDelimiter 378-379 "|"
+      TableCell 380-381 "b"
+      TableDelimiter 382-383 "|"
+    TableDelimiter 384-393 "|---|---|"
+    TableRow 394-414
+      TableDelimiter 394-395 "|"
+      TableCell 396-404
+        Highlight 396-404
+          HighlightMark 396-398 "=="
+          HighlightMark 402-404 "=="
+      TableDelimiter 405-406 "|"
+      TableCell 407-412 "plain"
+      TableDelimiter 413-414 "|"

@@ -1,0 +1,47 @@
+Document 0-584
+  Paragraph 0-59
+    InlineMath 7-25
+      MathMark 7-8 "$"
+      MathMark 24-25 "$"
+    InlineMath 41-58
+      MathMark 41-42 "$"
+      MathMark 57-58 "$"
+  Paragraph 61-117 "Money: $5 and $10 stay prose, so do $20,000 and $30,000."
+  Paragraph 119-210
+    InlineMath 133-192
+      MathMark 133-134 "$"
+      MathMark 191-192 "$"
+    InlineMath 197-200
+      MathMark 197-198 "$"
+      MathMark 199-200 "$"
+  Paragraph 212-264 "Spaces: $ not math$ and $not math $ and $ neither $."
+  Paragraph 266-327
+    Escape 275-277 "\\$"
+    Escape 283-285 "\\$"
+    InlineMath 293-301
+      MathMark 293-294 "$"
+      MathMark 300-301 "$"
+  Paragraph 329-401
+    InlineMath 351-369
+      MathMark 351-353 "$$"
+      MathMark 367-369 "$$"
+    InlineMath 384-396
+      MathMark 384-386 "$$"
+      MathMark 394-396 "$$"
+  Paragraph 403-470
+    InlineMath 436-443
+      MathMark 436-437 "$"
+      MathMark 442-443 "$"
+    InlineMath 448-459
+      MathMark 448-449 "$"
+      MathMark 458-459 "$"
+    InlineMath 464-469
+      MathMark 464-465 "$"
+      MathMark 468-469 "$"
+  Paragraph 472-521
+    InlineMath 484-491
+      MathMark 484-485 "$"
+      MathMark 490-491 "$"
+  Paragraph 523-546 "Empty pair: $$$$ alone."
+  Paragraph 548-566 "Triple: $$$ alone."
+  Paragraph 568-583 "Lone: $$ alone."
