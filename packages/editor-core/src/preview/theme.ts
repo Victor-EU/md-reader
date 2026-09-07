@@ -57,6 +57,30 @@ export const previewTheme = EditorView.baseTheme({
   },
   '.mdr-checkbox': { margin: '0 0.5em 0 0', verticalAlign: 'middle' },
   '.mdr-ol-mark': { color: 'var(--mdr-muted, #888)' },
+  '.mdr-table-widget': {
+    borderCollapse: 'collapse',
+    margin: '0.4em 0',
+    fontSize: '0.95em',
+  },
+  '.mdr-table-widget th, .mdr-table-widget td': {
+    border: '1px solid var(--mdr-border, #d0d0d0)',
+    padding: '4px 8px',
+    minWidth: '2.5em',
+    verticalAlign: 'top',
+    textAlign: 'left',
+  },
+  '.mdr-table-widget th': {
+    fontWeight: '600',
+    background: 'var(--mdr-code-bg, rgba(127, 127, 127, 0.1))',
+  },
+  '.mdr-table-widget td.mdr-cell-active, .mdr-table-widget th.mdr-cell-active': {
+    outline: '2px solid var(--mdr-link, #2a6ad9)',
+    outlineOffset: '-2px',
+  },
+  '.mdr-table-widget .cm-editor': { outline: 'none', background: 'transparent' },
+  '.mdr-table-widget .cm-scroller': { fontFamily: 'inherit', lineHeight: 'inherit' },
+  '.mdr-table-widget .cm-content': { padding: '0', minWidth: '2em' },
+  '.mdr-table-widget .cm-line': { padding: '0' },
 });
 
 /**
