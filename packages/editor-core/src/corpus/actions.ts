@@ -199,7 +199,7 @@ export const enterInListItem: Action = {
     const plan = newlinePlan(state.doc, at);
     return {
       description: `Enter at ${at}, expecting ${JSON.stringify(plan)}`,
-      expected: single(state, plan),
+      expected: single(state, { from: plan.from, to: plan.to, insert: plan.insert }),
       span: { from: plan.from, to: plan.to },
       run: withSelection(at, at, (view) => insertNewlineMarkdown(view)),
     };

@@ -39,13 +39,51 @@ export function continuation(prefix: string): string {
  * Plan the change Enter makes at `pos`, without an editor. Exposed so the
  * corpus expectation and the command share one definition.
  */
-export function newlinePlan(doc: Text, pos: number): { from: number; to: number; insert: string } {
+export interface NewlinePlan {
+  from: number;
+  to: number;
+  insert: string;
+  /** Where the cursor lands; defaults to the end of the insertion. */
+  cursor?: number;
+}
+
+/**
+ * True when the item's marker line directly follows a paragraph line at
+ * the same level, so an empty `-` item above it would underline that
+ * paragraph. Only `-` can be an underline; `*`, `+`, and numbers cannot.
+ */
+function underlineTrap(doc: Text, lineNumber: number, prefix: string): boolean {
+  if (lineNumber < 2) return false;
+  const marker = /([-*+]|\d+[.)])/.exec(prefix.replace(/^(?:[ \t]*>[ \t]*)*/, ''))?.[1];
+  if (marker !== '-') return false;
+  const current = lineMarkup(prefix);
+  const prev = lineMarkup(doc.line(lineNumber - 1).text);
+  if (prev.quotes !== current.quotes || prev.list || prev.content.trim() === '') return false;
+  const indent = (text: string) => /^[ \t]*/.exec(text)?.[0].length ?? 0;
+  const markerIndent = indent(prefix.slice(current.quotes.length));
+  return indent(prev.content) <= markerIndent + 3;
+}
+
+export function newlinePlan(doc: Text, pos: number): NewlinePlan {
   const line = doc.lineAt(pos);
   const { prefix, quotes, list, content } = lineMarkup(line.text);
   const markupEnd = line.from + prefix.length;
   if (pos < markupEnd || prefix === '') {
     const indent = /^[ \t]*/.exec(line.text)?.[0] ?? '';
     return { from: pos, to: pos, insert: `\n${pos >= line.from + indent.length ? indent : ''}` };
+  }
+  if (list && pos === markupEnd && underlineTrap(doc, line.number, prefix)) {
+    // A new empty item here would be a lone `-` under a paragraph, which
+    // CommonMark reads as a setext underline and turns the paragraph into a
+    // heading. Put the empty item after a blank line instead, which says
+    // the same thing and leaves the paragraph a paragraph.
+    const insert = `\n${prefix}\n`;
+    return {
+      from: line.from,
+      to: line.from,
+      insert,
+      cursor: line.from + insert.length + prefix.length,
+    };
   }
   if ((list || prefix.includes('>')) && content.trim() === '' && pos === line.to) {
     // Enter on an empty item or quote line leaves the list or quote.
@@ -73,8 +111,8 @@ export const insertNewlineMarkdown: StateCommand = ({ state, dispatch }) => {
     }
     const plan = newlinePlan(state.doc, range.head);
     return {
-      changes: plan,
-      range: EditorSelection.cursor(plan.from + plan.insert.length),
+      changes: { from: plan.from, to: plan.to, insert: plan.insert },
+      range: EditorSelection.cursor(plan.cursor ?? plan.from + plan.insert.length),
     };
   });
   dispatch(state.update(changes, { userEvent: 'input', scrollIntoView: true }));

@@ -63,6 +63,16 @@ describe('insertNewlineMarkdown', () => {
     expect(press('> - ', 4).doc).toBe('> ');
   });
 
+  it('never turns the paragraph above into a setext heading', () => {
+    // Enter at the start of the first item's text, list directly under a paragraph.
+    expect(press('para\n- item', 7)).toEqual({ doc: 'para\n\n- \n- item', head: 11 });
+    expect(press('> para\n> - item', 11)).toEqual({ doc: '> para\n\n> - \n> - item', head: 17 });
+    // Other markers cannot underline, and a list line above is not a paragraph.
+    expect(press('para\n* item', 7).doc).toBe('para\n* \n* item');
+    expect(press('- a\n- b', 6).doc).toBe('- a\n- \n- b');
+    expect(press('para\n\n- item', 8).doc).toBe('para\n\n- \n- item');
+  });
+
   it('copies plain indentation without trimming', () => {
     expect(press('    code  ', 10).doc).toBe('    code  \n    ');
     expect(press('text', 4).doc).toBe('text\n');
