@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use similar::{DiffOp, TextDiff};
 
 /// One line ending style.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Eol {
     Lf,

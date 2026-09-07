@@ -19,7 +19,7 @@ const BOM: &[u8] = b"\xEF\xBB\xBF";
 const UTF8: &str = "utf-8";
 
 /// A document as read from disk.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct Document {
     /// The decoded content. For UTF-8 files this is the file's bytes minus the
     /// BOM, with line endings untouched; the editor normalizes them itself.
@@ -29,7 +29,7 @@ pub struct Document {
 
 /// How a file is stored, so a save can restore it. Returned on open and
 /// passed back on save; the app may change fields the user asked to change.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct FileFormat {
     /// Dominant line ending, used for new lines.
     pub eol: Eol,
@@ -43,13 +43,15 @@ pub struct FileFormat {
 }
 
 /// Metadata about a document on disk.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct DocumentMeta {
     pub path: PathBuf,
     /// Size on disk in bytes.
+    #[specta(type = specta_typescript::Number)]
     pub byte_len: u64,
     /// Last modification time in milliseconds since the Unix epoch, when the
     /// filesystem reports one.
+    #[specta(type = Option<specta_typescript::Number>)]
     pub modified_ms: Option<u64>,
     /// BLAKE3 of the bytes on disk, hex. The token a save must present.
     pub hash: String,
@@ -60,17 +62,21 @@ pub struct DocumentMeta {
 }
 
 /// What a successful save reports back.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct SaveResult {
     pub hash: String,
+    #[specta(type = specta_typescript::Number)]
     pub byte_len: u64,
+    #[specta(type = Option<specta_typescript::Number>)]
     pub modified_ms: Option<u64>,
 }
 
 /// Errors, serializable so the frontend can branch on `kind`.
-#[derive(Debug, thiserror::Error, Serialize)]
+#[derive(Debug, thiserror::Error, Serialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Error {
+    #[error("{command} is not implemented yet")]
+    NotImplemented { command: String },
     #[error("cannot read {path}: {message}")]
     Read { path: PathBuf, message: String },
     #[error("cannot write {path}: {message}")]

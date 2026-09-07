@@ -1,14 +1,8 @@
 <script lang="ts">
 import { createEditor, type Editor, type EditorMode } from '@mdreader/editor-core';
+import { commands, type DocumentMeta, type Error as IpcError } from '@mdreader/ipc';
 import { open } from '@tauri-apps/plugin-dialog';
 import { onMount } from 'svelte';
-import {
-  convertDocumentToUtf8,
-  type DocumentMeta,
-  describeError,
-  openDocument,
-  saveDocument,
-} from './lib/ipc';
 
 let host: HTMLElement;
 let editor: Editor | undefined;
@@ -33,6 +27,19 @@ function describe(m: DocumentMeta): string {
   return parts.filter(Boolean).join(' · ');
 }
 
+function describeError(e: IpcError): string {
+  switch (e.kind) {
+    case 'hash_mismatch':
+      return `${e.path} changed on disk; reload before saving`;
+    case 'read_only_encoding':
+      return `${e.path} is ${e.encoding}; convert to UTF-8 to edit`;
+    case 'not_implemented':
+      return `${e.command} is not implemented yet`;
+    default:
+      return e.message;
+  }
+}
+
 async function pickAndOpen() {
   const picked = await open({
     multiple: false,
@@ -40,42 +47,37 @@ async function pickAndOpen() {
     filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
   });
   if (typeof picked !== 'string') return;
-  try {
-    const doc = await openDocument(picked);
-    editor?.setDoc(doc.content);
-    meta = doc.meta;
-    status = describe(doc.meta);
-  } catch (e) {
-    status = describeError(e);
+  const result = await commands.openDocument(picked);
+  if (result.status === 'error') {
+    status = describeError(result.error);
+    return;
   }
+  editor?.setDoc(result.data.content);
+  meta = result.data.meta;
+  status = describe(result.data.meta);
 }
 
 async function save() {
   if (!meta || !editor) return;
-  try {
-    const result = await saveDocument(meta.path, editor.getDoc(), meta.hash, meta.format);
-    meta = {
-      ...meta,
-      hash: result.hash,
-      byte_len: result.byte_len,
-      modified_ms: result.modified_ms,
-    };
-    status = `Saved · ${describe(meta)}`;
-  } catch (e) {
-    status = describeError(e);
+  const result = await commands.saveDocument(meta.path, editor.getDoc(), meta.hash, meta.format);
+  if (result.status === 'error') {
+    status = describeError(result.error);
+    return;
   }
+  meta = { ...meta, ...result.data };
+  status = `Saved · ${describe(meta)}`;
 }
 
 async function convert() {
   if (!meta) return;
-  try {
-    const doc = await convertDocumentToUtf8(meta.path);
-    editor?.setDoc(doc.content);
-    meta = doc.meta;
-    status = `Converted · ${describe(doc.meta)}`;
-  } catch (e) {
-    status = describeError(e);
+  const result = await commands.convertDocumentToUtf8(meta.path);
+  if (result.status === 'error') {
+    status = describeError(result.error);
+    return;
   }
+  editor?.setDoc(result.data.content);
+  meta = result.data.meta;
+  status = `Converted · ${describe(meta)}`;
 }
 
 function toggleMode() {

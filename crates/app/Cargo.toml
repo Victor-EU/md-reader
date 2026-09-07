@@ -9,8 +9,15 @@ publish.workspace = true
 [dependencies]
 mdreader-core = { workspace = true }
 serde = { workspace = true }
+specta = { workspace = true }
+specta-typescript = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
+tauri-specta = { workspace = true }
+
+[[bin]]
+name = "export-bindings"
+path = "src/bin/export_bindings.rs"
 
 [lints]
 workspace = true

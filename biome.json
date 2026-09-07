@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!corpus", "!apps/desktop/src-tauri/gen", "!pnpm-lock.yaml"]
+    "includes": [
+      "**",
+      "!corpus",
+      "!apps/desktop/src-tauri/gen",
+      "!pnpm-lock.yaml",
+      "!packages/ipc/src/bindings.ts"
+    ]
   },
   "formatter": {
     "enabled": true,

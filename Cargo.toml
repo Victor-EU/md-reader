@@ -23,6 +23,9 @@ encoding_rs = "0.8"
 similar = "2.7"
 tempfile = "3.27"
 proptest = "1.11"
+specta = { version = "=2.0.0-rc.25", features = ["derive"] }
+specta-typescript = "0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 
 [workspace.lints.rust]
 warnings = "deny"

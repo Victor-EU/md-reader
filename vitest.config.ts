@@ -16,6 +16,13 @@ export default defineConfig({
       },
       {
         test: {
+          name: 'ipc',
+          environment: 'node',
+          include: ['packages/ipc/src/**/*.test.ts'],
+        },
+      },
+      {
+        test: {
           name: 'editor-core',
           environment: 'node',
           include: ['packages/editor-core/src/**/*.test.ts'],
