@@ -1,8 +1,8 @@
 import { syntaxParserRunning } from '@codemirror/language';
 import { createEditor } from '@mdreader/editor-core';
+import { generateDocument } from '@mdreader/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
-import { generateDocument } from './generate.ts';
 
 /**
  * Keystroke latency with live preview on, p95 over 200 keystrokes at

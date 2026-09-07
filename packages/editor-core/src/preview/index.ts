@@ -21,7 +21,7 @@ export {
   tableModelAt,
 } from './table/index.ts';
 export { markdownHighlightStyle, previewTheme } from './theme.ts';
-export { toggleTaskAt } from './widgets.ts';
+export { type CommandTarget, toggleTaskAt } from './widgets.ts';
 
 /** Live preview: decorations over the source, the reveal rule, and the table widgets. */
 export function livePreview(): Extension {

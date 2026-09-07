@@ -1,0 +1,7 @@
+{
+  "name": "@mdreader/corpus-gen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generates corpus documents from model APIs and records a manifest. Plain Node, no dependencies.",
+  "type": "module"
+}

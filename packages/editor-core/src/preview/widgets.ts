@@ -1,4 +1,11 @@
+import type { EditorState, Transaction } from '@codemirror/state';
 import { type EditorView, WidgetType } from '@codemirror/view';
+
+/** Anything that can run a command: a view, or a state with a dispatch. */
+export interface CommandTarget {
+  state: EditorState;
+  dispatch: (tr: Transaction) => void;
+}
 
 /** Replaces `- ` in front of a bullet list item. Never revealed; the cursor skips it. */
 export class BulletWidget extends WidgetType {
@@ -56,15 +63,17 @@ export class CheckboxWidget extends WidgetType {
  * Returns false when there is no marker there. The change touches exactly
  * one character.
  */
-export function toggleTaskAt(view: EditorView, pos: number): boolean {
+export function toggleTaskAt(view: CommandTarget, pos: number): boolean {
   const text = view.state.doc.sliceString(pos, pos + 3);
   let insert: string;
   if (text === '[ ]') insert = 'x';
   else if (/^\[[xX]\]$/.test(text)) insert = ' ';
   else return false;
-  view.dispatch({
-    changes: { from: pos + 1, to: pos + 2, insert },
-    userEvent: 'input.toggleTask',
-  });
+  view.dispatch(
+    view.state.update({
+      changes: { from: pos + 1, to: pos + 2, insert },
+      userEvent: 'input.toggleTask',
+    }),
+  );
   return true;
 }

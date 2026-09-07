@@ -1,5 +1,5 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { commonmarkLanguage, markdown } from '@codemirror/lang-markdown';
+import { commonmarkLanguage, deleteMarkupBackward, markdown } from '@codemirror/lang-markdown';
 import { foldNodeProp, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import {
@@ -11,6 +11,7 @@ import {
 } from '@codemirror/state';
 import { drawSelection, EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
+import { insertNewlineMarkdown } from './commands/newline.ts';
 import { livePreview, markdownHighlightStyle } from './preview/index.ts';
 
 /** Edit is live preview; Source is the same buffer with decorations off (design 4.2). */
@@ -49,9 +50,16 @@ export function markdownSupport(): Extension {
       },
     ],
     codeLanguages: languages,
-    addKeymap: true,
+    // lang-markdown's Enter trims, converts tabs, and renumbers; ours does not.
+    addKeymap: false,
   });
 }
+
+/** Markdown editing keys: our lossless Enter, and lang-markdown's Backspace over a marker. */
+export const markdownKeymap = [
+  { key: 'Enter', run: insertNewlineMarkdown },
+  { key: 'Backspace', run: deleteMarkupBackward },
+];
 
 /**
  * Everything an editor needs that does not depend on the DOM. Pure state
@@ -63,7 +71,7 @@ export function baseExtensions(mode: EditorMode = 'edit'): Extension[] {
     drawSelection(),
     highlightSpecialChars(),
     EditorView.lineWrapping,
-    keymap.of([...defaultKeymap, ...historyKeymap]),
+    keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
     markdownSupport(),
     syntaxHighlighting(markdownHighlightStyle),
     modeCompartment.of(modeExtension(mode)),

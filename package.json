@@ -14,7 +14,8 @@
     "check": "pnpm lint && pnpm typecheck",
     "test": "vitest run --project '!bench'",
     "test:watch": "vitest",
-    "bench": "vitest run --project bench"
+    "bench": "vitest run --project bench",
+    "corpus:gen": "node tools/corpus-gen/generate.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.12",

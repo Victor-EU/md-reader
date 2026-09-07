@@ -238,6 +238,9 @@ importers:
       '@mdreader/editor-core':
         specifier: workspace:*
         version: link:../../packages/editor-core
+      '@mdreader/markdown':
+        specifier: workspace:*
+        version: link:../../packages/markdown
     devDependencies:
       typescript:
         specifier: ~5.9.3
