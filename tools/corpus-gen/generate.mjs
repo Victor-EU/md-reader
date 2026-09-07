@@ -28,16 +28,21 @@ function args() {
   const out = {
     provider: 'anthropic',
     model: 'claude-sonnet-5',
-    category: 'plan',
+    category: 'all',
     count: 5,
+    concurrency: 4,
     out: 'corpus/generated',
   };
   const argv = process.argv.slice(2);
   for (let i = 0; i < argv.length; i += 2) {
     const key = argv[i]?.replace(/^--/, '');
-    if (key && key in out) out[key] = key === 'count' ? Number(argv[i + 1]) : argv[i + 1];
+    if (key && key in out) {
+      out[key] = key === 'count' || key === 'concurrency' ? Number(argv[i + 1]) : argv[i + 1];
+    }
   }
-  if (!(out.category in categories)) throw new Error(`unknown category ${out.category}`);
+  if (out.category !== 'all' && !(out.category in categories)) {
+    throw new Error(`unknown category ${out.category}`);
+  }
   return out;
 }
 
