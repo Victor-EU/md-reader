@@ -1,0 +1,114 @@
+<h1 id="project-helios-weekly-status-report" data-from="0" data-to="38">Project Helios: Weekly Status Report</h1>
+<p data-from="40" data-to="147"><strong data-from="40" data-to="49">Date:</strong> March 14, 2025
+<strong data-from="65" data-to="82">Project Lead:</strong> Priya Nakamura
+<strong data-from="98" data-to="107">Team:</strong> Distributed Systems Group, Cascade Labs</p>
+<hr data-from="149" data-to="152">
+<h2 id="executive-summary" data-from="154" data-to="174">Executive Summary</h2>
+<p data-from="176" data-to="567">Project Helios—our initiative to build a low-latency inference pipeline for real-time anomaly detection—has completed Sprint 14. The team successfully migrated the core scoring engine from a monolithic architecture to a microservice-based design, resulting in significant throughput gains. This report summarizes progress, current metrics, blockers, and planned work for the upcoming sprint.</p>
+<h2 id="key-metrics" data-from="569" data-to="583">Key Metrics</h2>
+<div class="mdr-table-wrap" data-from="585" data-to="846">
+  <table data-from="585" data-to="846">
+    <thead data-from="585" data-to="632">
+      <tr data-from="585" data-to="632">
+        <th data-from="587" data-to="593">Metric</th>
+        <th data-from="596" data-to="607">Last Sprint</th>
+        <th data-from="610" data-to="621">This Sprint</th>
+        <th data-from="624" data-to="630">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="651" data-to="846">
+      <tr data-from="651" data-to="686">
+        <td data-from="653" data-to="669">p50 latency (ms)</td>
+        <td data-from="672" data-to="674">84</td>
+        <td data-from="677" data-to="679">61</td>
+        <td data-from="682" data-to="684">50</td>
+      </tr>
+      <tr data-from="687" data-to="725">
+        <td data-from="689" data-to="705">p99 latency (ms)</td>
+        <td data-from="708" data-to="711">310</td>
+        <td data-from="714" data-to="717">198</td>
+        <td data-from="720" data-to="723">150</td>
+      </tr>
+      <tr data-from="726" data-to="772">
+        <td data-from="728" data-to="746">Throughput (req/s)</td>
+        <td data-from="749" data-to="754">4,200</td>
+        <td data-from="757" data-to="762">6,850</td>
+        <td data-from="765" data-to="770">8,000</td>
+      </tr>
+      <tr data-from="773" data-to="809">
+        <td data-from="775" data-to="789">Error rate (%)</td>
+        <td data-from="792" data-to="795">1.8</td>
+        <td data-from="798" data-to="801">0.6</td>
+        <td data-from="804" data-to="807">0.2</td>
+      </tr>
+      <tr data-from="810" data-to="846">
+        <td data-from="812" data-to="829">Test coverage (%)</td>
+        <td data-from="832" data-to="834">71</td>
+        <td data-from="837" data-to="839">79</td>
+        <td data-from="842" data-to="844">85</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="848" data-to="1062">Our latency reduction stems primarily from batching optimizations in the feature-extraction service. The relationship between batch size <span class="mdr-math" data-tex="b" data-from="985" data-to="988">b</span> and average processing latency <span class="mdr-math" data-tex="\ell(b)" data-from="1020" data-to="1029">\ell(b)</span> has been empirically modeled as:</p>
+<div class="mdr-math-block" data-tex="\ell(b) = \alpha \cdot \log(b) + \frac{\beta}{b} + \gamma" data-from="1064" data-to="1127">
+  \ell(b) = \alpha \cdot \log(b) + \frac{\beta}{b} + \gamma
+</div>
+<p data-from="1129" data-to="1388">where <span class="mdr-math" data-tex="\alpha = 4.2" data-from="1135" data-to="1149">\alpha = 4.2</span>, <span class="mdr-math" data-tex="\beta = 112.5" data-from="1151" data-to="1166">\beta = 112.5</span>, and <span class="mdr-math" data-tex="\gamma = 9.8" data-from="1172" data-to="1186">\gamma = 9.8</span> based on our regression fit over the last 30 days of telemetry. This model suggests an optimal batch size <span class="mdr-math" data-tex="b^* \approx 27" data-from="1293" data-to="1309">b^* \approx 27</span>, which aligns closely with the value of 32 currently configured in production.</p>
+<h2 id="architecture-update" data-from="1390" data-to="1412">Architecture Update</h2>
+<p data-from="1414" data-to="1678">The scoring engine now consists of three decoupled services: <code data-from="1475" data-to="1483">ingest</code>, <code data-from="1485" data-to="1493">scorer</code>, and <code data-from="1499" data-to="1509">notifier</code>. Communication between them uses a message broker (Kafka-compatible) with at-least-once delivery semantics. Below is a simplified configuration snippet used in staging:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="1680" data-to="2011"><code class="language-yaml" data-verbatim data-from="1688" data-to="2007">services:
+  scorer:
+    replicas: 6
+    resources:
+      cpu: "2"
+      memory: "4Gi"
+    env:
+      MODEL_VERSION: "v3.2.1"
+      BATCH_SIZE: "32"
+      TIMEOUT_MS: "250"
+  notifier:
+    replicas: 3
+    resources:
+      cpu: "1"
+      memory: "2Gi"
+    env:
+      RETRY_LIMIT: "5"
+      BACKOFF_STRATEGY: "exponential"</code></pre>
+<p data-from="2013" data-to="2166">This configuration has been stable in staging for nine consecutive days without a restart, which we consider a strong signal for promotion to production.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="2168" data-to="2390">
+  <div class="mdr-callout-title" data-from="2170" data-to="2177">
+    Note
+  </div>
+  <p data-from="2180" data-to="2390">The <code data-from="2184" data-to="2192">scorer</code> service's memory footprint increased by roughly 18% after the model upgrade to v3.2.1. This is expected due to the larger embedding table, but should be monitored closely during the canary rollout.</p>
+</blockquote>
+<h2 id="model-performance" data-from="2392" data-to="2412">Model Performance</h2>
+<p data-from="2414" data-to="2628">The updated anomaly-scoring model (v3.2.1) shows improved precision on the validation set. Precision <span class="mdr-math" data-tex="p" data-from="2515" data-to="2518">p</span> and recall <span class="mdr-math" data-tex="r" data-from="2530" data-to="2533">r</span> are computed per class <span class="mdr-math" data-tex="i" data-from="2557" data-to="2560">i</span>, and the aggregate F1 score is given by the standard harmonic mean:</p>
+<p data-from="2630" data-to="2669"><span class="mdr-math" data-tex="F1 = 2 \cdot \dfrac{p \cdot r}{p + r}" data-from="2630" data-to="2669">F1 = 2 \cdot \dfrac{p \cdot r}{p + r}</span></p>
+<p data-from="2671" data-to="2900">Current aggregate F1 stands at 0.912, up from 0.887 in the previous release. False positive rate on the "network-jitter" class remains our weakest area at 4.3%, and is the subject of ongoing investigation by the modeling subteam.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="2902" data-to="3233">
+  <div class="mdr-callout-title" data-from="2904" data-to="2914">
+    Warning
+  </div>
+  <p data-from="2917" data-to="3233">A regression was discovered in the <code data-from="2952" data-to="2962">notifier</code> service where duplicate alerts were sent for approximately 0.4% of flagged events during a load test on March 11. Root cause appears related to idempotency key collisions under high concurrency. This must be resolved before the production rollout scheduled for March 21.</p>
+</blockquote>
+<h2 id="incidents-and-risks" data-from="3235" data-to="3257">Incidents and Risks</h2>
+<ol data-from="3259" data-to="4076">
+  <li data-from="3259" data-to="3471"><strong data-from="3262" data-to="3302">Duplicate alert bug (High priority):</strong> As noted above, idempotency keys are colliding under load exceeding 5,000 req/s. A fix involving UUID-based keys with a Redis-backed deduplication cache is in progress.</li>
+  <li data-from="3472" data-to="3695"><strong data-from="3475" data-to="3516">Kafka consumer lag (Medium priority):</strong> During peak traffic simulations, consumer lag on the <code data-from="3570" data-to="3578">ingest</code> topic reached 12 seconds. We are evaluating partition rebalancing and increasing consumer replica count from 4 to 6.</li>
+  <li data-from="3696" data-to="3885"><strong data-from="3699" data-to="3735">Dependency drift (Low priority):</strong> Several internal libraries are now two minor versions behind the shared platform baseline. This is tracked but not currently blocking any milestones.</li>
+  <li data-from="3886" data-to="4076"><strong data-from="3889" data-to="3924">On-call fatigue (Low priority):</strong> Two engineers flagged increased on-call burden due to noisy alerting. This ties directly into the duplicate-alert bug and should improve once resolved.</li>
+</ol>
+<h2 id="budget-and-timeline" data-from="4078" data-to="4100">Budget and Timeline</h2>
+<p data-from="4102" data-to="4368">The project remains within budget, having consumed approximately 62% of the allocated compute credits for Q1, against a 65% time-elapsed benchmark. No schedule slippage is currently projected, assuming the notifier bug is resolved within the next five business days.</p>
+<hr data-from="4370" data-to="4373">
+<h2 id="next-steps" data-from="4375" data-to="4388">Next Steps</h2>
+<ol data-from="4390" data-to="4995">
+  <li data-from="4390" data-to="4502">Ship the idempotency-key fix for the <code data-from="4430" data-to="4440">notifier</code> service and validate under a repeat load test at 6,000 req/s.</li>
+  <li data-from="4503" data-to="4616">Increase Kafka consumer replicas for the <code data-from="4547" data-to="4555">ingest</code> topic and re-measure consumer lag under simulated peak load.</li>
+  <li data-from="4617" data-to="4746">Continue investigation into the "network-jitter" false positive rate, targeting a reduction to below 3% by end of next sprint.</li>
+  <li data-from="4747" data-to="4850">Raise test coverage from 79% to at least 85%, focusing on the <code data-from="4812" data-to="4820">scorer</code> service's edge-case handling.</li>
+  <li data-from="4851" data-to="4995">Prepare rollout plan and canary configuration for production deployment of model v3.2.1, contingent on resolution of the notifier regression.</li>
+</ol>
+<h2 id="closing-notes" data-from="4997" data-to="5013">Closing Notes</h2>
+<p data-from="5015" data-to="5371">Overall, Project Helios is trending positively, with meaningful latency and throughput improvements this sprint. The primary blocker to production promotion is the duplicate-alert issue in the <code data-from="5208" data-to="5218">notifier</code> service, which the team is treating as top priority. Barring unforeseen complications, we anticipate a production deployment window opening by March 24.</p>

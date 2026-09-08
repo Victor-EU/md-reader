@@ -1,0 +1,84 @@
+<h1 id="review-summary-adaptive-resonance-scheduling-for-distributed-sensor-networks-draft-v32" data-from="0" data-to="94">Review Summary: "Adaptive Resonance Scheduling for Distributed Sensor Networks" (Draft v3.2)</h1>
+<h2 id="overview" data-from="96" data-to="107">Overview</h2>
+<p data-from="109" data-to="587">This review covers the internal technical report submitted by the <em data-from="175" data-to="196">Kestrel Systems Lab</em> on their proposed <strong data-from="215" data-to="254">Adaptive Resonance Scheduling (ARS)</strong> algorithm, intended for deployment across distributed sensor mesh networks. The document was authored by Dr. Elena Vasquez and reviewed by the Applied Systems Committee on the fictional date of March 14th (Cycle 7). Overall, the work is <em data-from="492" data-to="503">promising</em> but requires several clarifications before it can move to the implementation phase.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="589" data-to="806">
+  <div class="mdr-callout-title" data-from="591" data-to="598">
+    Note
+  </div>
+  <p data-from="601" data-to="806">This review assumes the reader has access to Appendix C (simulation logs), which was only partially included in the circulated draft. Some findings below may be revised once the full appendix is available.</p>
+</blockquote>
+<hr data-from="808" data-to="811">
+<h2 id="key-findings" data-from="813" data-to="828">Key Findings</h2>
+<ol data-from="830" data-to="2914">
+  <li data-from="830" data-to="1131"><p data-from="833" data-to="1131"><strong data-from="833" data-to="858">Algorithmic Soundness</strong>
+   The core scheduling logic, based on a modified token-bucket approach, appears theoretically sound. The authors claim a throughput improvement of <strong data-from="1007" data-to="1016">34.7%</strong> over the baseline "Static Round Robin" scheduler (SRR-9), though the benchmark conditions are not fully specified.</p></li>
+  <li data-from="1133" data-to="1702"><p data-from="1136" data-to="1216"><strong data-from="1136" data-to="1153">Latency Model</strong>
+   The latency function proposed in Section 4.2 is defined as:</p><div class="mdr-math-block" data-tex="L(n) = \alpha \cdot \log_2(n) + \frac{\beta}{n} \cdot \sum_{i=1}^{n} w_i" data-from="1221" data-to="1305">
+      L(n) = \alpha \cdot \log_2(n) + \frac{\beta}{n} \cdot \sum_{i=1}^{n} w_i
+    </div><p data-from="1310" data-to="1702">where <span class="mdr-math" data-tex="n" data-from="1316" data-to="1319">n</span> is the number of active nodes, <span class="mdr-math" data-tex="\alpha" data-from="1351" data-to="1359">\alpha</span> and <span class="mdr-math" data-tex="\beta" data-from="1364" data-to="1371">\beta</span> are tunable damping coefficients, and <span class="mdr-math" data-tex="w_i" data-from="1410" data-to="1415">w_i</span> represents the weight assigned to node <span class="mdr-math" data-tex="i" data-from="1455" data-to="1458">i</span>. The derivation is plausible, but the report never justifies why <span class="mdr-math" data-tex="\beta" data-from="1524" data-to="1531">\beta</span> is held constant across heterogeneous node classes — this seems like an oversight given the paper's own claim that node types "vary significantly in processing capacity."</p></li>
+  <li data-from="1704" data-to="2145"><p data-from="1707" data-to="1885"><strong data-from="1707" data-to="1733">Simulation Environment</strong>
+   The simulated network (named <em data-from="1766" data-to="1787">Project Thistledown</em> internally) used 212 virtual nodes across four geographic clusters. Results are encouraging, but:</p><ul data-from="1889" data-to="2145">
+      <li data-from="1889" data-to="1991">The simulation duration (only 48 hours) may be too short to capture <mark data-from="1959" data-to="1990">long-tail congestion events</mark>.</li>
+      <li data-from="1995" data-to="2145">No comparison was made against a third contender algorithm, "Delta-Weighted Fair Queuing," which is referenced elsewhere in the lab's internal wiki.</li>
+    </ul></li>
+  <li data-from="2147" data-to="2914"><p data-from="2150" data-to="2255"><strong data-from="2150" data-to="2166">Code Quality</strong>
+   A snippet from the reference implementation (Listing 7) was included in the appendix:</p><pre class="mdr-code" data-lang="python" data-from="2260" data-to="2628"><code class="language-python" data-from="2273" data-to="2621">def compute_schedule(nodes, alpha=0.8, beta=1.2):
+    weights = [n.load_factor for n in nodes]
+    total = sum(weights)
+    schedule = []
+    for n in nodes:
+        priority = alpha * math.log2(len(nodes)) + (beta / len(nodes)) * total
+        schedule.append((n.id, priority))
+    return sorted(schedule, key=lambda x: -x[1])</code></pre><p data-from="2633" data-to="2914">This implementation appears to compute the <em data-from="2676" data-to="2682">same</em> priority value for every node, since <code data-from="2720" data-to="2727">total</code> and <code data-from="2732" data-to="2744">len(nodes)</code> do not vary per-node inside the loop — this looks like a <strong data-from="2802" data-to="2809">bug</strong>, not a design choice, and directly undermines the differentiated scheduling the paper claims to achieve.</p></li>
+</ol>
+<hr data-from="2916" data-to="2919">
+<h2 id="questions-for-the-authors" data-from="2921" data-to="2949">Questions for the Authors</h2>
+<ul data-from="2951" data-to="3826">
+  <li data-from="2951" data-to="3085">Why was the coefficient <span class="mdr-math" data-tex="\beta" data-from="2977" data-to="2984">\beta</span> fixed at <span class="mdr-math" data-tex="1.2" data-from="2994" data-to="2999">1.2</span> across all simulation runs? Was any sensitivity analysis performed on this parameter?</li>
+  <li data-from="3086" data-to="3293">The report states that node failure recovery time averages <span class="mdr-math" data-tex="\mu = 3.2s" data-from="3147" data-to="3159">\mu = 3.2s</span>, but no variance or confidence interval is given. What is the standard deviation, and over how many failure events was this measured?</li>
+  <li data-from="3294" data-to="3458">Section 5 references a "trust decay function" but never formally defines it. Is this the same as the latency damping term above, or a separate mechanism entirely?</li>
+  <li data-from="3459" data-to="3593">Was the Project Thistledown simulation run on homogeneous hardware, or did node capacity variation reflect real-world heterogeneity?</li>
+  <li data-from="3594" data-to="3826">The bug identified in Listing 7 raises a broader question: were the performance numbers in Section 6 (the 34.7% improvement) generated using this same flawed implementation, or a corrected internal version not shown in the report?</li>
+</ul>
+<hr data-from="3828" data-to="3831">
+<h2 id="recommended-changes" data-from="3833" data-to="3855">Recommended Changes</h2>
+<p data-from="3857" data-to="3960">The committee recommends the following revisions before the document proceeds to the next review cycle:</p>
+<ol data-from="3962" data-to="5284">
+  <li data-from="3962" data-to="4315"><p data-from="3965" data-to="4016"><strong data-from="3965" data-to="4016">Fix and re-verify the reference implementation.</strong></p><ul data-from="4020" data-to="4315">
+      <li data-from="4020" data-to="4241">Correct the per-node priority computation in <code data-from="4067" data-to="4085">compute_schedule</code>.<ul data-from="4092" data-to="4241">
+          <li data-from="4092" data-to="4241">Re-run all benchmark simulations after the fix.<ul data-from="4149" data-to="4241">
+              <li data-from="4149" data-to="4241">Report both the <em data-from="4167" data-to="4172">old</em> (buggy) and <em data-from="4185" data-to="4190">new</em> (corrected) results side-by-side for transparency.</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="4245" data-to="4315">Add unit tests covering at least three node-heterogeneity scenarios.</li>
+    </ul></li>
+  <li data-from="4317" data-to="4570"><p data-from="4320" data-to="4353"><strong data-from="4320" data-to="4353">Extend the simulation window.</strong></p><ul data-from="4357" data-to="4570">
+      <li data-from="4357" data-to="4481">Increase simulation duration from 48 hours to a minimum of 240 hours (10 days) to capture longer-term congestion patterns.</li>
+      <li data-from="4485" data-to="4570">Include the Delta-Weighted Fair Queuing baseline for a fairer three-way comparison.</li>
+    </ul></li>
+  <li data-from="4572" data-to="4821"><p data-from="4575" data-to="4617"><strong data-from="4575" data-to="4617">Clarify the latency model assumptions.</strong></p><ul data-from="4621" data-to="4821">
+      <li data-from="4621" data-to="4740">Provide justification for holding <span class="mdr-math" data-tex="\beta" data-from="4657" data-to="4664">\beta</span> constant, or introduce a per-class variant <span class="mdr-math" data-tex="\beta_k" data-from="4708" data-to="4717">\beta_k</span> for node category <span class="mdr-math" data-tex="k" data-from="4736" data-to="4739">k</span>.</li>
+      <li data-from="4744" data-to="4821">Include a derivation appendix showing how <span class="mdr-math" data-tex="L(n)" data-from="4788" data-to="4794">L(n)</span> behaves as <span class="mdr-math" data-tex="n \to \infty" data-from="4806" data-to="4820">n \to \infty</span>.</li>
+    </ul></li>
+  <li data-from="4823" data-to="5006"><p data-from="4826" data-to="4856"><strong data-from="4826" data-to="4856">Improve statistical rigor.</strong></p><ul data-from="4860" data-to="5006">
+      <li data-from="4860" data-to="4941">Report confidence intervals for all headline metrics, not just point estimates.</li>
+      <li data-from="4945" data-to="5006">Clarify sample sizes for the failure-recovery measurements.</li>
+    </ul></li>
+  <li data-from="5008" data-to="5284"><p data-from="5011" data-to="5046"><strong data-from="5011" data-to="5046">Editorial and structural fixes.</strong></p><ul data-from="5050" data-to="5284">
+      <li data-from="5050" data-to="5177">Move the "trust decay function" discussion into Section 4 alongside the latency model, since they appear conceptually linked.</li>
+      <li data-from="5181" data-to="5284">Standardize terminology — the report alternates between "node" and "agent" without clear distinction.</li>
+    </ul></li>
+</ol>
+<blockquote class="mdr-callout" data-callout="warning" data-from="5286" data-to="5616">
+  <div class="mdr-callout-title" data-from="5288" data-to="5298">
+    Warning
+  </div>
+  <p data-from="5301" data-to="5616">Given the bug identified in the core scheduling function, <strong data-from="5359" data-to="5438">all performance claims in Sections 6 and 7 should be treated as provisional</strong> until the corrected implementation is re-benchmarked. Publishing these numbers externally in their current form could mislead downstream teams evaluating ARS for production use.</p>
+</blockquote>
+<hr data-from="5618" data-to="5621">
+<h2 id="overall-assessment" data-from="5623" data-to="5644">Overall Assessment</h2>
+<p data-from="5646" data-to="5721">As the lead reviewer noted in the closing remarks of the committee session:</p>
+<blockquote data-from="5723" data-to="6053">
+  <p data-from="5725" data-to="6053">"The theoretical framing of Adaptive Resonance Scheduling is genuinely novel, and the latency model shows real promise — but until the implementation bug is resolved and re-benchmarked, we cannot in good conscience endorse the headline throughput numbers. This is a <em data-from="5991" data-to="6005">strong draft</em> undermined by a <em data-from="6022" data-to="6031">fixable</em> technical oversight."</p>
+</blockquote>
+<p data-from="6055" data-to="6524">The committee's recommendation is <strong data-from="6089" data-to="6115">conditional acceptance</strong>, pending the changes outlined above. A follow-up review is scheduled for Cycle 8, at which point the corrected simulation results and clarified latency model should be resubmitted for final evaluation. We anticipate that, once these issues are addressed, ARS could represent a meaningful contribution to the lab's distributed scheduling portfolio — provided the empirical claims are placed on firmer footing.</p>

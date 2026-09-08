@@ -22,6 +22,12 @@ function remount() {
   workspace.mount(host);
 }
 
+/** A file opens in Read mode (design 4.2); these tests are about the editor. */
+function edit() {
+  workspace.setMode('edit');
+  remount();
+}
+
 beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -119,7 +125,7 @@ describe('tabs', () => {
 
   it('reopens a closed tab where it was, with its buffer', () => {
     workspace.activateIndex(2);
-    workspace.mount(host);
+    edit();
     workspace.view?.dispatch({ changes: { from: 0, insert: 'edited ' } });
     workspace.closeActive();
     expect(workspace.status).toMatch(/unsaved changes/);
@@ -134,7 +140,7 @@ describe('views onto one document', () => {
   it('shares the buffer and keeps a cursor per view', async () => {
     open({ '/a.md': 'hello\n' });
     await workspace.openPath('/a.md');
-    workspace.mount(host);
+    edit();
     workspace.view?.dispatch({ selection: { anchor: 5 } });
 
     workspace.duplicateView();
@@ -166,7 +172,7 @@ describe('modes', () => {
   it('switches the mounted view between edit and source, per tab', async () => {
     open({ '/a.md': '# Heading\n' });
     await workspace.openPath('/a.md');
-    workspace.mount(host);
+    edit();
     const line = () => host.querySelector('.cm-line')?.className ?? '';
     expect(line()).toContain('mdr-h1');
     workspace.setMode('source');
@@ -183,7 +189,7 @@ describe('saving', () => {
   it('writes the buffer and clears the dirty flag', async () => {
     open({ '/a.md': 'a\n' });
     await workspace.openPath('/a.md');
-    workspace.mount(host);
+    edit();
     workspace.view?.dispatch({ changes: { from: 0, insert: 'more ' } });
     expect(workspace.activeDoc?.dirty).toBe(true);
 
@@ -246,7 +252,7 @@ describe('the file palette', () => {
     open({ '/a.md': 'one two three\n' });
     await workspace.openPath('/a.md');
     expect(workspace.words).toBe(3);
-    workspace.mount(host);
+    edit();
     workspace.view?.dispatch({ changes: { from: 0, insert: 'four ' } });
     workspace.countNow();
     expect(workspace.words).toBe(4);

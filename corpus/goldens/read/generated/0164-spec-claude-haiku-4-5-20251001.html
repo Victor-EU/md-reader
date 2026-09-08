@@ -1,0 +1,180 @@
+<h1 id="technical-specification-dynamicquery-analytics-engine-v21" data-from="0" data-to="61">Technical Specification: DynamicQuery Analytics Engine v2.1</h1>
+<h2 id="overview" data-from="63" data-to="74">Overview</h2>
+<p data-from="76" data-to="361">The <strong data-from="80" data-to="113">DynamicQuery Analytics Engine</strong> is a distributed system for real-time analysis of structured data streams. This specification outlines the core requirements and API design for the v2.1 release, which introduces <em data-from="293" data-to="322">adaptive query optimization</em> and <mark data-from="327" data-to="360">hierarchical data aggregation</mark>.</p>
+<hr data-from="363" data-to="366">
+<h2 id="functional-requirements" data-from="368" data-to="394">Functional Requirements</h2>
+<ul data-from="396" data-to="984">
+  <li class="mdr-task" data-from="396" data-to="456"><input type="checkbox" disabled data-from="398" data-to="401">Support streaming JSON payloads up to 50MB per request</li>
+  <li class="mdr-task" data-from="457" data-to="524"><input type="checkbox" disabled checked data-from="459" data-to="462">Implement distributed query execution across 8+ node clusters</li>
+  <li class="mdr-task" data-from="525" data-to="586"><input type="checkbox" disabled checked data-from="527" data-to="530">Provide real-time dashboard updates with &lt;500ms latency</li>
+  <li class="mdr-task" data-from="587" data-to="638"><input type="checkbox" disabled data-from="589" data-to="592">Add support for custom transformation plugins</li>
+  <li class="mdr-task" data-from="639" data-to="984"><input type="checkbox" disabled data-from="641" data-to="644">Integrate with Apache Kafka v3.4+ for message consumption<ul data-from="705" data-to="984">
+      <li class="mdr-task" data-from="705" data-to="854"><input type="checkbox" disabled data-from="707" data-to="710">Implement consumer groups with rebalancing<ul data-from="758" data-to="854">
+          <li class="mdr-task" data-from="758" data-to="803"><input type="checkbox" disabled data-from="760" data-to="763">Support exactly-once delivery semantics</li>
+          <li class="mdr-task" data-from="808" data-to="854"><input type="checkbox" disabled data-from="810" data-to="813">Handle partition reassignment gracefully</li>
+        </ul></li>
+      <li class="mdr-task" data-from="857" data-to="984"><input type="checkbox" disabled checked data-from="859" data-to="862">Develop offset management strategy<ul data-from="902" data-to="984">
+          <li class="mdr-task" data-from="902" data-to="941"><input type="checkbox" disabled checked data-from="904" data-to="907">Use external offset store (Redis)</li>
+          <li class="mdr-task" data-from="946" data-to="984"><input type="checkbox" disabled checked data-from="948" data-to="951">Implement periodic checkpointing</li>
+        </ul></li>
+    </ul></li>
+</ul>
+<h2 id="performance-targets" data-from="986" data-to="1008">Performance Targets</h2>
+<div class="mdr-table-wrap" data-from="1010" data-to="1327">
+  <table data-from="1010" data-to="1327">
+    <thead data-from="1010" data-to="1044">
+      <tr data-from="1010" data-to="1044">
+        <th data-from="1012" data-to="1018">Metric</th>
+        <th data-from="1021" data-to="1027">Target</th>
+        <th data-from="1030" data-to="1034">Unit</th>
+        <th data-from="1037" data-to="1042">Notes</th>
+      </tr>
+    </thead>
+    <tbody data-from="1080" data-to="1327">
+      <tr data-from="1080" data-to="1145">
+        <td data-from="1082" data-to="1101">Query Latency (p95)</td>
+        <td data-from="1104" data-to="1107">250</td>
+        <td data-from="1110" data-to="1112">ms</td>
+        <td data-from="1115" data-to="1143">For aggregations &lt;1M records</td>
+      </tr>
+      <tr data-from="1146" data-to="1201">
+        <td data-from="1148" data-to="1158">Throughput</td>
+        <td data-from="1161" data-to="1166">50000</td>
+        <td data-from="1169" data-to="1179">events/sec</td>
+        <td data-from="1182" data-to="1199">Per node baseline</td>
+      </tr>
+      <tr data-from="1202" data-to="1259">
+        <td data-from="1204" data-to="1220">Memory Footprint</td>
+        <td data-from="1223" data-to="1226">2.5</td>
+        <td data-from="1229" data-to="1231">GB</td>
+        <td data-from="1234" data-to="1257">Single service instance</td>
+      </tr>
+      <tr data-from="1260" data-to="1327">
+        <td data-from="1262" data-to="1281">Query Planning Time</td>
+        <td data-from="1284" data-to="1287">100</td>
+        <td data-from="1290" data-to="1292">ms</td>
+        <td data-from="1295" data-to="1325">Complex queries with 10+ joins</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="architecture-constraints" data-from="1329" data-to="1356">Architecture Constraints</h2>
+<p data-from="1358" data-to="1578">The system must maintain horizontal scalability across <span class="mdr-math" data-tex="n" data-from="1413" data-to="1416">n</span> nodes where <span class="mdr-math" data-tex="n \geq 4" data-from="1429" data-to="1439">n \geq 4</span>. Given the constraint that each node processes approximately <span class="mdr-math" data-tex="\lambda" data-from="1501" data-to="1510">\lambda</span> events per second, the total system throughput can be expressed as:</p>
+<div class="mdr-math-block" data-tex="T_{total} = \sum_{i=1}^{n} \lambda_i \cdot f_i" data-from="1580" data-to="1632">
+  T_{total} = \sum_{i=1}^{n} \lambda_i \cdot f_i
+</div>
+<p data-from="1634" data-to="1737">where <span class="mdr-math" data-tex="f_i" data-from="1640" data-to="1645">f_i</span> represents the efficiency factor for node <span class="mdr-math" data-tex="i" data-from="1688" data-to="1691">i</span>, influenced by network latency and data skew.</p>
+<hr data-from="1739" data-to="1742">
+<h2 id="api-specification" data-from="1744" data-to="1764">API Specification</h2>
+<h3 id="base-configuration" data-from="1766" data-to="1788">Base Configuration</h3>
+<p data-from="1790" data-to="1850">All endpoints use the following base URL and authentication:</p>
+<pre class="mdr-code" data-from="1852" data-to="1958"><code data-verbatim data-from="1856" data-to="1954">https://api.dynamicquery.internal/v2/
+Authorization: Bearer {token}
+Content-Type: application/json</code></pre>
+<h3 id="endpoint-submit-analytics-query" data-from="1960" data-to="1996">Endpoint: Submit Analytics Query</h3>
+<p data-from="1998" data-to="2017"><strong data-from="1998" data-to="2006">POST</strong> <code data-from="2007" data-to="2017">/queries</code></p>
+<p data-from="2019" data-to="2081">Submit a new query for execution against the analytics engine.</p>
+<pre class="mdr-code" data-lang="json" data-from="2083" data-to="2825"><code class="language-json" data-verbatim data-from="2091" data-to="2821">{
+  "query_name": "string (required, max 128 chars)",
+  "query_type": "enum (AGGREGATION | TRANSFORM | FUNNEL)",
+  "source": {
+    "dataset_id": "string",
+    "time_window": {
+      "start_timestamp": "ISO8601",
+      "end_timestamp": "ISO8601"
+    }
+  },
+  "filters": [
+    {
+      "field": "string",
+      "operator": "enum (EQ | GT | LT | IN | REGEX)",
+      "value": "any"
+    }
+  ],
+  "aggregations": [
+    {
+      "field": "string",
+      "function": "enum (COUNT | SUM | AVG | MAX | MIN | PERCENTILE)",
+      "alias": "string"
+    }
+  ],
+  "group_by": ["string"],
+  "options": {
+    "parallelism": "integer (1-32)",
+    "cache_strategy": "enum (NONE | TTL | PERSISTENT)",
+    "cache_ttl_seconds": "integer (60-86400)"
+  }
+}</code></pre>
+<p data-from="2827" data-to="2854"><strong data-from="2827" data-to="2854">Response (202 Accepted)</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="2856" data-to="3087"><code class="language-json" data-verbatim data-from="2864" data-to="3083">{
+  "query_id": "q_8f7x2k9m",
+  "status": "QUEUED",
+  "created_at": "2024-03-15T14:22:30Z",
+  "estimated_completion": "2024-03-15T14:23:15Z",
+  "callback_url": "https://api.dynamicquery.internal/v2/queries/q_8f7x2k9m"
+}</code></pre>
+<h3 id="endpoint-poll-query-status" data-from="3089" data-to="3120">Endpoint: Poll Query Status</h3>
+<p data-from="3122" data-to="3151"><strong data-from="3122" data-to="3129">GET</strong> <code data-from="3130" data-to="3151">/queries/{query_id}</code></p>
+<p data-from="3153" data-to="3214">Retrieve the current status and results of a submitted query.</p>
+<pre class="mdr-code" data-lang="javascript" data-from="3216" data-to="3797"><code class="language-javascript" data-verbatim data-from="3230" data-to="3793">// Response for query in progress
+{
+  "query_id": "q_8f7x2k9m",
+  "status": "EXECUTING",
+  "progress": {
+    "processed_records": 847293,
+    "estimated_total": 1200000,
+    "percent_complete": 70.6
+  },
+  "nodes_active": 6
+}
+
+// Response for completed query
+{
+  "query_id": "q_8f7x2k9m",
+  "status": "COMPLETED",
+  "execution_time_ms": 4850,
+  "result_records": 1847,
+  "result_size_bytes": 523400,
+  "data": [
+    {
+      "timestamp": "2024-03-15T14:00:00Z",
+      "region": "NORTH_AMERICA",
+      "event_count": 47293,
+      "avg_latency_ms": 234.7
+    }
+  ]
+}</code></pre>
+<h3 id="endpoint-cancel-query" data-from="3799" data-to="3825">Endpoint: Cancel Query</h3>
+<p data-from="3827" data-to="3859"><strong data-from="3827" data-to="3837">DELETE</strong> <code data-from="3838" data-to="3859">/queries/{query_id}</code></p>
+<p data-from="3861" data-to="3900">Terminate an in-flight or queued query.</p>
+<hr data-from="3902" data-to="3905">
+<h2 id="non-functional-requirements" data-from="3907" data-to="3937">Non-Functional Requirements</h2>
+<p data-from="3939" data-to="3967"><strong data-from="3939" data-to="3967">Reliability &amp; Resilience</strong></p>
+<ul data-from="3968" data-to="4169">
+  <li data-from="3968" data-to="4007">System must achieve 99.95% uptime SLA</li>
+  <li data-from="4008" data-to="4068">Implement automatic failover with &lt;2 second detection time</li>
+  <li data-from="4069" data-to="4122">Support graceful degradation under 50% node failure</li>
+  <li data-from="4123" data-to="4169">Maintain query state with persistent logging</li>
+</ul>
+<p data-from="4171" data-to="4183"><strong data-from="4171" data-to="4183">Security</strong></p>
+<ul data-from="4184" data-to="4330">
+  <li data-from="4184" data-to="4231">All inter-node communication must use TLS 1.3</li>
+  <li data-from="4232" data-to="4278">Rate limiting: 1000 queries/hour per API key</li>
+  <li data-from="4279" data-to="4330">Query results are encrypted at rest using AES-256</li>
+</ul>
+<p data-from="4332" data-to="4346"><strong data-from="4332" data-to="4346">Monitoring</strong></p>
+<ul data-from="4347" data-to="4491">
+  <li data-from="4347" data-to="4397">Export Prometheus metrics on <code data-from="4378" data-to="4388">/metrics</code> endpoint</li>
+  <li data-from="4398" data-to="4441">Log all queries in structured JSON format</li>
+  <li data-from="4442" data-to="4491">Alert on query latency &gt;1s for p99 measurements</li>
+</ul>
+<hr data-from="4493" data-to="4496">
+<h2 id="implementation-timeline" data-from="4498" data-to="4524">Implementation Timeline</h2>
+<p data-from="4526" data-to="4609">The <em data-from="4530" data-to="4561">DynamicQuery Analytics Engine</em> v2.1 will proceed through the following phases:</p>
+<ol data-from="4611" data-to="4791">
+  <li data-from="4611" data-to="4651"><strong data-from="4614" data-to="4641">Core Engine Development</strong> (6 weeks)</li>
+  <li data-from="4652" data-to="4697"><strong data-from="4655" data-to="4687">API Implementation &amp; Testing</strong> (4 weeks)</li>
+  <li data-from="4698" data-to="4748"><strong data-from="4701" data-to="4738">Performance Tuning &amp; Optimization</strong> (3 weeks)</li>
+  <li data-from="4749" data-to="4791"><strong data-from="4752" data-to="4781">Staged Production Rollout</strong> (2 weeks)</li>
+</ol>
+<p data-from="4793" data-to="4901"><mark data-from="4793" data-to="4838">This specification is subject to revision</mark> based on performance testing results and stakeholder feedback.</p>

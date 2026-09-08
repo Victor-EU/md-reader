@@ -17,6 +17,7 @@ thiserror = "2.0"
 tauri = { version = "2.11" }
 tauri-build = { version = "2.6" }
 tauri-plugin-dialog = "2.7"
+tauri-plugin-opener = "2.5"
 blake3 = { version = "1.8", features = ["pure"] }
 chardetng = "1.0"
 encoding_rs = "0.8"

@@ -1,0 +1,164 @@
+<h1 id="dedup-at-ingest-three-candidate-designs-for-the-halyard-pipeline" data-from="0" data-to="67">Dedup at Ingest: Three Candidate Designs for the Halyard Pipeline</h1>
+<p data-from="69" data-to="225"><strong data-from="69" data-to="80">Author:</strong> R. Okonjo-Vance · <strong data-from="99" data-to="113">Reviewers:</strong> T. Baird, M. Lindqvist
+<strong data-from="137" data-to="148">Doc ID:</strong> HAL-RN-0142 · <strong data-from="163" data-to="176">Revision:</strong> 4 · <strong data-from="181" data-to="192">Status:</strong> <em data-from="193" data-to="225">draft, circulating for comment</em></p>
+<hr data-from="227" data-to="230">
+<h2 id="1-problem-statement" data-from="232" data-to="255">1. Problem statement</h2>
+<p data-from="257" data-to="710">Halyard ingests device telemetry from roughly <strong data-from="303" data-to="325">41,000 field units</strong>. Each unit emits a batch every 15 seconds and retries aggressively on any transport hiccup, which means the ingest tier routinely sees the same logical event two to five times. Downstream billing rollups are <em data-from="534" data-to="539">not</em> idempotent, so duplicates translate directly into invoice errors — we logged 312 credit adjustments last quarter, and the support cost per adjustment is estimated at $28.</p>
+<p data-from="712" data-to="851">We need a dedup layer that sits between the edge collectors and the columnar store. Requirements agreed with the platform group on 3 March:</p>
+<ul data-from="853" data-to="1434">
+  <li data-from="853" data-to="946"><strong data-from="855" data-to="876">Throughput floor:</strong> 180,000 events/sec sustained, 260,000/sec burst for up to 90 seconds.</li>
+  <li data-from="947" data-to="1071"><strong data-from="949" data-to="966">Dedup window:</strong> at least 6 hours. Field units have been observed replaying a full 4-hour buffer after a cellular outage.</li>
+  <li data-from="1072" data-to="1297"><strong data-from="1074" data-to="1096">False-drop budget:</strong> <mark data-from="1097" data-to="1155">zero tolerated false positives on billing-class events</mark>. A false <em data-from="1165" data-to="1175">negative</em> (letting a duplicate through) is recoverable via nightly reconciliation; a false positive silently destroys revenue data.</li>
+  <li data-from="1298" data-to="1331"><strong data-from="1300" data-to="1322">Added p99 latency:</strong> ≤ 12 ms.</li>
+  <li data-from="1332" data-to="1434"><strong data-from="1334" data-to="1350">Operational:</strong> must survive the loss of a single availability zone without a manual failover step.</li>
+</ul>
+<p data-from="1436" data-to="1558">The event key is a composite of <code data-from="1468" data-to="1477">unit_id</code>, <code data-from="1479" data-to="1492">sequence_no</code>, and <code data-from="1498" data-to="1513">emit_epoch_ms</code>. Keys are 22 bytes after our varint packing.</p>
+<hr data-from="1560" data-to="1563">
+<h2 id="2-approach-a-in-process-sharded-bloom-filters" data-from="1565" data-to="1616">2. Approach A — In-process sharded Bloom filters</h2>
+<p data-from="1618" data-to="1863">Each ingest worker keeps a rotating set of Bloom filters in its own heap. Events are consistently hashed by <code data-from="1726" data-to="1735">unit_id</code> at the load balancer so that a given unit always lands on the same worker, making the local filter authoritative for that unit.</p>
+<h3 id="structure" data-from="1865" data-to="1878">Structure</h3>
+<ul data-from="1880" data-to="2316">
+  <li data-from="1880" data-to="2316">Twelve filters per worker, each covering a 30-minute slice.<ul data-from="1944" data-to="2316">
+      <li data-from="1944" data-to="2020">On slice rollover, the oldest filter is dropped and a fresh one allocated.</li>
+      <li data-from="2023" data-to="2316">Lookup checks all twelve; insert touches only the newest.<ul data-from="2087" data-to="2316">
+          <li data-from="2087" data-to="2316">Sizing: 8.2 million expected keys per slice at 0.1% target FPR → ~14 MB per filter, ~170 MB resident per worker.<ul data-from="2208" data-to="2316">
+              <li data-from="2208" data-to="2316">Measured RSS on the prototype was <strong data-from="2244" data-to="2254">203 MB</strong>, the gap being allocator slack and the rehash scratch buffer.</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+</ul>
+<h3 id="notes" data-from="2318" data-to="2327">Notes</h3>
+<p data-from="2329" data-to="2529"><em data-from="2329" data-to="2336">Fast.</em> The prototype (<code data-from="2352" data-to="2367">halyard-bloom</code> branch, commit <code data-from="2383" data-to="2391">a41f9c</code>) held <strong data-from="2398" data-to="2430">340,000 lookups/sec per core</strong> on the c-class nodes, and p99 added latency was 0.4 ms. That is an order of magnitude of headroom.</p>
+<p data-from="2531" data-to="2924">The killer is the false-positive semantics. A Bloom filter cannot tell you a key is present, only that it is <em data-from="2640" data-to="2650">probably</em> present — which is exactly backwards from our requirement. At 0.1% FPR against 180k events/sec, we would silently drop roughly <strong data-from="2778" data-to="2812">648 legitimate events per hour</strong>. Driving the FPR to 10⁻⁹ pushes each filter to 106 MB and worker RSS past 1.3 GB, which breaks the node budget.</p>
+<p data-from="2926" data-to="3241">We also inherit a hard coupling to sticky routing. When a worker restarts, its filter is empty and we replay duplicates for up to 6 hours until the slices refill. T. Baird proposed warm-starting from a snapshot in object storage; that adds a 40-second startup penalty and a new failure mode we would rather not own.</p>
+<hr data-from="3243" data-to="3246">
+<h2 id="3-approach-b-centralised-key-store-vessel-cluster" data-from="3248" data-to="3305">3. Approach B — Centralised key store (Vessel cluster)</h2>
+<p data-from="3307" data-to="3476">Push the seen-set into a shared in-memory store. We evaluated our existing <strong data-from="3382" data-to="3392">Vessel</strong> cluster (the internal fork we run for session data) with a 6-hour TTL on every key.</p>
+<pre class="mdr-code" data-lang="go" data-from="3478" data-to="4360"><code class="language-go" data-verbatim data-from="3484" data-to="4356">// dedupe/vessel.go — checked in on the hal-vessel-spike branch
+package dedupe
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+const (
+	dedupWindow  = 6 * time.Hour
+	claimTimeout = 8 * time.Millisecond
+)
+
+var ErrStoreUnavailable = errors.New("vessel: no quorum")
+
+// Claim returns true if this caller is the first to observe key.
+// A miss (store unavailable) fails open: we prefer a duplicate
+// over a dropped billing event.
+func (c *Client) Claim(ctx context.Context, key []byte) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, claimTimeout)
+	defer cancel()
+
+	slot := c.ring.Route(key)
+	ok, err := slot.SetIfAbsent(ctx, key, marker{At: time.Now()}, dedupWindow)
+	switch {
+	case errors.Is(err, ErrStoreUnavailable):
+		c.metrics.FailOpen.Inc()
+		return true, nil // let it through; reconciliation will catch it
+	case err != nil:
+		return true, err
+	}
+	return ok, nil
+}</code></pre>
+<h3 id="trade-offs" data-from="4362" data-to="4376">Trade-offs</h3>
+<ul data-from="4378" data-to="5055">
+  <li data-from="4378" data-to="4483"><strong data-from="4380" data-to="4396">Correctness:</strong> exact. No probabilistic dropping. This is the single strongest argument in its favour.</li>
+  <li data-from="4484" data-to="4719"><strong data-from="4486" data-to="4497">Memory:</strong> 22-byte keys plus Vessel's per-entry overhead (measured at 71 bytes) over a 6-hour window at 180k/sec gives <strong data-from="4606" data-to="4617">~3.6 TB</strong>. That is 14 nodes at the current instance shape, roughly <em data-from="4675" data-to="4718">4.1× our entire existing Vessel footprint</em>.</li>
+  <li data-from="4720" data-to="4863"><strong data-from="4722" data-to="4734">Latency:</strong> median 1.9 ms, p99 <strong data-from="4754" data-to="4764">9.7 ms</strong> under synthetic load — inside budget, but only just, and that was with the cluster otherwise idle.</li>
+  <li data-from="4864" data-to="5055"><strong data-from="4866" data-to="4883">Blast radius:</strong> the fail-open path above is honest but ugly. During the 22 January Vessel incident we would have failed open for 51 minutes, admitting an estimated 4.1 million duplicates.</li>
+</ul>
+<p data-from="5057" data-to="5237">M. Lindqvist raised a fair point in review: we would be making the billing path depend on a cluster whose current SLO is 99.9%, which is <em data-from="5194" data-to="5202">weaker</em> than the ingest tier's own 99.95%.</p>
+<hr data-from="5239" data-to="5242">
+<h2 id="4-approach-c-deferred-dedup-via-merge-on-read" data-from="5244" data-to="5295">4. Approach C — Deferred dedup via merge-on-read</h2>
+<p data-from="5297" data-to="5461">Do nothing at ingest. Write everything, tag each row with the composite key, and let the storage layer collapse duplicates when a query or rollup reads the segment.</p>
+<h3 id="mechanics" data-from="5463" data-to="5476">Mechanics</h3>
+<ul data-from="5478" data-to="6005">
+  <li data-from="5478" data-to="5831">Segments are written immutable, sorted by <code data-from="5522" data-to="5561">(unit_id, sequence_no, emit_epoch_ms)</code>.<ul data-from="5565" data-to="5831">
+      <li data-from="5565" data-to="5831">The reader performs a streaming dedup over the sorted key prefix.<ul data-from="5637" data-to="5831">
+          <li data-from="5637" data-to="5831">Because duplicates are adjacent after sort, this is a single-pass comparison with no auxiliary memory.<ul data-from="5748" data-to="5831">
+              <li data-from="5748" data-to="5831">Cost measured on a 2.1 GB segment: <strong data-from="5785" data-to="5795">117 ms</strong> added to a full scan, ~4% overhead.</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="5832" data-to="6005">A background compactor rewrites segments older than 8 hours with duplicates physically removed.<ul data-from="5932" data-to="6005">
+      <li data-from="5932" data-to="6005">Compaction runs at 03:00 local, currently has 6 hours of idle capacity.</li>
+    </ul></li>
+</ul>
+<h3 id="trade-offs-1" data-from="6007" data-to="6021">Trade-offs</h3>
+<p data-from="6023" data-to="6283"><strong data-from="6023" data-to="6047">Ingest cost is zero.</strong> No new service, no new dependency, no latency added at all. Storage grows by the duplicate rate — currently 2.3×, which at our retention works out to an extra <strong data-from="6207" data-to="6223">$3,100/month</strong> before compaction reclaims it (and about $410/month after).</p>
+<p data-from="6285" data-to="6666">The problems are downstream. Every consumer must now be dedup-aware; we counted <strong data-from="6365" data-to="6373">nine</strong> independent readers, three of which are owned by other teams. Any new query path is a correctness hazard by default. Streaming consumers that read the tail of a segment before compaction see duplicates and must handle them themselves — which just relocates the problem rather than solving it.</p>
+<hr data-from="6668" data-to="6671">
+<h2 id="5-comparison" data-from="6673" data-to="6689">5. Comparison</h2>
+<div class="mdr-table-wrap" data-from="6691" data-to="7059">
+  <table data-from="6691" data-to="7059">
+    <thead data-from="6691" data-to="6746">
+      <tr data-from="6691" data-to="6746">
+        <th data-from="6693" data-to="6702">Criterion</th>
+        <th data-from="6705" data-to="6713">A: Bloom</th>
+        <th data-from="6716" data-to="6725">B: Vessel</th>
+        <th data-from="6728" data-to="6744">C: Merge-on-read</th>
+      </tr>
+    </thead>
+    <tbody data-from="6765" data-to="7059">
+      <tr data-from="6765" data-to="6818">
+        <td data-from="6767" data-to="6776">Exactness</td>
+        <td data-from="6779" data-to="6792">probabilistic</td>
+        <td data-from="6795" data-to="6804"><strong data-from="6795" data-to="6804">exact</strong></td>
+        <td data-from="6807" data-to="6816"><strong data-from="6807" data-to="6816">exact</strong></td>
+      </tr>
+      <tr data-from="6819" data-to="6865">
+        <td data-from="6821" data-to="6838">Added p99 latency</td>
+        <td data-from="6841" data-to="6847">0.4 ms</td>
+        <td data-from="6850" data-to="6856">9.7 ms</td>
+        <td data-from="6859" data-to="6863">0 ms</td>
+      </tr>
+      <tr data-from="6866" data-to="6911">
+        <td data-from="6868" data-to="6885">New infra cost/mo</td>
+        <td data-from="6888" data-to="6891">~$0</td>
+        <td data-from="6894" data-to="6901">~$9,400</td>
+        <td data-from="6904" data-to="6909">~$410</td>
+      </tr>
+      <tr data-from="6912" data-to="6953">
+        <td data-from="6914" data-to="6931">Restart behaviour</td>
+        <td data-from="6934" data-to="6938">poor</td>
+        <td data-from="6941" data-to="6945">good</td>
+        <td data-from="6948" data-to="6951">n/a</td>
+      </tr>
+      <tr data-from="6954" data-to="6998">
+        <td data-from="6956" data-to="6971">Consumer burden</td>
+        <td data-from="6974" data-to="6978">none</td>
+        <td data-from="6981" data-to="6985">none</td>
+        <td data-from="6988" data-to="6996"><strong data-from="6988" data-to="6996">high</strong></td>
+      </tr>
+      <tr data-from="6999" data-to="7059">
+        <td data-from="7001" data-to="7013">Blast radius</td>
+        <td data-from="7016" data-to="7028">worker-local</td>
+        <td data-from="7031" data-to="7043">cluster-wide</td>
+        <td data-from="7046" data-to="7057">query-local</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="7061" data-to="7064">
+<h2 id="6-open-items" data-from="7066" data-to="7082">6. Open items</h2>
+<ul data-from="7084" data-to="7715">
+  <li class="mdr-task" data-from="7084" data-to="7133"><input type="checkbox" disabled checked data-from="7086" data-to="7089">Benchmark Bloom prototype at 260k/sec burst</li>
+  <li class="mdr-task" data-from="7134" data-to="7197"><input type="checkbox" disabled checked data-from="7136" data-to="7139">Size Vessel memory requirement with real key distribution</li>
+  <li class="mdr-task" data-from="7198" data-to="7269"><input type="checkbox" disabled checked data-from="7200" data-to="7203">Measure merge-on-read scan overhead on production-shaped segments</li>
+  <li class="mdr-task" data-from="7270" data-to="7329"><input type="checkbox" disabled data-from="7272" data-to="7275">Audit all nine downstream readers for dedup-awareness</li>
+  <li class="mdr-task" data-from="7330" data-to="7555"><input type="checkbox" disabled data-from="7332" data-to="7335">Prototype a <strong data-from="7348" data-to="7358">hybrid</strong>: Approach C as the correctness backstop, Approach A as a best-effort ingest filter tuned for a <em data-from="7454" data-to="7460">very</em> low insert-side FPR, accepting that it only reduces volume rather than guaranteeing uniqueness</li>
+  <li class="mdr-task" data-from="7556" data-to="7632"><input type="checkbox" disabled data-from="7558" data-to="7561">Confirm compactor headroom holds if retention moves from 30 to 90 days</li>
+  <li class="mdr-task" data-from="7633" data-to="7715"><input type="checkbox" disabled data-from="7635" data-to="7638">Get a written position from the billing team on tolerable reconciliation lag</li>
+</ul>
+<hr data-from="7717" data-to="7720">
+<h2 id="7-current-leaning" data-from="7722" data-to="7743">7. Current leaning</h2>
+<p data-from="7745" data-to="8238">I favour the <strong data-from="7758" data-to="7768">hybrid</strong> listed above. Approach C alone is correct but pushes an unbounded maintenance tax onto other teams. Approach B is correct and clean but expensive and adds a dependency in the worst possible place. Approach A alone is disqualified outright by the false-positive requirement — but it becomes <em data-from="8059" data-to="8065">safe</em> the moment it is only used to shed load in front of a system that is already exactly correct, because a false positive there costs us nothing but a slightly larger segment.</p>
+<p data-from="8240" data-to="8396">Proposed next step: two-week spike, target a 70% ingest volume reduction from the Bloom stage while keeping merge-on-read as the authority. Review 21 April.</p>

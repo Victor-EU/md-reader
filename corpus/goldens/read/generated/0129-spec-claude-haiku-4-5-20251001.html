@@ -1,0 +1,299 @@
+<h1 id="technical-specification-cloudmetrics-data-pipeline-service" data-from="0" data-to="61">Technical Specification: CloudMetrics Data Pipeline Service</h1>
+<h2 id="1-overview" data-from="63" data-to="77">1. Overview</h2>
+<p data-from="79" data-to="411">The CloudMetrics Data Pipeline Service (CMDPS) is a distributed system designed to ingest, process, and aggregate time-series telemetry data from edge devices and cloud infrastructure. The service handles data streams with throughput exceeding <span class="mdr-math" data-tex="10^7" data-from="323" data-to="329">10^7</span> events per second and provides sub-second latency for metric aggregation queries.</p>
+<h2 id="2-system-requirements" data-from="413" data-to="438">2. System Requirements</h2>
+<h3 id="21-functional-requirements" data-from="440" data-to="471">2.1 Functional Requirements</h3>
+<ol data-from="473" data-to="1483">
+  <li data-from="473" data-to="946"><strong data-from="476" data-to="509">Data Ingestion and Processing</strong><ul data-from="513" data-to="946">
+      <li data-from="513" data-to="558">Accept metric submissions via HTTP REST API</li>
+      <li data-from="562" data-to="815">Support multiple serialization formats<ul data-from="608" data-to="815">
+          <li data-from="608" data-to="707">JSON (primary)<ul data-from="632" data-to="707">
+              <li data-from="632" data-to="664">Validation against schema v2.3</li>
+              <li data-from="672" data-to="707">Automatic timestamp normalization</li>
+            </ul></li>
+          <li data-from="713" data-to="815">Protocol Buffers (high-throughput)<ul data-from="757" data-to="815">
+              <li data-from="757" data-to="778">Compression support</li>
+              <li data-from="786" data-to="815">Batch processing capability</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="819" data-to="873">Validate incoming metrics against predefined schemas</li>
+      <li data-from="877" data-to="946">Route data to appropriate processing pipelines based on metric type</li>
+    </ul></li>
+  <li data-from="947" data-to="1271"><strong data-from="950" data-to="977">Aggregation and Storage</strong><ul data-from="981" data-to="1271">
+      <li data-from="981" data-to="1169">Compute rolling averages over time windows<ul data-from="1031" data-to="1169">
+          <li data-from="1031" data-to="1074">1-minute windows for real-time dashboards</li>
+          <li data-from="1080" data-to="1123">5-minute windows for operational analysis</li>
+          <li data-from="1129" data-to="1169">1-hour windows for historical trending</li>
+        </ul></li>
+      <li data-from="1173" data-to="1231">Maintain cardinality limits to prevent memory exhaustion</li>
+      <li data-from="1235" data-to="1271">Implement TTL-based data retention</li>
+    </ul></li>
+  <li data-from="1272" data-to="1483"><strong data-from="1275" data-to="1294">Query Interface</strong><ul data-from="1298" data-to="1483">
+      <li data-from="1298" data-to="1353">Retrieve aggregated metrics by time range and filters</li>
+      <li data-from="1357" data-to="1416">Support drill-down queries across different granularities</li>
+      <li data-from="1420" data-to="1483">Provide analytical functions (percentiles, rate calculations)</li>
+    </ul></li>
+</ol>
+<h3 id="22-non-functional-requirements" data-from="1485" data-to="1520">2.2 Non-Functional Requirements</h3>
+<div class="mdr-table-wrap" data-from="1522" data-to="1879">
+  <table data-from="1522" data-to="1879">
+    <thead data-from="1522" data-to="1563">
+      <tr data-from="1522" data-to="1563">
+        <th data-from="1524" data-to="1535">Requirement</th>
+        <th data-from="1538" data-to="1550">Target Value</th>
+        <th data-from="1553" data-to="1561">Priority</th>
+      </tr>
+    </thead>
+    <tbody data-from="1606" data-to="1879">
+      <tr data-from="1606" data-to="1650">
+        <td data-from="1608" data-to="1628">P95 Latency (ingest)</td>
+        <td data-from="1631" data-to="1637">150 ms</td>
+        <td data-from="1640" data-to="1648">Critical</td>
+      </tr>
+      <tr data-from="1651" data-to="1694">
+        <td data-from="1653" data-to="1672">P99 Latency (query)</td>
+        <td data-from="1675" data-to="1681">500 ms</td>
+        <td data-from="1684" data-to="1692">Critical</td>
+      </tr>
+      <tr data-from="1695" data-to="1735">
+        <td data-from="1697" data-to="1711">Data Loss Rate</td>
+        <td data-from="1714" data-to="1722">&lt; 0.001%</td>
+        <td data-from="1725" data-to="1733">Critical</td>
+      </tr>
+      <tr data-from="1736" data-to="1775">
+        <td data-from="1738" data-to="1757">System Availability</td>
+        <td data-from="1760" data-to="1766">99.95%</td>
+        <td data-from="1769" data-to="1773">High</td>
+      </tr>
+      <tr data-from="1776" data-to="1834">
+        <td data-from="1778" data-to="1804">Maximum Metric Cardinality</td>
+        <td data-from="1807" data-to="1825">100M unique series</td>
+        <td data-from="1828" data-to="1832">High</td>
+      </tr>
+      <tr data-from="1835" data-to="1879">
+        <td data-from="1837" data-to="1858">Data Retention Period</td>
+        <td data-from="1861" data-to="1868">90 days</td>
+        <td data-from="1871" data-to="1877">Medium</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="3-architecture-overview" data-from="1881" data-to="1908">3. Architecture Overview</h2>
+<p data-from="1910" data-to="2135">The system operates on the following mathematical principles. Given a stream of metric observations <span class="mdr-math" data-tex="\{x_1, x_2, ..., x_n\}" data-from="2010" data-to="2034">\{x_1, x_2, ..., x_n\}</span> arriving at timestamps <span class="mdr-math" data-tex="\{t_1, t_2, ..., t_n\}" data-from="2058" data-to="2082">\{t_1, t_2, ..., t_n\}</span>, we compute aggregates within time window <span class="mdr-math" data-tex="W" data-from="2125" data-to="2128">W</span> where:</p>
+<div class="mdr-math-block" data-tex="A_W = \frac{1}{|W|} \sum_{i: t_i \in W} x_i" data-from="2137" data-to="2184">
+  A_W = \frac{1}{|W|} \sum_{i: t_i \in W} x_i
+</div>
+<p data-from="2186" data-to="2255">For exponential moving averages with decay factor <span class="mdr-math" data-tex="\alpha" data-from="2236" data-to="2244">\alpha</span>, we apply:</p>
+<div class="mdr-math-block" data-tex="EMA_t = \alpha \cdot x_t + (1-\alpha) \cdot EMA_{t-1}" data-from="2257" data-to="2314">
+  EMA_t = \alpha \cdot x_t + (1-\alpha) \cdot EMA_{t-1}
+</div>
+<h3 id="31-component-structure" data-from="2316" data-to="2343">3.1 Component Structure</h3>
+<ul data-from="2345" data-to="2829">
+  <li data-from="2345" data-to="2526"><strong data-from="2347" data-to="2366">Ingestion Layer</strong><ul data-from="2369" data-to="2526">
+      <li data-from="2369" data-to="2430">Load balancers distributing requests across ingestion nodes</li>
+      <li data-from="2433" data-to="2479">Protocol handlers for multiple input formats</li>
+      <li data-from="2482" data-to="2526">Initial validation and enrichment services</li>
+    </ul></li>
+  <li data-from="2527" data-to="2687"><strong data-from="2529" data-to="2549">Processing Layer</strong><ul data-from="2552" data-to="2687">
+      <li data-from="2552" data-to="2606">Stream processors implementing windowed aggregations</li>
+      <li data-from="2609" data-to="2653">State managers maintaining metric metadata</li>
+      <li data-from="2656" data-to="2687">Filtering and routing engines</li>
+    </ul></li>
+  <li data-from="2688" data-to="2829"><strong data-from="2690" data-to="2707">Storage Layer</strong><ul data-from="2710" data-to="2829">
+      <li data-from="2710" data-to="2750">Time-series database for metric values</li>
+      <li data-from="2753" data-to="2794">Metadata catalog for series definitions</li>
+      <li data-from="2797" data-to="2829">Cache layer for hot data paths</li>
+    </ul></li>
+</ul>
+<h2 id="4-api-specification" data-from="2831" data-to="2854">4. API Specification</h2>
+<h3 id="41-endpoints" data-from="2856" data-to="2873">4.1 Endpoints</h3>
+<h4 id="411-submit-metrics" data-from="2875" data-to="2900">4.1.1 Submit Metrics</h4>
+<p data-from="2902" data-to="2935"><strong data-from="2902" data-to="2910">POST</strong> <code data-from="2911" data-to="2935">/api/v2/metrics/submit</code></p>
+<p data-from="2937" data-to="2991">Submit one or more metric observations for processing.</p>
+<p data-from="2993" data-to="3010"><strong data-from="2993" data-to="3010">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="3012" data-to="3261"><code class="language-json" data-verbatim data-from="3020" data-to="3257">{
+  "source_id": "edge-node-42",
+  "metrics": [
+    {
+      "name": "cpu.utilization",
+      "value": 42.5,
+      "timestamp": 1702500600,
+      "tags": {
+        "instance": "worker-01",
+        "region": "us-west-2"
+      }
+    }
+  ]
+}</code></pre>
+<p data-from="3263" data-to="3276"><strong data-from="3263" data-to="3276">Response:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="3278" data-to="3379"><code class="language-json" data-verbatim data-from="3286" data-to="3375">{
+  "status": "accepted",
+  "batch_id": "batch-20231214-8a3f",
+  "metrics_processed": 1
+}</code></pre>
+<p data-from="3381" data-to="3398"><strong data-from="3381" data-to="3398">Status Codes:</strong></p>
+<ul data-from="3399" data-to="3536">
+  <li data-from="3399" data-to="3446"><code data-from="3401" data-to="3415">202 Accepted</code>: Metrics queued for processing</li>
+  <li data-from="3447" data-to="3489"><code data-from="3449" data-to="3466">400 Bad Request</code>: Invalid metric format</li>
+  <li data-from="3490" data-to="3536"><code data-from="3492" data-to="3515">429 Too Many Requests</code>: Rate limit exceeded</li>
+</ul>
+<h4 id="412-query-aggregated-metrics" data-from="3538" data-to="3573">4.1.2 Query Aggregated Metrics</h4>
+<p data-from="3575" data-to="3606"><strong data-from="3575" data-to="3582">GET</strong> <code data-from="3583" data-to="3606">/api/v2/metrics/query</code></p>
+<p data-from="3608" data-to="3675">Query aggregated metrics over a time range with optional filtering.</p>
+<p data-from="3677" data-to="3698"><strong data-from="3677" data-to="3698">Query Parameters:</strong></p>
+<div class="mdr-table-wrap" data-from="3700" data-to="4153">
+  <table data-from="3700" data-to="4153">
+    <thead data-from="3700" data-to="3745">
+      <tr data-from="3700" data-to="3745">
+        <th data-from="3702" data-to="3711">Parameter</th>
+        <th data-from="3714" data-to="3718">Type</th>
+        <th data-from="3721" data-to="3729">Required</th>
+        <th data-from="3732" data-to="3743">Description</th>
+      </tr>
+    </thead>
+    <tbody data-from="3792" data-to="4153">
+      <tr data-from="3792" data-to="3854">
+        <td data-from="3794" data-to="3807"><code data-from="3794" data-to="3807">metric_name</code></td>
+        <td data-from="3810" data-to="3816">string</td>
+        <td data-from="3819" data-to="3822">Yes</td>
+        <td data-from="3825" data-to="3852">Name of the metric to query</td>
+      </tr>
+      <tr data-from="3855" data-to="3914">
+        <td data-from="3857" data-to="3869"><code data-from="3857" data-to="3869">start_time</code></td>
+        <td data-from="3872" data-to="3879">integer</td>
+        <td data-from="3882" data-to="3885">Yes</td>
+        <td data-from="3888" data-to="3912">Unix timestamp (seconds)</td>
+      </tr>
+      <tr data-from="3915" data-to="3972">
+        <td data-from="3917" data-to="3927"><code data-from="3917" data-to="3927">end_time</code></td>
+        <td data-from="3930" data-to="3937">integer</td>
+        <td data-from="3940" data-to="3943">Yes</td>
+        <td data-from="3946" data-to="3970">Unix timestamp (seconds)</td>
+      </tr>
+      <tr data-from="3973" data-to="4033">
+        <td data-from="3975" data-to="3983"><code data-from="3975" data-to="3983">window</code></td>
+        <td data-from="3986" data-to="3992">string</td>
+        <td data-from="3995" data-to="3997">No</td>
+        <td data-from="4000" data-to="4031">Aggregation window (1m, 5m, 1h)</td>
+      </tr>
+      <tr data-from="4034" data-to="4079">
+        <td data-from="4036" data-to="4042"><code data-from="4036" data-to="4042">tags</code></td>
+        <td data-from="4045" data-to="4051">string</td>
+        <td data-from="4054" data-to="4056">No</td>
+        <td data-from="4059" data-to="4077">Tag filter as JSON</td>
+      </tr>
+      <tr data-from="4080" data-to="4153">
+        <td data-from="4082" data-to="4092"><code data-from="4082" data-to="4092">function</code></td>
+        <td data-from="4095" data-to="4101">string</td>
+        <td data-from="4104" data-to="4106">No</td>
+        <td data-from="4109" data-to="4151">Aggregation function (avg, p95, p99, rate)</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="4155" data-to="4175"><strong data-from="4155" data-to="4175">Example Request:</strong></p>
+<pre class="mdr-code" data-lang="bash" data-from="4177" data-to="4335"><code class="language-bash" data-verbatim data-from="4185" data-to="4331">GET /api/v2/metrics/query?metric_name=cpu.utilization&amp;start_time=1702500000&amp;end_time=1702503600&amp;window=5m&amp;tags={"region":"us-west-2"}&amp;function=avg</code></pre>
+<p data-from="4337" data-to="4350"><strong data-from="4337" data-to="4350">Response:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="4352" data-to="4742"><code class="language-json" data-verbatim data-from="4360" data-to="4738">{
+  "metric_name": "cpu.utilization",
+  "window": "5m",
+  "function": "avg",
+  "data_points": [
+    {
+      "timestamp": 1702500000,
+      "value": 38.2,
+      "series_id": "cpu.utilization{instance:worker-01,region:us-west-2}"
+    },
+    {
+      "timestamp": 1702500300,
+      "value": 41.5,
+      "series_id": "cpu.utilization{instance:worker-01,region:us-west-2}"
+    }
+  ]
+}</code></pre>
+<h4 id="413-register-metric-schema" data-from="4744" data-to="4777">4.1.3 Register Metric Schema</h4>
+<p data-from="4779" data-to="4814"><strong data-from="4779" data-to="4787">POST</strong> <code data-from="4788" data-to="4814">/api/v2/schemas/register</code></p>
+<p data-from="4816" data-to="4884">Register or update a metric schema for validation and documentation.</p>
+<p data-from="4886" data-to="4903"><strong data-from="4886" data-to="4903">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="python" data-from="4905" data-to="5211"><code class="language-python" data-verbatim data-from="4915" data-to="5207">{
+  "metric_name": "memory.allocated_bytes",
+  "description": "Total allocated memory in bytes",
+  "value_type": "gauge",
+  "unit": "bytes",
+  "required_tags": ["instance", "process_id"],
+  "optional_tags": ["container_id", "namespace"],
+  "retention_days": 90,
+  "cardinality_limit": 50000
+}</code></pre>
+<h3 id="42-authentication" data-from="5213" data-to="5235">4.2 Authentication</h3>
+<p data-from="5237" data-to="5322">All API endpoints require Bearer token authentication via the <code data-from="5299" data-to="5314">Authorization</code> header:</p>
+<pre class="mdr-code" data-from="5324" data-to="5393"><code data-verbatim data-from="5328" data-to="5389">Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</code></pre>
+<p data-from="5395" data-to="5528">Tokens are scoped to specific metric namespaces. Attempting to access metrics outside assigned namespaces results in <code data-from="5512" data-to="5527">403 Forbidden</code>.</p>
+<h2 id="5-implementation-considerations" data-from="5530" data-to="5565">5. Implementation Considerations</h2>
+<h3 id="51-data-flow" data-from="5567" data-to="5584">5.1 Data Flow</h3>
+<p data-from="5586" data-to="5632">The processing pipeline follows this sequence:</p>
+<ol data-from="5634" data-to="6304">
+  <li data-from="5634" data-to="5742"><strong data-from="5637" data-to="5650">Reception</strong><ul data-from="5654" data-to="5742">
+      <li data-from="5654" data-to="5690">HTTP handler receives metric batch</li>
+      <li data-from="5694" data-to="5742">Load balancer selects available ingestion node</li>
+    </ul></li>
+  <li data-from="5743" data-to="5881"><strong data-from="5746" data-to="5760">Validation</strong><ul data-from="5764" data-to="5881">
+      <li data-from="5764" data-to="5812">Schema validation using registered definitions</li>
+      <li data-from="5816" data-to="5848">Timestamp normalization to UTC</li>
+      <li data-from="5852" data-to="5881">Tag cardinality enforcement</li>
+    </ul></li>
+  <li data-from="5882" data-to="6014"><strong data-from="5885" data-to="5896">Routing</strong><ul data-from="5900" data-to="6014">
+      <li data-from="5900" data-to="5953">Metrics directed to stream processors based on type</li>
+      <li data-from="5957" data-to="6014">Hot-path metrics prioritized for low-latency processing</li>
+    </ul></li>
+  <li data-from="6015" data-to="6142"><strong data-from="6018" data-to="6033">Aggregation</strong><ul data-from="6037" data-to="6142">
+      <li data-from="6037" data-to="6086">Windowed aggregates computed using state stores</li>
+      <li data-from="6090" data-to="6142">Multiple aggregation functions applied in parallel</li>
+    </ul></li>
+  <li data-from="6143" data-to="6242"><strong data-from="6146" data-to="6161">Persistence</strong><ul data-from="6165" data-to="6242">
+      <li data-from="6165" data-to="6209">Aggregates written to time-series database</li>
+      <li data-from="6213" data-to="6242">Metadata updated in catalog</li>
+    </ul></li>
+  <li data-from="6243" data-to="6304"><strong data-from="6246" data-to="6258">Eviction</strong><ul data-from="6262" data-to="6304">
+      <li data-from="6262" data-to="6304">Expired data purged per retention policy</li>
+    </ul></li>
+</ol>
+<h3 id="52-failure-handling" data-from="6306" data-to="6330">5.2 Failure Handling</h3>
+<p data-from="6332" data-to="6379">The system implements multi-layered resilience:</p>
+<ul data-from="6381" data-to="6708">
+  <li data-from="6381" data-to="6460"><strong data-from="6383" data-to="6412">Input validation failures</strong>: Metrics rejected with detailed error responses</li>
+  <li data-from="6461" data-to="6552"><strong data-from="6463" data-to="6491">Processing node failures</strong>: Automatic failover to replica nodes with in-flight recovery</li>
+  <li data-from="6553" data-to="6630"><strong data-from="6555" data-to="6576">Database failures</strong>: Write buffering with eventual consistency guarantees</li>
+  <li data-from="6631" data-to="6708"><strong data-from="6633" data-to="6655">Network partitions</strong>: Circuit breaker pattern preventing cascade failures</li>
+</ul>
+<h2 id="6-performance-targets" data-from="6710" data-to="6735">6. Performance Targets</h2>
+<p data-from="6737" data-to="6780">Under normal load, the system must achieve:</p>
+<ul data-from="6782" data-to="6989">
+  <li data-from="6782" data-to="6822">Ingest latency (P95): 150 milliseconds</li>
+  <li data-from="6823" data-to="6864">Query latency (P99): 500 milliseconds  </li>
+  <li data-from="6865" data-to="6929">Aggregate computation latency: 2-5 seconds for complex queries</li>
+  <li data-from="6930" data-to="6989">Memory footprint per million series: approximately 2-3 GB</li>
+</ul>
+<p data-from="6991" data-to="7112">For the ingest throughput requirement of <span class="mdr-math" data-tex="10^7" data-from="7032" data-to="7038">10^7</span> events/second across a cluster of <span class="mdr-math" data-tex="n" data-from="7073" data-to="7076">n</span> nodes, individual node capacity is:</p>
+<div class="mdr-math-block" data-tex="\text{Per-node throughput} = \frac{10^7}{n} \text{ events/second}" data-from="7114" data-to="7183">
+  \text{Per-node throughput} = \frac{10^7}{n} \text{ events/second}
+</div>
+<p data-from="7185" data-to="7247">With <span class="mdr-math" data-tex="n=50" data-from="7190" data-to="7196">n=50</span> nodes, each handles <span class="mdr-math" data-tex="2 \times 10^5" data-from="7217" data-to="7232">2 \times 10^5</span> events/second.</p>
+<h2 id="7-configuration-parameters" data-from="7249" data-to="7279">7. Configuration Parameters</h2>
+<p data-from="7281" data-to="7307">Key configurable settings:</p>
+<ul data-from="7309" data-to="7650">
+  <li data-from="7309" data-to="7385"><code data-from="7311" data-to="7335">MAX_METRIC_CARDINALITY</code>: Maximum unique series per metric (default: 100M)</li>
+  <li data-from="7386" data-to="7443"><code data-from="7388" data-to="7409">AGGREGATION_WINDOWS</code>: List of window sizes for rollups</li>
+  <li data-from="7444" data-to="7513"><code data-from="7446" data-to="7467">DATA_RETENTION_DAYS</code>: How long to retain raw metrics (default: 90)</li>
+  <li data-from="7514" data-to="7580"><code data-from="7516" data-to="7534">QUERY_TIMEOUT_MS</code>: Maximum query execution time (default: 5000)</li>
+  <li data-from="7581" data-to="7650"><code data-from="7583" data-to="7605">INGESTION_BATCH_SIZE</code>: Number of metrics per batch (default: 1000)</li>
+</ul>
+<h2 id="8-future-enhancements" data-from="7652" data-to="7677">8. Future Enhancements</h2>
+<p data-from="7679" data-to="7720">Planned features for subsequent releases:</p>
+<ul data-from="7722" data-to="7919">
+  <li data-from="7722" data-to="7781">Real-time anomaly detection using machine learning models</li>
+  <li data-from="7782" data-to="7821">Custom metric calculation expressions</li>
+  <li data-from="7822" data-to="7859">Multi-tenant isolation improvements</li>
+  <li data-from="7860" data-to="7885">GraphQL query interface</li>
+  <li data-from="7886" data-to="7919">Metric forecasting capabilities</li>
+</ul>

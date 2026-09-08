@@ -1,0 +1,105 @@
+<h1 id="research-notes-streaming-changepoint-detection-comparing-three-approaches" data-from="0" data-to="78">Research Notes: Streaming Changepoint Detection — Comparing Three Approaches</h1>
+<h2 id="context" data-from="80" data-to="90">Context</h2>
+<p data-from="92" data-to="593">While evaluating drift-detection modules for the Aurelia telemetry pipeline, I compared three candidate algorithms for online changepoint detection in noisy sensor streams: <strong data-from="265" data-to="313">Bayesian Online Changepoint Detection (BOCD)</strong>, the <strong data-from="319" data-to="336">CUSUM-Kestrel</strong> variant developed internally, and a lightweight <strong data-from="385" data-to="422">Sliding-Window Energy Test (SWET)</strong>. The goal was to identify which method best balances detection latency, false-alarm rate, and computational footprint on edge devices with roughly 40 MB of available RAM.</p>
+<h2 id="problem-setup" data-from="595" data-to="611">Problem Setup</h2>
+<p data-from="613" data-to="1009">We assume a stream <span class="mdr-math" data-tex="x_1, x_2, \dots, x_t, \dots" data-from="632" data-to="661">x_1, x_2, \dots, x_t, \dots</span> generated from a piecewise-stationary process, where the mean shifts at unknown times <span class="mdr-math" data-tex="\tau_1 &lt; \tau_2 &lt; \dots" data-from="748" data-to="773">\tau_1 &lt; \tau_2 &lt; \dots</span>. Each segment is modeled as i.i.d. draws from <span class="mdr-math" data-tex="\mathcal{N}(\mu_k, \sigma^2)" data-from="820" data-to="850">\mathcal{N}(\mu_k, \sigma^2)</span> for segment <span class="mdr-math" data-tex="k" data-from="863" data-to="866">k</span>, with <span class="mdr-math" data-tex="\sigma^2" data-from="873" data-to="883">\sigma^2</span> assumed roughly constant across segments (an assumption that turned out to be shakier than expected — see the warning below).</p>
+<p data-from="1011" data-to="1218">The detection objective is to estimate, at every time step <span class="mdr-math" data-tex="t" data-from="1070" data-to="1073">t</span>, the run length <span class="mdr-math" data-tex="r_t" data-from="1090" data-to="1095">r_t</span> since the last changepoint, and to flag a change when the posterior probability of <span class="mdr-math" data-tex="r_t = 0" data-from="1179" data-to="1188">r_t = 0</span> exceeds a threshold <span class="mdr-math" data-tex="\theta" data-from="1209" data-to="1217">\theta</span>.</p>
+<h2 id="approach-1-bayesian-online-changepoint-detection-bocd" data-from="1220" data-to="1279">Approach 1: Bayesian Online Changepoint Detection (BOCD)</h2>
+<p data-from="1281" data-to="1389">BOCD maintains a full posterior distribution over run length <span class="mdr-math" data-tex="r_t" data-from="1342" data-to="1347">r_t</span> using a recursive message-passing update:</p>
+<div class="mdr-math-block" data-tex="P(r_t \mid x_{1:t}) \propto \sum_{r_{t-1}} P(r_t \mid r_{t-1}) \, P(x_t \mid r_{t-1}, x_{1:t-1}) \, P(r_{t-1} \mid x_{1:t-1})" data-from="1391" data-to="1522">
+  P(r_t \mid x_{1:t}) \propto \sum_{r_{t-1}} P(r_t \mid r_{t-1}) \, P(x_t \mid r_{t-1}, x_{1:t-1}) \, P(r_{t-1} \mid x_{1:t-1})
+</div>
+<p data-from="1524" data-to="1839">We used a hazard function <span class="mdr-math" data-tex="H(r) = 1/\lambda" data-from="1550" data-to="1568">H(r) = 1/\lambda</span> with <span class="mdr-math" data-tex="\lambda = 250" data-from="1574" data-to="1589">\lambda = 250</span>, corresponding to an expected segment length of 250 samples. The conjugate Normal-Inverse-Gamma prior made the predictive updates closed-form, which kept per-step cost near <span class="mdr-math" data-tex="O(t)" data-from="1763" data-to="1769">O(t)</span> in the worst case (pruned to <span class="mdr-math" data-tex="O(W)" data-from="1799" data-to="1805">O(W)</span> with a run-length cap <span class="mdr-math" data-tex="W = 500" data-from="1828" data-to="1837">W = 500</span>).</p>
+<p data-from="1841" data-to="1881">Pros observed in the Aurelia trial runs:</p>
+<ol data-from="1883" data-to="2101">
+  <li data-from="1883" data-to="1957">Very low false-positive rate (empirically ≈ 0.4% over 12 test streams).</li>
+  <li data-from="1958" data-to="2037">Produces a full posterior, useful for downstream uncertainty-aware alerting.</li>
+  <li data-from="2038" data-to="2101">Naturally handles variable segment lengths without retuning.</li>
+</ol>
+<p data-from="2103" data-to="2108">Cons:</p>
+<ul data-from="2110" data-to="2396">
+  <li data-from="2110" data-to="2261">Memory grows with the run-length cap <span class="mdr-math" data-tex="W" data-from="2149" data-to="2152">W</span>; at <span class="mdr-math" data-tex="W=500" data-from="2157" data-to="2164">W=500</span> we saw ~18 MB resident, uncomfortably close to our 40 MB ceiling once other services are loaded.</li>
+  <li data-from="2262" data-to="2396">Latency to detection averaged <span class="mdr-math" data-tex="\bar{d} \approx 34" data-from="2294" data-to="2314">\bar{d} \approx 34</span> samples after the true changepoint, worse than CUSUM-Kestrel in high-SNR regimes.</li>
+</ul>
+<h2 id="approach-2-cusum-kestrel" data-from="2398" data-to="2426">Approach 2: CUSUM-Kestrel</h2>
+<p data-from="2428" data-to="2623">This is our team's modification of the classical cumulative sum test, adding an adaptive drift term <span class="mdr-math" data-tex="\delta_t" data-from="2528" data-to="2538">\delta_t</span> that shrinks as confidence in the current segment mean grows. The core statistic is:</p>
+<div class="mdr-math-block" data-tex="S_t = \max\left(0,\; S_{t-1} + (x_t - \hat{\mu}_t) - \delta_t\right)" data-from="2625" data-to="2699">
+  S_t = \max\left(0,\; S_{t-1} + (x_t - \hat{\mu}_t) - \delta_t\right)
+</div>
+<p data-from="2701" data-to="2834">A change is flagged when <span class="mdr-math" data-tex="S_t &gt; h" data-from="2726" data-to="2735">S_t &gt; h</span>, with <span class="mdr-math" data-tex="h = 5.2" data-from="2742" data-to="2751">h = 5.2</span> chosen via grid search against a held-out validation stream (stream ID <code data-from="2823" data-to="2832">AUR-07b</code>).</p>
+<pre class="mdr-code" data-lang="python" data-from="2836" data-to="3042"><code class="language-python" data-verbatim data-from="2846" data-to="3038">def cusum_kestrel(x, mu_hat, delta, h, S=0.0):
+    """One streaming step of the CUSUM-Kestrel statistic."""
+    S = max(0.0, S + (x - mu_hat) - delta)
+    flagged = S &gt; h
+    return S, flagged</code></pre>
+<p data-from="3044" data-to="3378">In practice this approach gave the fastest median detection latency, <span class="mdr-math" data-tex="\tilde{d} \approx 11" data-from="3113" data-to="3135">\tilde{d} \approx 11</span> samples, and used a trivially small memory footprint (a handful of floats). However, its performance degraded sharply when the noise variance <span class="mdr-math" data-tex="\sigma^2" data-from="3278" data-to="3288">\sigma^2</span> increased mid-stream — a scenario common in our vibration sensors during thermal cycling.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="3380" data-to="3725">
+  <div class="mdr-callout-title" data-from="3382" data-to="3392">
+    Warning
+  </div>
+  <p data-from="3395" data-to="3725">CUSUM-Kestrel assumes <span class="mdr-math" data-tex="\sigma^2" data-from="3417" data-to="3427">\sigma^2</span> is stationary. In three of the twelve test streams (notably <code data-from="3488" data-to="3496">AUR-04</code>, <code data-from="3498" data-to="3506">AUR-09</code>, and <code data-from="3512" data-to="3520">AUR-11</code>), variance inflation of roughly 2.3x produced a burst of false alarms — as many as 9 spurious flags in a 2000-sample window. Any deployment must pair this method with a separate variance-monitoring guard.</p>
+</blockquote>
+<h2 id="approach-3-sliding-window-energy-test-swet" data-from="3727" data-to="3775">Approach 3: Sliding-Window Energy Test (SWET)</h2>
+<p data-from="3777" data-to="3897">SWET compares the empirical distributions of two adjacent windows of length <span class="mdr-math" data-tex="w = 64" data-from="3853" data-to="3861">w = 64</span> using an energy-distance statistic:</p>
+<div class="mdr-math-block" data-tex="E_{w} = \frac{2}{w^2}\sum_{i,j} \|x_i - y_j\| - \frac{1}{w^2}\sum_{i,j}\|x_i - x_j\| - \frac{1}{w^2}\sum_{i,j}\|y_i - y_j\|" data-from="3899" data-to="4028">
+  E_{w} = \frac{2}{w^2}\sum_{i,j} \|x_i - y_j\| - \frac{1}{w^2}\sum_{i,j}\|x_i - x_j\| - \frac{1}{w^2}\sum_{i,j}\|y_i - y_j\|
+</div>
+<p data-from="4030" data-to="4295">where <span class="mdr-math" data-tex="x" data-from="4036" data-to="4039">x</span> and <span class="mdr-math" data-tex="y" data-from="4044" data-to="4047">y</span> denote the "before" and "after" windows respectively. Unlike BOCD and CUSUM-Kestrel, SWET makes no distributional assumption beyond exchangeability within each window, so it handled the variance-shift failure mode of CUSUM-Kestrel reasonably well.</p>
+<p data-from="4297" data-to="4592">The catch is cost: computing pairwise distances naively is <span class="mdr-math" data-tex="O(w^2)" data-from="4356" data-to="4364">O(w^2)</span> per step, and even with the incremental update trick (caching partial sums), our profiling showed SWET consuming roughly 3.1x the CPU cycles of CUSUM-Kestrel on the same hardware (an ARM Cortex-A53 devboard clocked at 1.2 GHz).</p>
+<h2 id="comparative-summary" data-from="4594" data-to="4616">Comparative Summary</h2>
+<div class="mdr-table-wrap" data-from="4618" data-to="4846">
+  <table data-from="4618" data-to="4846">
+    <thead data-from="4618" data-to="4658">
+      <tr data-from="4618" data-to="4658">
+        <th data-from="4620" data-to="4626">Metric</th>
+        <th data-from="4629" data-to="4633">BOCD</th>
+        <th data-from="4636" data-to="4649">CUSUM-Kestrel</th>
+        <th data-from="4652" data-to="4656">SWET</th>
+      </tr>
+    </thead>
+    <tbody data-from="4677" data-to="4846">
+      <tr data-from="4677" data-to="4720">
+        <td data-from="4679" data-to="4703">Median latency (samples)</td>
+        <td data-from="4706" data-to="4708">27</td>
+        <td data-from="4711" data-to="4713">11</td>
+        <td data-from="4716" data-to="4718">19</td>
+      </tr>
+      <tr data-from="4721" data-to="4766">
+        <td data-from="4723" data-to="4742">False-positive rate</td>
+        <td data-from="4745" data-to="4749">0.4%</td>
+        <td data-from="4752" data-to="4757">2.1%*</td>
+        <td data-from="4760" data-to="4764">0.9%</td>
+      </tr>
+      <tr data-from="4767" data-to="4803">
+        <td data-from="4769" data-to="4782">Peak RAM (MB)</td>
+        <td data-from="4785" data-to="4789">18.4</td>
+        <td data-from="4792" data-to="4795">0.2</td>
+        <td data-from="4798" data-to="4801">4.7</td>
+      </tr>
+      <tr data-from="4804" data-to="4846">
+        <td data-from="4806" data-to="4823">Relative CPU cost</td>
+        <td data-from="4826" data-to="4830">1.6x</td>
+        <td data-from="4833" data-to="4837">1.0x</td>
+        <td data-from="4840" data-to="4844">3.1x</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="4848" data-to="4909">*Rises to ~5.8% under variance drift, per the warning above.</p>
+<h2 id="task-list-for-follow-up-work" data-from="4911" data-to="4942">Task List for Follow-Up Work</h2>
+<ul data-from="4944" data-to="5485">
+  <li class="mdr-task" data-from="4944" data-to="5037"><input type="checkbox" disabled checked data-from="4946" data-to="4949">Reproduce BOCD results with hazard <span class="mdr-math" data-tex="\lambda = 250" data-from="4985" data-to="5000">\lambda = 250</span> on streams <code data-from="5012" data-to="5020">AUR-01</code> through <code data-from="5029" data-to="5037">AUR-06</code></li>
+  <li class="mdr-task" data-from="5038" data-to="5110"><input type="checkbox" disabled checked data-from="5040" data-to="5043">Implement incremental SWET update to avoid recomputation each step</li>
+  <li class="mdr-task" data-from="5111" data-to="5171"><input type="checkbox" disabled checked data-from="5113" data-to="5116">Draft variance-guard module to pair with CUSUM-Kestrel</li>
+  <li class="mdr-task" data-from="5172" data-to="5270"><input type="checkbox" disabled data-from="5174" data-to="5177">Run full 30-stream benchmark including the newly acquired <code data-from="5236" data-to="5244">AUR-12</code> through <code data-from="5253" data-to="5261">AUR-15</code> datasets</li>
+  <li class="mdr-task" data-from="5271" data-to="5370"><input type="checkbox" disabled data-from="5273" data-to="5276">Profile memory under concurrent multi-sensor deployment (currently only single-stream tested)</li>
+  <li class="mdr-task" data-from="5371" data-to="5485"><input type="checkbox" disabled data-from="5373" data-to="5376">Evaluate a hybrid detector that switches between CUSUM-Kestrel and SWET based on a rolling variance estimate</li>
+</ul>
+<h2 id="tentative-recommendation" data-from="5487" data-to="5514">Tentative Recommendation</h2>
+<blockquote class="mdr-callout" data-callout="note" data-from="5516" data-to="6044">
+  <div class="mdr-callout-title" data-from="5518" data-to="5525">
+    Note
+  </div>
+  <p data-from="5528" data-to="6044">Given the RAM ceiling on edge nodes, our current recommendation is a <strong data-from="5597" data-to="5607">hybrid</strong>: run CUSUM-Kestrel as the primary low-cost detector, gated by a lightweight variance monitor that temporarily promotes decision authority to SWET whenever the estimated <span class="mdr-math" data-tex="\hat\sigma^2" data-from="5777" data-to="5791">\hat\sigma^2</span> deviates from its baseline by more than 1.5x. BOCD remains attractive for offline or batch reanalysis where its posterior output adds diagnostic value, but its memory profile makes it a poor fit for the smallest edge nodes in the current Aurelia fleet.</p>
+</blockquote>
+<p data-from="6046" data-to="6187">Further validation against the expanded dataset (<code data-from="6095" data-to="6103">AUR-12</code>–<code data-from="6104" data-to="6112">AUR-15</code>) is needed before this recommendation is finalized for production rollout.</p>

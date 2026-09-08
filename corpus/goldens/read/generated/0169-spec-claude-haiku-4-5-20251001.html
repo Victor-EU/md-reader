@@ -1,0 +1,307 @@
+<h1 id="technical-specification-quantumflow-data-processing-system" data-from="0" data-to="61">Technical Specification: QuantumFlow Data Processing System</h1>
+<h2 id="executive-summary" data-from="63" data-to="83">Executive Summary</h2>
+<p data-from="85" data-to="327">The <strong data-from="89" data-to="104">QuantumFlow</strong> system is a distributed data processing platform designed to handle real-time analytics at scale. This specification outlines the core requirements, architectural components, and API design for version 2.1 of the platform.</p>
+<hr data-from="329" data-to="332">
+<h2 id="1-system-requirements" data-from="334" data-to="359">1. System Requirements</h2>
+<h3 id="11-functional-requirements" data-from="361" data-to="392">1.1 Functional Requirements</h3>
+<p data-from="394" data-to="456">The system must satisfy the following functional requirements:</p>
+<ul data-from="458" data-to="1210">
+  <li data-from="458" data-to="857">Process streaming data from multiple sources simultaneously<ul data-from="522" data-to="857">
+      <li data-from="522" data-to="700">Support TCP/IP, UDP, and gRPC protocols<ul data-from="568" data-to="700">
+          <li data-from="568" data-to="616">TCP/IP connections with automatic reconnection</li>
+          <li data-from="621" data-to="660">UDP multicast for broadcast scenarios</li>
+          <li data-from="665" data-to="700">gRPC with bidirectional streaming</li>
+        </ul></li>
+      <li data-from="703" data-to="857">Handle data rates up to 500,000 events per second<ul data-from="759" data-to="857">
+          <li data-from="759" data-to="799">Implement adaptive batching algorithms</li>
+          <li data-from="804" data-to="857">Support burst handling up to 2 megabytes per second</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="858" data-to="1038">Provide real-time aggregation and transformation<ul data-from="911" data-to="1038">
+      <li data-from="911" data-to="978"><em data-from="913" data-to="923">Windowed</em> operations with sliding, tumbling, and session windows</li>
+      <li data-from="981" data-to="1038">Custom user-defined functions (UDFs) for transformation</li>
+    </ul></li>
+  <li data-from="1039" data-to="1150">Maintain strict ordering guarantees<ul data-from="1079" data-to="1150">
+      <li data-from="1079" data-to="1117"><mark data-from="1081" data-to="1117">At-least-once delivery semantics</mark></li>
+      <li data-from="1120" data-to="1150">Exactly-once state mutations</li>
+    </ul></li>
+  <li data-from="1151" data-to="1210">Generate actionable alerts based on configured thresholds</li>
+</ul>
+<h3 id="12-non-functional-requirements" data-from="1212" data-to="1247">1.2 Non-Functional Requirements</h3>
+<div class="mdr-table-wrap" data-from="1249" data-to="1578">
+  <table data-from="1249" data-to="1578">
+    <thead data-from="1249" data-to="1290">
+      <tr data-from="1249" data-to="1290">
+        <th data-from="1251" data-to="1262">Requirement</th>
+        <th data-from="1265" data-to="1277">Target Value</th>
+        <th data-from="1280" data-to="1288">Priority</th>
+      </tr>
+    </thead>
+    <tbody data-from="1305" data-to="1578">
+      <tr data-from="1305" data-to="1348">
+        <td data-from="1307" data-to="1317">Throughput</td>
+        <td data-from="1320" data-to="1335">500K events/sec</td>
+        <td data-from="1338" data-to="1346">Critical</td>
+      </tr>
+      <tr data-from="1349" data-to="1398">
+        <td data-from="1351" data-to="1369">End-to-end latency</td>
+        <td data-from="1372" data-to="1385">&lt; 100ms (p99)</td>
+        <td data-from="1388" data-to="1396">Critical</td>
+      </tr>
+      <tr data-from="1399" data-to="1445">
+        <td data-from="1401" data-to="1418">State consistency</td>
+        <td data-from="1421" data-to="1436">RPO ≤ 5 seconds</td>
+        <td data-from="1439" data-to="1443">High</td>
+      </tr>
+      <tr data-from="1446" data-to="1476">
+        <td data-from="1448" data-to="1458">Uptime SLA</td>
+        <td data-from="1461" data-to="1467">99.95%</td>
+        <td data-from="1470" data-to="1474">High</td>
+      </tr>
+      <tr data-from="1477" data-to="1523">
+        <td data-from="1479" data-to="1498">Query response time</td>
+        <td data-from="1501" data-to="1512">&lt; 2 seconds</td>
+        <td data-from="1515" data-to="1521">Medium</td>
+      </tr>
+      <tr data-from="1524" data-to="1578">
+        <td data-from="1526" data-to="1544">Storage efficiency</td>
+        <td data-from="1547" data-to="1567">≤ 1.2x raw data size</td>
+        <td data-from="1570" data-to="1576">Medium</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="1580" data-to="1583">
+<h2 id="2-architecture-overview" data-from="1585" data-to="1612">2. Architecture Overview</h2>
+<h3 id="21-core-components" data-from="1614" data-to="1637">2.1 Core Components</h3>
+<p data-from="1639" data-to="1703">The QuantumFlow system comprises several interconnected modules:</p>
+<ol data-from="1705" data-to="2085">
+  <li data-from="1705" data-to="1818"><strong data-from="1708" data-to="1727">Ingestion Layer</strong><ul data-from="1731" data-to="1818">
+      <li data-from="1731" data-to="1750">Stream collectors</li>
+      <li data-from="1754" data-to="1773">Protocol adapters</li>
+      <li data-from="1777" data-to="1818">Rate limiters and backpressure handlers</li>
+    </ul></li>
+  <li data-from="1819" data-to="1909"><strong data-from="1822" data-to="1843">Processing Engine</strong><ul data-from="1847" data-to="1909">
+      <li data-from="1847" data-to="1864">Query optimizer</li>
+      <li data-from="1868" data-to="1887">Execution runtime</li>
+      <li data-from="1891" data-to="1909">State management</li>
+    </ul></li>
+  <li data-from="1910" data-to="1992"><strong data-from="1913" data-to="1930">Storage Layer</strong><ul data-from="1934" data-to="1992">
+      <li data-from="1934" data-to="1956">Time-series database</li>
+      <li data-from="1960" data-to="1977">State snapshots</li>
+      <li data-from="1981" data-to="1992">Event log</li>
+    </ul></li>
+  <li data-from="1993" data-to="2085"><strong data-from="1996" data-to="2011">API Gateway</strong><ul data-from="2015" data-to="2085">
+      <li data-from="2015" data-to="2045">Authentication/Authorization</li>
+      <li data-from="2049" data-to="2066">Request routing</li>
+      <li data-from="2070" data-to="2085">Rate limiting</li>
+    </ul></li>
+</ol>
+<h3 id="22-performance-model" data-from="2087" data-to="2112">2.2 Performance Model</h3>
+<p data-from="2114" data-to="2174">The expected throughput can be calculated using the formula:</p>
+<div class="mdr-math-block" data-tex="T = \frac{C \times P \times (1 - L)}{W}" data-from="2176" data-to="2219">
+  T = \frac{C \times P \times (1 - L)}{W}
+</div>
+<p data-from="2221" data-to="2227">where:</p>
+<ul data-from="2228" data-to="2433">
+  <li data-from="2228" data-to="2259"><span class="mdr-math" data-tex="T" data-from="2230" data-to="2233">T</span> = throughput (events/sec)</li>
+  <li data-from="2260" data-to="2294"><span class="mdr-math" data-tex="C" data-from="2262" data-to="2265">C</span> = number of processing cores</li>
+  <li data-from="2295" data-to="2344"><span class="mdr-math" data-tex="P" data-from="2297" data-to="2300">P</span> = events processed per core per millisecond</li>
+  <li data-from="2345" data-to="2389"><span class="mdr-math" data-tex="L" data-from="2347" data-to="2350">L</span> = system overhead factor (<span class="mdr-math" data-tex="0 &lt; L &lt; 1" data-from="2377" data-to="2388">0 &lt; L &lt; 1</span>)</li>
+  <li data-from="2390" data-to="2433"><span class="mdr-math" data-tex="W" data-from="2392" data-to="2395">W</span> = average window size in milliseconds</li>
+</ul>
+<p data-from="2435" data-to="2574">For the baseline configuration with 16 cores, <span class="mdr-math" data-tex="P = 35" data-from="2481" data-to="2489">P = 35</span> events/core/ms, and <span class="mdr-math" data-tex="L = 0.15" data-from="2510" data-to="2520">L = 0.15</span>, we expect approximately <span class="mdr-math" data-tex="T \approx 475" data-from="2546" data-to="2561">T \approx 475</span> Kevents/sec.</p>
+<hr data-from="2576" data-to="2579">
+<h2 id="3-detailed-requirements" data-from="2581" data-to="2608">3. Detailed Requirements</h2>
+<h3 id="31-data-model" data-from="2610" data-to="2628">3.1 Data Model</h3>
+<p data-from="2630" data-to="2712">The system operates on <em data-from="2653" data-to="2682"><strong data-from="2654" data-to="2681">immutable event records</strong></em> with the following structure:</p>
+<pre class="mdr-code" data-lang="json" data-from="2714" data-to="2987"><code class="language-json" data-verbatim data-from="2722" data-to="2983">{
+  "event_id": "uuid",
+  "timestamp": "2024-01-15T09:30:45.123Z",
+  "source": "sensor-group-7",
+  "payload": {
+    "temperature": 72.5,
+    "humidity": 61.2,
+    "pressure": 1013.25
+  },
+  "metadata": {
+    "region": "us-west-2",
+    "priority": "normal"
+  }
+}</code></pre>
+<h3 id="32-query-language-features" data-from="2989" data-to="3020">3.2 Query Language Features</h3>
+<p data-from="3022" data-to="3072">The <strong data-from="3026" data-to="3062">QuantumFlow Query Language (QFL)</strong> supports:</p>
+<ol data-from="3074" data-to="3599">
+  <li data-from="3074" data-to="3288">Stream selections<ul data-from="3098" data-to="3288">
+      <li data-from="3098" data-to="3253">Basic filtering with equality and comparison operators<ul data-from="3160" data-to="3253">
+          <li data-from="3160" data-to="3253">Compound conditions using <code data-from="3188" data-to="3193">AND</code>, <code data-from="3195" data-to="3199">OR</code>, <code data-from="3201" data-to="3206">NOT</code><ul data-from="3214" data-to="3253">
+              <li data-from="3214" data-to="3253">Parenthetical grouping for precedence</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="3257" data-to="3288">Projection of specific fields</li>
+    </ul></li>
+  <li data-from="3289" data-to="3464">Windowing operations<ul data-from="3316" data-to="3464">
+      <li data-from="3316" data-to="3371">Tumbling windows with fixed duration (10ms to 1 hour)</li>
+      <li data-from="3375" data-to="3419">Sliding windows with configurable hop size</li>
+      <li data-from="3423" data-to="3464">Session windows with inactivity timeout</li>
+    </ul></li>
+  <li data-from="3465" data-to="3599">Aggregation functions<ul data-from="3493" data-to="3599">
+      <li data-from="3493" data-to="3550">Built-in: <code data-from="3505" data-to="3510">SUM</code>, <code data-from="3512" data-to="3517">AVG</code>, <code data-from="3519" data-to="3524">MIN</code>, <code data-from="3526" data-to="3531">MAX</code>, <code data-from="3533" data-to="3540">COUNT</code>, <code data-from="3542" data-to="3550">STDDEV</code></li>
+      <li data-from="3554" data-to="3599">Custom implementations via UDF registration</li>
+    </ul></li>
+</ol>
+<h3 id="33-state-management" data-from="3601" data-to="3625">3.3 State Management</h3>
+<blockquote data-from="3627" data-to="3895">
+  <p data-from="3629" data-to="3895"><strong data-from="3629" data-to="3643">Important:</strong> All state mutations must be idempotent and recoverable from the event log. The system maintains <mark data-from="3740" data-to="3764">multiple checkpoints</mark> at regular intervals to ensure rapid recovery in case of failure. State snapshots are encrypted and compressed before persistence.</p>
+</blockquote>
+<p data-from="3897" data-to="3975">The system implements versioned state snapshots with the following properties:</p>
+<ul data-from="3977" data-to="4162">
+  <li data-from="3977" data-to="4032">Snapshot interval: configurable from 5 to 300 seconds</li>
+  <li data-from="4033" data-to="4069">Retention period: minimum 24 hours</li>
+  <li data-from="4070" data-to="4113">Compression algorithm: zstd with level 12</li>
+  <li data-from="4114" data-to="4162">Encryption: AES-256-GCM with per-snapshot keys</li>
+</ul>
+<hr data-from="4164" data-to="4167">
+<h2 id="4-api-specification" data-from="4169" data-to="4192">4. API Specification</h2>
+<h3 id="41-stream-management-api" data-from="4194" data-to="4223">4.1 Stream Management API</h3>
+<h4 id="create-stream" data-from="4225" data-to="4243">Create Stream</h4>
+<pre class="mdr-code" data-lang="python" data-from="4245" data-to="4831"><code class="language-python" data-verbatim data-from="4255" data-to="4827">POST /api/v2/streams
+
+Request Body:
+{
+  "name": "sensor-telemetry",
+  "description": "Real-time sensor readings",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "sensor_id": {"type": "string"},
+      "reading": {"type": "number"},
+      "timestamp": {"type": "string", "format": "date-time"}
+    },
+    "required": ["sensor_id", "reading", "timestamp"]
+  },
+  "retention_days": 30,
+  "partition_key": "sensor_id"
+}
+
+Response (201):
+{
+  "stream_id": "str-9f82c4d1",
+  "name": "sensor-telemetry",
+  "created_at": "2024-01-15T09:30:45Z",
+  "status": "active"
+}</code></pre>
+<h4 id="list-streams" data-from="4833" data-to="4850">List Streams</h4>
+<pre class="mdr-code" data-lang="python" data-from="4852" data-to="5132"><code class="language-python" data-verbatim data-from="4862" data-to="5128">GET /api/v2/streams?limit=50&amp;offset=0
+
+Response (200):
+{
+  "streams": [
+    {
+      "stream_id": "str-9f82c4d1",
+      "name": "sensor-telemetry",
+      "events_per_second": 12450,
+      "total_events": 89234567
+    }
+  ],
+  "total_count": 156,
+  "next_offset": 50
+}</code></pre>
+<h3 id="42-query-execution-api" data-from="5134" data-to="5161">4.2 Query Execution API</h3>
+<h4 id="submit-query" data-from="5163" data-to="5180">Submit Query</h4>
+<pre class="mdr-code" data-lang="python" data-from="5182" data-to="5674"><code class="language-python" data-verbatim data-from="5192" data-to="5670">POST /api/v2/queries
+
+Request Body:
+{
+  "query": "SELECT AVG(reading) as avg_temp FROM sensor-telemetry 
+            WHERE sensor_id = 'sensor-42' 
+            WINDOW TUMBLING(60000)",
+  "stream_id": "str-9f82c4d1",
+  "output_mode": "complete",
+  "options": {
+    "timeout_ms": 30000,
+    "checkpoint_interval_ms": 5000
+  }
+}
+
+Response (202):
+{
+  "query_id": "qry-a7f3e2b9",
+  "status": "processing",
+  "submitted_at": "2024-01-15T09:30:45Z",
+  "estimated_completion_ms": 2500
+}</code></pre>
+<h4 id="get-query-results" data-from="5676" data-to="5698">Get Query Results</h4>
+<pre class="mdr-code" data-lang="python" data-from="5700" data-to="6021"><code class="language-python" data-verbatim data-from="5710" data-to="6017">GET /api/v2/queries/qry-a7f3e2b9/results
+
+Response (200):
+{
+  "query_id": "qry-a7f3e2b9",
+  "status": "completed",
+  "result_rows": 12,
+  "data": [
+    {
+      "window_start": "2024-01-15T09:31:00Z",
+      "window_end": "2024-01-15T09:32:00Z",
+      "avg_temp": 71.8
+    }
+  ],
+  "execution_time_ms": 2341
+}</code></pre>
+<h3 id="43-alert-configuration-api" data-from="6023" data-to="6054">4.3 Alert Configuration API</h3>
+<h4 id="register-alert-rule" data-from="6056" data-to="6080">Register Alert Rule</h4>
+<pre class="mdr-code" data-lang="python" data-from="6082" data-to="6527"><code class="language-python" data-verbatim data-from="6092" data-to="6523">POST /api/v2/alerts
+
+Request Body:
+{
+  "name": "temperature-anomaly",
+  "description": "Alert when temperature exceeds 85°C",
+  "condition": "reading &gt; 85.0",
+  "stream_id": "str-9f82c4d1",
+  "alert_threshold": 3,
+  "time_window_ms": 10000,
+  "severity": "high",
+  "notification_channels": ["email:admin@example.com"]
+}
+
+Response (201):
+{
+  "alert_id": "alt-d4c2f1a8",
+  "created_at": "2024-01-15T09:30:45Z",
+  "status": "active"
+}</code></pre>
+<h3 id="44-error-handling" data-from="6529" data-to="6551">4.4 Error Handling</h3>
+<p data-from="6553" data-to="6606">All API endpoints follow consistent error formatting:</p>
+<pre class="mdr-code" data-lang="python" data-from="6608" data-to="6915"><code class="language-python" data-verbatim data-from="6618" data-to="6911">Response (4xx or 5xx):
+{
+  "error": {
+    "code": "INVALID_QUERY_SYNTAX",
+    "message": "Unexpected token at position 42",
+    "details": {
+      "query_position": 42,
+      "context": "WHERE sensor_id = "
+    },
+    "timestamp": "2024-01-15T09:30:45Z",
+    "request_id": "req-f8a3e2d1"
+  }
+}</code></pre>
+<hr data-from="6917" data-to="6920">
+<h2 id="5-implementation-constraints" data-from="6922" data-to="6954">5. Implementation Constraints</h2>
+<p data-from="6956" data-to="7016">The implementation must adhere to the following constraints:</p>
+<ul data-from="7018" data-to="7433">
+  <li data-from="7018" data-to="7071"><strong data-from="7020" data-to="7033">Language:</strong> Go 1.21 or higher for core components</li>
+  <li data-from="7072" data-to="7136"><strong data-from="7074" data-to="7091">Dependencies:</strong> Minimal external dependencies, prefer stdlib</li>
+  <li data-from="7137" data-to="7209"><strong data-from="7139" data-to="7151">Testing:</strong> Minimum 85% code coverage with unit and integration tests</li>
+  <li data-from="7210" data-to="7283"><strong data-from="7212" data-to="7230">Documentation:</strong> All public APIs must have OpenAPI 3.1 specifications</li>
+  <li data-from="7284" data-to="7355"><strong data-from="7286" data-to="7301">Monitoring:</strong> Expose Prometheus metrics for all critical operations</li>
+  <li data-from="7356" data-to="7433"><strong data-from="7358" data-to="7376">Configuration:</strong> Support both YAML and environment variable configuration</li>
+</ul>
+<hr data-from="7435" data-to="7438">
+<h2 id="6-timeline-and-milestones" data-from="7440" data-to="7469">6. Timeline and Milestones</h2>
+<p data-from="7471" data-to="7710">Phase 1 (Weeks 1-4): Core ingestion and basic querying
+Phase 2 (Weeks 5-8): Advanced windowing and state management
+Phase 3 (Weeks 9-12): Alert system and monitoring integration
+Phase 4 (Weeks 13-16): Performance optimization and hardening</p>
+<hr data-from="7712" data-to="7715">
+<h2 id="7-conclusion" data-from="7717" data-to="7733">7. Conclusion</h2>
+<p data-from="7735" data-to="7972">The <strong data-from="7739" data-to="7754">QuantumFlow</strong> system provides a robust foundation for distributed stream processing with strict guarantees and excellent performance characteristics. This specification establishes the baseline requirements for version 2.1 release.</p>

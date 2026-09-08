@@ -1,9 +1,9 @@
 import type { EditorState, Transaction } from '@codemirror/state';
+import type { CorpusFile } from '@mdreader/markdown';
 import type { CommandTarget } from '../preview/widgets.ts';
 import type { Action, ActionPlan } from './actions.ts';
 import { checkExactness, checkLocality, fullyParsed, type Outcome } from './invariants.ts';
 import { mixSeed, rng } from './rng.ts';
-import type { CorpusFile } from './sources.ts';
 
 export interface Failure {
   file: string;

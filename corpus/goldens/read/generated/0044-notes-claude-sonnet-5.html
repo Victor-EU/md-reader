@@ -1,0 +1,107 @@
+<h1 id="research-notes-approaches-to-approximate-nearest-neighbor-retrieval" data-from="0" data-to="70">Research Notes: Approaches to Approximate Nearest-Neighbor Retrieval</h1>
+<p data-from="72" data-to="143"><strong data-from="72" data-to="83">Author:</strong> internal notes, project <em data-from="108" data-to="119">Halcyon-9</em>
+<strong data-from="120" data-to="129">Date:</strong> working draft</p>
+<h2 id="1-problem-framing" data-from="145" data-to="166">1. Problem Framing</h2>
+<p data-from="168" data-to="598">We are evaluating strategies for retrieving the top-<span class="mdr-math" data-tex="k" data-from="220" data-to="223">k</span> nearest vectors from a corpus of roughly 40 million embeddings, each of dimension <span class="mdr-math" data-tex="d = 768" data-from="306" data-to="315">d = 768</span>. The baseline exhaustive search costs <span class="mdr-math" data-tex="O(n d)" data-from="354" data-to="362">O(n d)</span> per query, which is untenable at our target latency budget of 15ms. Three candidate families were prototyped: <strong data-from="473" data-to="506">tree-partitioning (KD-Forest)</strong>, <strong data-from="508" data-to="546">graph-based navigation (HNSW-Lite)</strong>, and <strong data-from="552" data-to="597">quantization with inverted lists (IVF-PQ)</strong>.</p>
+<p data-from="600" data-to="721">The core trade-off is between recall <span class="mdr-math" data-tex="R" data-from="637" data-to="640">R</span>, query latency <span class="mdr-math" data-tex="t_q" data-from="656" data-to="661">t_q</span>, and index build time <span class="mdr-math" data-tex="t_b" data-from="684" data-to="689">t_b</span>. We define effective quality as</p>
+<div class="mdr-math-block" data-tex="Q = \frac{R^{2}}{\log(1 + t_q)}" data-from="723" data-to="760">
+  Q = \frac{R^{2}}{\log(1 + t_q)}
+</div>
+<p data-from="762" data-to="917">which penalizes latency logarithmically while rewarding recall quadratically, reflecting our product requirement that recall dominate below a 20ms ceiling.</p>
+<h2 id="2-kd-forest" data-from="919" data-to="934">2. KD-Forest</h2>
+<p data-from="936" data-to="1158">KD-Forest builds an ensemble of <span class="mdr-math" data-tex="m" data-from="968" data-to="971">m</span> randomized KD-trees, each splitting on a randomly chosen high-variance dimension. Query time scales roughly as <span class="mdr-math" data-tex="O(m \log n)" data-from="1083" data-to="1096">O(m \log n)</span> when backtracking is bounded by a priority queue of size <span class="mdr-math" data-tex="L" data-from="1154" data-to="1157">L</span>.</p>
+<ul data-from="1160" data-to="1374">
+  <li class="mdr-task" data-from="1160" data-to="1208"><input type="checkbox" disabled checked data-from="1162" data-to="1165">Implemented baseline single-tree KD search</li>
+  <li class="mdr-task" data-from="1209" data-to="1274"><input type="checkbox" disabled checked data-from="1211" data-to="1214">Extended to forest of <span class="mdr-math" data-tex="m = 12" data-from="1237" data-to="1245">m = 12</span> trees with shared leaf cache</li>
+  <li class="mdr-task" data-from="1275" data-to="1330"><input type="checkbox" disabled data-from="1277" data-to="1280">Tune backtracking budget <span class="mdr-math" data-tex="L" data-from="1306" data-to="1309">L</span> against recall curve</li>
+  <li class="mdr-task" data-from="1331" data-to="1374"><input type="checkbox" disabled data-from="1333" data-to="1336">Profile memory footprint at <span class="mdr-math" data-tex="n = 40M" data-from="1365" data-to="1374">n = 40M</span></li>
+</ul>
+<p data-from="1376" data-to="1653">In practice, recall plateaus around <span class="mdr-math" data-tex="R \approx 0.81" data-from="1412" data-to="1428">R \approx 0.81</span> even with generous backtracking, because axis-aligned splits degrade badly once <span class="mdr-math" data-tex="d" data-from="1509" data-to="1512">d</span> exceeds roughly 100. This matches the intuition that KD-trees lose discriminative power as the curse of dimensionality erodes split quality.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1655" data-to="1887">
+  <div class="mdr-callout-title" data-from="1657" data-to="1667">
+    Warning
+  </div>
+  <p data-from="1670" data-to="1887">KD-Forest memory usage grows linearly with <span class="mdr-math" data-tex="m" data-from="1713" data-to="1716">m</span>, and at <span class="mdr-math" data-tex="m = 12" data-from="1725" data-to="1733">m = 12</span> trees the index exceeded 38 GB in our staging cluster — nearly triple the raw embedding size. This may be disqualifying for cost-constrained deployments.</p>
+</blockquote>
+<h2 id="3-hnsw-lite" data-from="1889" data-to="1904">3. HNSW-Lite</h2>
+<p data-from="1906" data-to="2163">HNSW-Lite constructs a multi-layer proximity graph where each node maintains <span class="mdr-math" data-tex="M" data-from="1983" data-to="1986">M</span> bidirectional edges per layer. Search descends from a sparse top layer to a dense bottom layer, following greedy best-first traversal with a candidate list of size <span class="mdr-math" data-tex="\text{ef}" data-from="2151" data-to="2162">\text{ef}</span>.</p>
+<pre class="mdr-code" data-lang="python" data-from="2165" data-to="2814"><code class="language-python" data-verbatim data-from="2175" data-to="2810">def search_hnsw(graph, query, ef=64, entry=0):
+    visited = {entry}
+    candidates = [(distance(query, entry), entry)]
+    best = list(candidates)
+    while candidates:
+        dist, node = pop_closest(candidates)
+        if dist &gt; worst(best) and len(best) &gt;= ef:
+            break
+        for neighbor in graph.neighbors(node):
+            if neighbor not in visited:
+                visited.add(neighbor)
+                d = distance(query, neighbor)
+                if d &lt; worst(best) or len(best) &lt; ef:
+                    push(candidates, (d, neighbor))
+                    push(best, (d, neighbor))
+    return top_k(best, k=10)</code></pre>
+<p data-from="2816" data-to="3102">This approach achieved the highest recall in our trials, around <span class="mdr-math" data-tex="R \approx 0.97" data-from="2880" data-to="2896">R \approx 0.97</span> at <span class="mdr-math" data-tex="\text{ef} = 64" data-from="2900" data-to="2916">\text{ef} = 64</span>, with median latency near 6ms. The cost is build time: constructing the graph for 40M vectors took approximately 9.5 hours on a 32-core machine, compared to under 2 hours for KD-Forest.</p>
+<ul data-from="3104" data-to="3298">
+  <li class="mdr-task" data-from="3104" data-to="3144"><input type="checkbox" disabled checked data-from="3106" data-to="3109">Build graph on 2M-vector subsample</li>
+  <li class="mdr-task" data-from="3145" data-to="3199"><input type="checkbox" disabled checked data-from="3147" data-to="3150">Validate recall against brute-force ground truth</li>
+  <li class="mdr-task" data-from="3200" data-to="3237"><input type="checkbox" disabled checked data-from="3202" data-to="3205">Benchmark full 40M-vector build</li>
+  <li class="mdr-task" data-from="3238" data-to="3298"><input type="checkbox" disabled data-from="3240" data-to="3243">Investigate incremental insertion without full rebuild</li>
+</ul>
+<h2 id="4-ivf-pq" data-from="3300" data-to="3312">4. IVF-PQ</h2>
+<p data-from="3314" data-to="3531">Inverted-File Product Quantization first clusters the corpus into <span class="mdr-math" data-tex="C" data-from="3380" data-to="3383">C</span> coarse cells via k-means, then compresses residuals within each cell using product quantization with <span class="mdr-math" data-tex="s" data-from="3485" data-to="3488">s</span> subquantizers. Query cost is approximately</p>
+<div class="mdr-math-block" data-tex="t_q \propto \frac{n}{C}\cdot s + C" data-from="3533" data-to="3573">
+  t_q \propto \frac{n}{C}\cdot s + C
+</div>
+<p data-from="3575" data-to="3700">since a query only probes a small number of nearby cells (we used <span class="mdr-math" data-tex="n_\text{probe} = 8" data-from="3641" data-to="3661">n_\text{probe} = 8</span>) rather than scanning the full corpus.</p>
+<p data-from="3702" data-to="4048">IVF-PQ offered the smallest memory footprint by far — around 6 GB for the full corpus, an order of magnitude below both alternatives — because each vector is stored as an 8-byte quantized code rather than as a full 768-dimensional float array. Recall was moderate, <span class="mdr-math" data-tex="R \approx 0.89" data-from="3967" data-to="3983">R \approx 0.89</span>, and highly sensitive to the choice of <span class="mdr-math" data-tex="C" data-from="4023" data-to="4026">C</span> and <span class="mdr-math" data-tex="n_\text{probe}" data-from="4031" data-to="4047">n_\text{probe}</span>.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="4050" data-to="4306">
+  <div class="mdr-callout-title" data-from="4052" data-to="4059">
+    Note
+  </div>
+  <p data-from="4062" data-to="4306">Increasing <span class="mdr-math" data-tex="n_\text{probe}" data-from="4073" data-to="4089">n_\text{probe}</span> from 8 to 24 raised recall to roughly 0.93 but tripled latency to 14ms, right at our budget ceiling. This tuning knob is the main lever for this approach and deserves a dedicated sweep before any production decision.</p>
+</blockquote>
+<h2 id="5-comparative-summary" data-from="4308" data-to="4333">5. Comparative Summary</h2>
+<div class="mdr-table-wrap" data-from="4335" data-to="4549">
+  <table data-from="4335" data-to="4549">
+    <thead data-from="4335" data-to="4404">
+      <tr data-from="4335" data-to="4404">
+        <th data-from="4337" data-to="4345">Approach</th>
+        <th data-from="4348" data-to="4358">Recall <span class="mdr-math" data-tex="R" data-from="4355" data-to="4358">R</span></th>
+        <th data-from="4361" data-to="4374">Latency <span class="mdr-math" data-tex="t_q" data-from="4369" data-to="4374">t_q</span></th>
+        <th data-from="4377" data-to="4393">Build time <span class="mdr-math" data-tex="t_b" data-from="4388" data-to="4393">t_b</span></th>
+        <th data-from="4396" data-to="4402">Memory</th>
+      </tr>
+    </thead>
+    <tbody data-from="4427" data-to="4549">
+      <tr data-from="4427" data-to="4469">
+        <td data-from="4429" data-to="4438">KD-Forest</td>
+        <td data-from="4441" data-to="4445">0.81</td>
+        <td data-from="4448" data-to="4452">11ms</td>
+        <td data-from="4455" data-to="4459">1.8h</td>
+        <td data-from="4462" data-to="4467">38 GB</td>
+      </tr>
+      <tr data-from="4470" data-to="4511">
+        <td data-from="4472" data-to="4481">HNSW-Lite</td>
+        <td data-from="4484" data-to="4488">0.97</td>
+        <td data-from="4491" data-to="4494">6ms</td>
+        <td data-from="4497" data-to="4501">9.5h</td>
+        <td data-from="4504" data-to="4509">22 GB</td>
+      </tr>
+      <tr data-from="4512" data-to="4549">
+        <td data-from="4514" data-to="4520">IVF-PQ</td>
+        <td data-from="4523" data-to="4527">0.89</td>
+        <td data-from="4530" data-to="4533">9ms</td>
+        <td data-from="4536" data-to="4540">3.2h</td>
+        <td data-from="4543" data-to="4547">6 GB</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="4551" data-to="4909">Using the quality metric <span class="mdr-math" data-tex="Q" data-from="4576" data-to="4579">Q</span> defined above, HNSW-Lite scores highest (<span class="mdr-math" data-tex="Q \approx 0.51" data-from="4621" data-to="4637">Q \approx 0.51</span>), followed by IVF-PQ (<span class="mdr-math" data-tex="Q \approx 0.36" data-from="4660" data-to="4676">Q \approx 0.36</span>) and KD-Forest (<span class="mdr-math" data-tex="Q \approx 0.28" data-from="4693" data-to="4709">Q \approx 0.28</span>). Given our latency ceiling and acceptable build-time window (overnight batch jobs), HNSW-Lite is the current front-runner, with IVF-PQ retained as a fallback for memory-constrained edge deployments.</p>
+<h2 id="6-open-questions" data-from="4911" data-to="4931">6. Open Questions</h2>
+<ul data-from="4933" data-to="5173">
+  <li class="mdr-task" data-from="4933" data-to="5007"><input type="checkbox" disabled data-from="4935" data-to="4938">Can HNSW-Lite build time be reduced via parallel layer construction?</li>
+  <li class="mdr-task" data-from="5008" data-to="5073"><input type="checkbox" disabled data-from="5010" data-to="5013">Is a hybrid IVF + graph refinement stage worth prototyping?</li>
+  <li class="mdr-task" data-from="5074" data-to="5173"><input type="checkbox" disabled checked data-from="5076" data-to="5079">Confirm ground-truth recall measurement methodology is consistent across all three benchmarks</li>
+</ul>

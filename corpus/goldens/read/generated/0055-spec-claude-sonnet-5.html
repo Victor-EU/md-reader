@@ -1,0 +1,229 @@
+<h1 id="technical-specification-zephyrix-adaptive-rate-limiter-zarl" data-from="0" data-to="64">Technical Specification: Zephyrix Adaptive Rate Limiter (ZARL)</h1>
+<p data-from="66" data-to="203"><strong data-from="66" data-to="82">Document ID:</strong> ZARL-TS-0417
+<strong data-from="96" data-to="108">Version:</strong> 1.3.0
+<strong data-from="115" data-to="126">Status:</strong> Draft for Review
+<strong data-from="144" data-to="155">Author:</strong> Platform Infrastructure Group, Corvenna Systems</p>
+<hr data-from="205" data-to="208">
+<h2 id="1-overview" data-from="210" data-to="224">1. Overview</h2>
+<p data-from="226" data-to="621">The Zephyrix Adaptive Rate Limiter (ZARL) is a distributed traffic-shaping component designed to protect downstream services in the Marrowbrook cluster from bursty client load. Unlike static token-bucket implementations, ZARL continuously recalibrates its throughput ceiling based on observed latency percentiles and error rates, using a feedback controller inspired by classical control theory.</p>
+<p data-from="623" data-to="797">This document describes the functional requirements, mathematical model, and public API surface for ZARL v1.3, targeted for integration into the Halcyon Gateway service mesh.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="799" data-to="1014">
+  <div class="mdr-callout-title" data-from="801" data-to="808">
+    Note
+  </div>
+  <p data-from="811" data-to="1014">This specification assumes familiarity with the Halcyon Gateway's plugin architecture, described separately in document HG-ARCH-0112. ZARL is implemented as a gateway-side filter, not a standalone proxy.</p>
+</blockquote>
+<hr data-from="1016" data-to="1019">
+<h2 id="2-goals-and-non-goals" data-from="1021" data-to="1046">2. Goals and Non-Goals</h2>
+<h3 id="21-goals" data-from="1048" data-to="1061">2.1 Goals</h3>
+<ul data-from="1063" data-to="1395">
+  <li data-from="1063" data-to="1147">Provide per-tenant, per-route rate limiting with sub-millisecond decision latency.</li>
+  <li data-from="1148" data-to="1214">Dynamically adjust limits in response to backend health signals.</li>
+  <li data-from="1215" data-to="1321">Support graceful degradation under controller misconfiguration (fail-open or fail-closed, configurable).</li>
+  <li data-from="1322" data-to="1395">Expose a minimal, stable API for embedding in the Halcyon filter chain.</li>
+</ul>
+<h3 id="22-non-goals" data-from="1397" data-to="1414">2.2 Non-Goals</h3>
+<ul data-from="1416" data-to="1700">
+  <li data-from="1416" data-to="1514">ZARL does not perform authentication or authorization; it assumes requests arrive pre-validated.</li>
+  <li data-from="1515" data-to="1603">ZARL does not persist long-term traffic history beyond a rolling window of 15 minutes.</li>
+  <li data-from="1604" data-to="1700">ZARL is not intended to replace circuit breakers, though it may cooperate with one (see §6.3).</li>
+</ul>
+<hr data-from="1702" data-to="1705">
+<h2 id="3-system-requirements" data-from="1707" data-to="1732">3. System Requirements</h2>
+<h3 id="31-functional-requirements" data-from="1734" data-to="1765">3.1 Functional Requirements</h3>
+<ol data-from="1767" data-to="2481">
+  <li data-from="1767" data-to="1891"><strong data-from="1770" data-to="1778">FR-1</strong>: The system MUST support configuration of rate limits at three granularities: global, per-tenant, and per-route.</li>
+  <li data-from="1892" data-to="2020"><strong data-from="1895" data-to="1903">FR-2</strong>: The system MUST recompute the effective rate limit at a configurable interval, default $ \Delta t = 500\text{ms} $.</li>
+  <li data-from="2021" data-to="2118"><strong data-from="2024" data-to="2032">FR-3</strong>: The system MUST expose current limiter state via a read-only introspection endpoint.</li>
+  <li data-from="2119" data-to="2345"><strong data-from="2122" data-to="2130">FR-4</strong>: The system MUST support at least two backpressure signals as controller inputs:<ul data-from="2215" data-to="2345">
+      <li data-from="2215" data-to="2258">Observed p95 latency of downstream calls.</li>
+      <li data-from="2262" data-to="2345">Observed error ratio (5xx responses over total responses) in the trailing window.</li>
+    </ul></li>
+  <li data-from="2346" data-to="2481"><strong data-from="2349" data-to="2357">FR-5</strong>: The system MUST allow operators to define a hard floor and ceiling for the adaptive limit, preventing runaway oscillation.</li>
+</ol>
+<h3 id="32-non-functional-requirements" data-from="2483" data-to="2518">3.2 Non-Functional Requirements</h3>
+<ol data-from="2520" data-to="3541">
+  <li data-from="2520" data-to="2636"><strong data-from="2523" data-to="2532">NFR-1</strong>: Decision latency (accept/reject) MUST NOT exceed <span class="mdr-math" data-tex="150\mu s" data-from="2583" data-to="2593">150\mu s</span> at the 99th percentile under nominal load.</li>
+  <li data-from="2637" data-to="2708"><strong data-from="2640" data-to="2649">NFR-2</strong>: Memory overhead per tracked tenant MUST NOT exceed 4 KiB.</li>
+  <li data-from="2709" data-to="2833"><strong data-from="2712" data-to="2721">NFR-3</strong>: The controller state MUST be recoverable after a process restart within 2 seconds, using a snapshot mechanism.</li>
+  <li data-from="2834" data-to="3541"><strong data-from="2837" data-to="2846">NFR-4</strong>: The system MUST degrade predictably; see the failure mode taxonomy below:<ul data-from="2925" data-to="3541">
+      <li data-from="2925" data-to="3229">Configuration failures<ul data-from="2955" data-to="3229">
+          <li data-from="2955" data-to="3077">Missing tenant entry<ul data-from="2985" data-to="3077">
+              <li data-from="2985" data-to="3019">Fallback to global default limit</li>
+              <li data-from="3027" data-to="3077">Emit warning metric <code data-from="3049" data-to="3077">zarl.config.tenant_missing</code></li>
+            </ul></li>
+          <li data-from="3083" data-to="3229">Malformed floor/ceiling pair (floor &gt; ceiling)<ul data-from="3139" data-to="3229">
+              <li data-from="3139" data-to="3174">Reject configuration at load time</li>
+              <li data-from="3182" data-to="3229">Retain previous valid configuration in memory</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="3233" data-to="3541">Runtime failures<ul data-from="3257" data-to="3541">
+          <li data-from="3257" data-to="3401">Controller divergence (oscillation beyond threshold)<ul data-from="3319" data-to="3401">
+              <li data-from="3319" data-to="3354">Freeze limit at last stable value</li>
+              <li data-from="3362" data-to="3401">Emit alert <code data-from="3375" data-to="3401">zarl.controller.diverged</code></li>
+            </ul></li>
+          <li data-from="3407" data-to="3541">Snapshot corruption on restart<ul data-from="3447" data-to="3541">
+              <li data-from="3447" data-to="3486">Fall back to conservative floor value</li>
+              <li data-from="3494" data-to="3541">Log full snapshot payload for forensic review</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+</ol>
+<blockquote class="mdr-callout" data-callout="warning" data-from="3543" data-to="3892">
+  <div class="mdr-callout-title" data-from="3545" data-to="3555">
+    Warning
+  </div>
+  <p data-from="3558" data-to="3892">Operators who set the floor value above the ceiling value in a shared configuration file will cause the entire route group to reject the configuration at load time. There is intentionally no automatic reconciliation of this condition, as silent correction has historically masked provisioning errors in the Thistlewood incident of Q3.</p>
+</blockquote>
+<hr data-from="3894" data-to="3897">
+<h2 id="4-control-model" data-from="3899" data-to="3918">4. Control Model</h2>
+<p data-from="3920" data-to="4124">ZARL's core adaptive mechanism is a discrete-time proportional-integral (PI) controller. The controller output at step <span class="mdr-math" data-tex="k" data-from="4039" data-to="4042">k</span>, denoted <span class="mdr-math" data-tex="L_k" data-from="4052" data-to="4057">L_k</span> (the effective rate limit in requests per second), is computed as:</p>
+<div class="mdr-math-block" data-tex="L_k = \text{clamp}\left(L_{k-1} + K_p \cdot e_k + K_i \sum_{j=0}^{k} e_j \cdot \Delta t,\ L_{\text{floor}},\ L_{\text{ceiling}}\right)" data-from="4126" data-to="4266">
+  L_k = \text{clamp}\left(L_{k-1} + K_p \cdot e_k + K_i \sum_{j=0}^{k} e_j \cdot \Delta t,\ L_{\text{floor}},\ L_{\text{ceiling}}\right)
+</div>
+<p data-from="4268" data-to="4367">where the error term <span class="mdr-math" data-tex="e_k" data-from="4289" data-to="4294">e_k</span> is a weighted combination of latency deviation and error-rate deviation:</p>
+<div class="mdr-math-block" data-tex="e_k = -w_1 \left(\frac{p95_k - p95_{\text{target}}}{p95_{\text{target}}}\right) - w_2 \left(\frac{\epsilon_k - \epsilon_{\text{target}}}{\epsilon_{\text{target}}}\right)" data-from="4369" data-to="4544">
+  e_k = -w_1 \left(\frac{p95_k - p95_{\text{target}}}{p95_{\text{target}}}\right) - w_2 \left(\frac{\epsilon_k - \epsilon_{\text{target}}}{\epsilon_{\text{target}}}\right)
+</div>
+<p data-from="4546" data-to="4762">Here <span class="mdr-math" data-tex="p95_k" data-from="4551" data-to="4558">p95_k</span> is the observed p95 latency at step <span class="mdr-math" data-tex="k" data-from="4595" data-to="4598">k</span>, <span class="mdr-math" data-tex="\epsilon_k" data-from="4600" data-to="4612">\epsilon_k</span> is the observed error ratio, and <span class="mdr-math" data-tex="w_1, w_2" data-from="4646" data-to="4656">w_1, w_2</span> are configurable weights satisfying <span class="mdr-math" data-tex="w_1 + w_2 = 1" data-from="4693" data-to="4708">w_1 + w_2 = 1</span>. The default weights are <span class="mdr-math" data-tex="w_1 = 0.7" data-from="4734" data-to="4745">w_1 = 0.7</span> and <span class="mdr-math" data-tex="w_2 = 0.3" data-from="4750" data-to="4761">w_2 = 0.3</span>.</p>
+<p data-from="4764" data-to="4997">The controller gains <span class="mdr-math" data-tex="K_p" data-from="4785" data-to="4790">K_p</span> and <span class="mdr-math" data-tex="K_i" data-from="4795" data-to="4800">K_i</span> default to <span class="mdr-math" data-tex="0.4" data-from="4812" data-to="4817">0.4</span> and <span class="mdr-math" data-tex="0.05" data-from="4822" data-to="4828">0.05</span> respectively, though tuning is expected per deployment. A well-tuned controller should exhibit a settling time under 8 seconds for a step disturbance of 25% in <span class="mdr-math" data-tex="p95_k" data-from="4989" data-to="4996">p95_k</span>.</p>
+<h3 id="41-stability-considerations" data-from="4999" data-to="5031">4.1 Stability Considerations</h3>
+<p data-from="5033" data-to="5261">Operators should note that excessively large <span class="mdr-math" data-tex="K_i" data-from="5078" data-to="5083">K_i</span> values can induce sustained oscillation. As a rough guideline, the product <span class="mdr-math" data-tex="K_i \cdot \Delta t" data-from="5159" data-to="5179">K_i \cdot \Delta t</span> should remain below <span class="mdr-math" data-tex="0.1" data-from="5200" data-to="5205">0.1</span> for typical deployments with <span class="mdr-math" data-tex="\Delta t = 500\text{ms}" data-from="5235" data-to="5260">\Delta t = 500\text{ms}</span>.</p>
+<hr data-from="5263" data-to="5266">
+<h2 id="5-data-model" data-from="5268" data-to="5284">5. Data Model</h2>
+<h3 id="51-tenant-record" data-from="5286" data-to="5307">5.1 Tenant Record</h3>
+<p data-from="5309" data-to="5360">Each tracked tenant maintains the following fields:</p>
+<div class="mdr-table-wrap" data-from="5362" data-to="5835">
+  <table data-from="5362" data-to="5835">
+    <thead data-from="5362" data-to="5392">
+      <tr data-from="5362" data-to="5392">
+        <th data-from="5364" data-to="5369">Field</th>
+        <th data-from="5372" data-to="5376">Type</th>
+        <th data-from="5379" data-to="5390">Description</th>
+      </tr>
+    </thead>
+    <tbody data-from="5407" data-to="5835">
+      <tr data-from="5407" data-to="5465">
+        <td data-from="5409" data-to="5420"><code data-from="5409" data-to="5420">tenant_id</code></td>
+        <td data-from="5423" data-to="5429">string</td>
+        <td data-from="5432" data-to="5463">Unique identifier, max 64 bytes</td>
+      </tr>
+      <tr data-from="5466" data-to="5534">
+        <td data-from="5468" data-to="5483"><code data-from="5468" data-to="5483">current_limit</code></td>
+        <td data-from="5486" data-to="5493">float64</td>
+        <td data-from="5496" data-to="5532">Current effective rate limit (req/s)</td>
+      </tr>
+      <tr data-from="5535" data-to="5583">
+        <td data-from="5537" data-to="5544"><code data-from="5537" data-to="5544">floor</code></td>
+        <td data-from="5547" data-to="5554">float64</td>
+        <td data-from="5557" data-to="5581">Configured minimum limit</td>
+      </tr>
+      <tr data-from="5584" data-to="5634">
+        <td data-from="5586" data-to="5595"><code data-from="5586" data-to="5595">ceiling</code></td>
+        <td data-from="5598" data-to="5605">float64</td>
+        <td data-from="5608" data-to="5632">Configured maximum limit</td>
+      </tr>
+      <tr data-from="5635" data-to="5695">
+        <td data-from="5637" data-to="5652"><code data-from="5637" data-to="5652">window_p95_ms</code></td>
+        <td data-from="5655" data-to="5662">float64</td>
+        <td data-from="5665" data-to="5693">Rolling p95 latency estimate</td>
+      </tr>
+      <tr data-from="5696" data-to="5761">
+        <td data-from="5698" data-to="5718"><code data-from="5698" data-to="5718">window_error_ratio</code></td>
+        <td data-from="5721" data-to="5728">float64</td>
+        <td data-from="5731" data-to="5759">Rolling error ratio estimate</td>
+      </tr>
+      <tr data-from="5762" data-to="5835">
+        <td data-from="5764" data-to="5781"><code data-from="5764" data-to="5781">last_updated_ns</code></td>
+        <td data-from="5784" data-to="5789">int64</td>
+        <td data-from="5792" data-to="5833">Monotonic timestamp of last recalculation</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="52-route-overlay" data-from="5837" data-to="5858">5.2 Route Overlay</h3>
+<p data-from="5860" data-to="6029">Routes may override tenant-level defaults using a sparse overlay structure. Only fields present in the overlay are applied; absent fields inherit from the tenant record.</p>
+<hr data-from="6031" data-to="6034">
+<h2 id="6-api-sketch" data-from="6036" data-to="6052">6. API Sketch</h2>
+<p data-from="6054" data-to="6211">The following interface is written in a Go-like pseudocode for illustration. Actual bindings will be generated for Go, Rust, and the Halcyon WASM plugin ABI.</p>
+<pre class="mdr-code" data-lang="go" data-from="6213" data-to="7578"><code class="language-go" data-verbatim data-from="6219" data-to="7574">package zarl
+
+// Limiter is the primary entry point embedded in the gateway filter chain.
+type Limiter interface {
+    // Decide returns whether the request should proceed, along with
+    // a Decision containing diagnostic metadata.
+    Decide(ctx RequestContext) (Decision, error)
+
+    // Report feeds observed outcome data back into the controller.
+    // Callers MUST invoke Report exactly once per request that
+    // was previously admitted via Decide.
+    Report(ctx RequestContext, outcome Outcome) error
+
+    // Snapshot returns a serializable copy of internal state,
+    // used for warm restarts.
+    Snapshot() (StateSnapshot, error)
+
+    // Restore loads a previously captured snapshot.
+    Restore(snap StateSnapshot) error
+}
+
+// RequestContext carries the minimal routing information ZARL needs.
+type RequestContext struct {
+    TenantID  string
+    RouteID   string
+    Timestamp int64 // monotonic nanoseconds
+}
+
+// Decision is the result of a rate-limit check.
+type Decision struct {
+    Allowed      bool
+    CurrentLimit float64
+    Reason       string // e.g. "within_limit", "ceiling_reached"
+}
+
+// Outcome describes what happened to an admitted request.
+type Outcome struct {
+    LatencyMS  float64
+    StatusCode int
+}
+
+// StateSnapshot is an opaque, versioned blob.
+type StateSnapshot struct {
+    Version int
+    Payload []byte
+}</code></pre>
+<h3 id="61-introspection-endpoint" data-from="7580" data-to="7610">6.1 Introspection Endpoint</h3>
+<p data-from="7612" data-to="7839">A read-only HTTP endpoint, <code data-from="7639" data-to="7671">GET /zarl/v1/state/{tenant_id}</code>, returns a JSON representation of the tenant record described in §5.1. This endpoint is intended for operator dashboards and MUST NOT be used as a hot-path dependency.</p>
+<h3 id="62-configuration-format" data-from="7841" data-to="7869">6.2 Configuration Format</h3>
+<p data-from="7871" data-to="7973">Configuration is supplied as YAML, loaded at startup and hot-reloadable via a SIGHUP-triggered reload:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="7975" data-to="8177"><code class="language-yaml" data-verbatim data-from="7983" data-to="8173">tenants:
+  - id: "orchard-analytics"
+    floor: 50.0
+    ceiling: 2000.0
+    weights:
+      latency: 0.7
+      error_rate: 0.3
+  - id: "bramblewood-ingest"
+    floor: 10.0
+    ceiling: 400.0</code></pre>
+<h3 id="63-cooperation-with-circuit-breakers" data-from="8179" data-to="8220">6.3 Cooperation with Circuit Breakers</h3>
+<p data-from="8222" data-to="8576">When ZARL is deployed alongside a circuit breaker component (such as the Halcyon <code data-from="8303" data-to="8314">cb-filter</code>), the breaker's open/half-open/closed state SHOULD be exposed to ZARL as an additional input signal. Implementations may treat an open breaker as equivalent to <span class="mdr-math" data-tex="\epsilon_k = 1.0" data-from="8475" data-to="8493">\epsilon_k = 1.0</span> for the duration of the open state, forcing the controller toward the floor value.</p>
+<hr data-from="8578" data-to="8581">
+<h2 id="7-metrics-and-observability" data-from="8583" data-to="8614">7. Metrics and Observability</h2>
+<p data-from="8616" data-to="8676">ZARL emits the following metrics at each recalculation step:</p>
+<ul data-from="8678" data-to="8914">
+  <li data-from="8678" data-to="8720"><code data-from="8680" data-to="8700">zarl.limit.current</code> (gauge, per tenant)</li>
+  <li data-from="8721" data-to="8760"><code data-from="8723" data-to="8740">zarl.error.rate</code> (gauge, per tenant)</li>
+  <li data-from="8761" data-to="8801"><code data-from="8763" data-to="8781">zarl.latency.p95</code> (gauge, per tenant)</li>
+  <li data-from="8802" data-to="8852"><code data-from="8804" data-to="8832">zarl.controller.error_term</code> (gauge, per tenant)</li>
+  <li data-from="8853" data-to="8914"><code data-from="8855" data-to="8886">zarl.decisions.rejected_total</code> (counter, per tenant/route)</li>
+</ul>
+<p data-from="8916" data-to="9093">Operators are encouraged to alert on sustained proximity to either the floor or ceiling, as this typically indicates misconfigured bounds rather than genuine traffic conditions.</p>
+<hr data-from="9095" data-to="9098">
+<h2 id="8-open-questions" data-from="9100" data-to="9120">8. Open Questions</h2>
+<ol data-from="9122" data-to="9538">
+  <li data-from="9122" data-to="9277">Should the controller support a derivative term (<span class="mdr-math" data-tex="K_d" data-from="9174" data-to="9179">K_d</span>) for faster response to sudden spikes, at the cost of increased sensitivity to measurement noise?</li>
+  <li data-from="9278" data-to="9400">What is the appropriate default snapshot interval for NFR-3 compliance under high tenant cardinality (&gt;10,000 tenants)?</li>
+  <li data-from="9401" data-to="9538">Should route-level overlays be permitted to widen the floor/ceiling bounds beyond the tenant-level configuration, or only narrow them?</li>
+</ol>
+<p data-from="9540" data-to="9670">These questions are tracked in issue tracker project ZARL-OPEN and are expected to be resolved before the 1.4.0 release candidate.</p>

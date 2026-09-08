@@ -17,11 +17,4 @@ $effect(() => {
 });
 </script>
 
-<main class="page" bind:this={host}>
-  {#if workspace.activeId === null}
-    <div class="blank">
-      <h1>MD Reader</h1>
-      <p>Open a markdown file, drop one on the window, or start a new one.</p>
-    </div>
-  {/if}
-</main>
+<main class="page" bind:this={host}></main>

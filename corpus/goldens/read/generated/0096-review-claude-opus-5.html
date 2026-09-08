@@ -1,0 +1,207 @@
+<h1 id="review-summary-meridian-data-platform-technical-design-document-v23" data-from="0" data-to="75">Review Summary: <em data-from="18" data-to="75">Meridian Data Platform — Technical Design Document v2.3</em></h1>
+<p data-from="77" data-to="484"><strong data-from="77" data-to="90">Reviewer:</strong> Dr. Alina Verhoeven, Principal Architect, Platform Reliability
+<strong data-from="154" data-to="173">Document owner:</strong> Kwame Osei-Bright, Staff Engineer, Ingestion Team
+<strong data-from="224" data-to="243">Date of review:</strong> 14 March 2031
+<strong data-from="258" data-to="289">Document revision reviewed:</strong> v2.3 (commit <code data-from="303" data-to="312">8f4ac21</code>, 62 pages, 14 diagrams)
+<strong data-from="337" data-to="356">Review outcome:</strong> <mark data-from="357" data-to="393">Approve with mandatory revisions</mark> — do not proceed to implementation kickoff until Blocking items in Section 4 are resolved.</p>
+<hr data-from="486" data-to="489">
+<h2 id="1-overview-and-scope-of-review" data-from="491" data-to="525">1. Overview and Scope of Review</h2>
+<p data-from="527" data-to="992">This review covers the full technical design document for the Meridian Data Platform, a proposed replacement for the legacy Calliope ETL stack. The document describes a streaming-first ingestion layer, a tiered storage model, a schema registry, and a query federation service. I reviewed the document against our internal design-review checklist (RDR-07), the platform SLO catalogue, and the data-governance controls mandated by the Ravensbourne compliance program.</p>
+<p data-from="994" data-to="1298">I read the document twice in full and spot-checked the appendices. I did <strong data-from="1067" data-to="1074">not</strong> review the prototype code in the <code data-from="1108" data-to="1124">meridian-spike</code> repository, though I did read the benchmark results reproduced in Appendix C. My comments on those numbers are therefore limited to what is presented in the document itself.</p>
+<p data-from="1300" data-to="1450">Total comments raised: <strong data-from="1323" data-to="1329">47</strong> (11 blocking, 19 major, 17 minor). This summary consolidates them into themes rather than repeating each inline comment.</p>
+<hr data-from="1452" data-to="1455">
+<h2 id="2-summary-assessment" data-from="1457" data-to="1481">2. Summary Assessment</h2>
+<p data-from="1483" data-to="1861">The design is <strong data-from="1497" data-to="1520">fundamentally sound</strong> and represents a significant improvement over the two earlier drafts. The decision to decouple ingestion from transformation is correct, and the tiered storage proposal is well-argued. The document is unusually clear about what it is <em data-from="1755" data-to="1760">not</em> doing, which I appreciate — the explicit non-goals section saved me at least an hour of speculation.</p>
+<p data-from="1863" data-to="1990">However, the document has three structural weaknesses that must be addressed before it can serve as an implementation contract:</p>
+<ol data-from="1992" data-to="2657">
+  <li data-from="1992" data-to="2221"><strong data-from="1995" data-to="2037">Failure semantics are under-specified.</strong> The happy path is described in exhaustive detail; the failure paths are described in a single paragraph with the phrase "retry with backoff" doing an enormous amount of unearned work.</li>
+  <li data-from="2222" data-to="2440"><strong data-from="2225" data-to="2272">The cost model is optimistic and unsourced.</strong> The projected annual infrastructure spend of $412,000 is presented without derivation. My rough independent estimate lands closer to $680,000 at the stated throughput.</li>
+  <li data-from="2441" data-to="2657"><strong data-from="2444" data-to="2493">Migration is deferred to "a future document."</strong> Given that Calliope processes 3.1 billion events per day for 41 downstream consumers, migration is not a footnote — it is arguably the hardest part of the project.</li>
+</ol>
+<blockquote data-from="2659" data-to="2891">
+  <p data-from="2661" data-to="2891">The most dangerous kind of design document is one that is precise about the easy parts and vague about the hard ones. This document is currently 80% of the way to being excellent, and the remaining 20% is where all the risk lives.</p>
+</blockquote>
+<hr data-from="2893" data-to="2896">
+<h2 id="3-findings-by-theme" data-from="2898" data-to="2921">3. Findings by Theme</h2>
+<h3 id="31-architecture-and-component-boundaries" data-from="2923" data-to="2968">3.1 Architecture and Component Boundaries</h3>
+<p data-from="2970" data-to="3210"><em data-from="2970" data-to="2981">Positive:</em> The four-service decomposition (Intake, Normalizer, Registry, Federator) has clean boundaries. Section 3.2's argument for keeping the Registry out of the request path is convincing and well-supported by the latency budget table.</p>
+<p data-from="3212" data-to="3223"><em data-from="3212" data-to="3223">Concerns:</em></p>
+<ul data-from="3225" data-to="4083">
+  <li data-from="3225" data-to="3846">The Normalizer is described as stateless in §3.4 but §3.9 introduces a "dedupe window" of 90 seconds, which is state.<ul data-from="3347" data-to="3846">
+      <li data-from="3347" data-to="3846">This state is presumably held in memory, which means:<ul data-from="3407" data-to="3846">
+          <li data-from="3407" data-to="3759">A Normalizer restart loses the dedupe window entirely.<ul data-from="3470" data-to="3759">
+              <li data-from="3470" data-to="3699">Duplicates then flow downstream during a rolling deploy.<ul data-from="3537" data-to="3699">
+                  <li data-from="3537" data-to="3699">With 12 replicas and a 40-second drain, the document should quantify the expected duplicate volume per deploy. My estimate is 2.4M events, which is not trivial.</li>
+                </ul></li>
+              <li data-from="3706" data-to="3759">No downstream consumer is documented as idempotent.</li>
+            </ul></li>
+          <li data-from="3764" data-to="3846">Horizontal scaling requires partition affinity, which is not mentioned anywhere.</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="3847" data-to="3956">The Federator's fan-out limit is set to 8 backends. The rationale for 8 (rather than 6 or 16) is not given.</li>
+  <li data-from="3957" data-to="4083">Diagram 7 shows a bidirectional arrow between Registry and Intake; the text describes a one-way pull. One of these is wrong.</li>
+</ul>
+<h3 id="32-data-model-and-schema-evolution" data-from="4085" data-to="4124">3.2 Data Model and Schema Evolution</h3>
+<p data-from="4126" data-to="4329">The schema registry design is the strongest section of the document. The three-tier compatibility model (strict, forward, permissive) is clearly explained, and the worked example on page 28 is excellent.</p>
+<p data-from="4331" data-to="4346">Remaining gaps:</p>
+<ul data-from="4348" data-to="4943">
+  <li data-from="4348" data-to="4585"><strong data-from="4350" data-to="4387">Schema deletion is not addressed.</strong> What happens when a schema is retired but historical data in cold storage still references it? The document should state whether schemas are immutable forever, or garbage-collected on some horizon.</li>
+  <li data-from="4586" data-to="4752">Field-level deprecation has no defined lifecycle. I would expect at minimum: <code data-from="4665" data-to="4705">active → deprecated → sunset → removed</code>, with a documented minimum duration per stage.</li>
+  <li data-from="4753" data-to="4943">The <code data-from="4759" data-to="4769">nullable</code> semantics differ subtly between the Avro-derived internal representation and the Parquet cold-storage layout. This is mentioned in a footnote but deserves a full subsection.</li>
+</ul>
+<h3 id="33-reliability-slos-and-failure-modes" data-from="4945" data-to="4989">3.3 Reliability, SLOs, and Failure Modes</h3>
+<p data-from="4991" data-to="5057">This is the weakest area and the source of most Blocking findings.</p>
+<p data-from="5059" data-to="5153">The document commits to a 99.95% availability target for the Intake service but never defines:</p>
+<ul data-from="5155" data-to="5343">
+  <li data-from="5155" data-to="5214">the measurement window (rolling 30-day? calendar month?),</li>
+  <li data-from="5215" data-to="5293">what counts as an error (5xx only? or also timeouts and connection resets?),</li>
+  <li data-from="5294" data-to="5343">whether the SLO applies per-region or globally.</li>
+</ul>
+<p data-from="5345" data-to="5418">There is also no error budget policy. Without one, the SLO is decorative.</p>
+<p data-from="5420" data-to="5527">The proposed retry configuration is presented as pseudocode, and I want to flag a specific problem with it:</p>
+<pre class="mdr-code" data-lang="python" data-from="5529" data-to="5830"><code class="language-python" data-verbatim data-from="5539" data-to="5826">def submit_batch(batch, max_attempts=5):
+    delay = 0.5
+    for attempt in range(max_attempts):
+        try:
+            return intake_client.post(batch, timeout=30)
+        except TransientError:
+            time.sleep(delay)
+            delay *= 2
+    raise IngestionFailure(batch.id)</code></pre>
+<p data-from="5832" data-to="5860">Three issues with the above:</p>
+<ol data-from="5862" data-to="6471">
+  <li data-from="5862" data-to="6021"><strong data-from="5865" data-to="5879">No jitter.</strong> With 12 producer replicas failing simultaneously, retries will synchronize into thundering-herd waves at t=0.5s, 1.5s, 3.5s, 7.5s, and 15.5s.</li>
+  <li data-from="6022" data-to="6301"><strong data-from="6025" data-to="6079">The timeout exceeds the retry budget's usefulness.</strong> Five attempts at a 30-second timeout means a worst case of ~165 seconds before <code data-from="6159" data-to="6177">IngestionFailure</code> is raised, which exceeds the 60-second producer-side deadline stated in §5.1. The code and the prose contradict each other.</li>
+  <li data-from="6302" data-to="6471"><strong data-from="6305" data-to="6351"><code data-from="6307" data-to="6325">IngestionFailure</code> has no defined handler.</strong> Is the batch dropped? Written to a dead-letter queue? The document does not say, and this is a <em data-from="6447" data-to="6470">data-loss-shaped hole</em>.</li>
+</ol>
+<h3 id="34-security-and-governance" data-from="6473" data-to="6504">3.4 Security and Governance</h3>
+<ul data-from="6506" data-to="7133">
+  <li data-from="6506" data-to="6647">Encryption at rest is specified for hot and warm tiers but omitted for the cold tier. I assume this is an oversight rather than a decision.</li>
+  <li data-from="6648" data-to="6989">The document says access control is "delegated to the existing IAM layer." Given that the Federator issues queries on behalf of users against multiple backends, the delegation semantics matter enormously. Does the Federator impersonate the caller, or use a service principal with broad rights? These have very different audit implications.</li>
+  <li data-from="6990" data-to="7133">PII field tagging is mentioned but there is no enforcement mechanism described — tagging without enforcement is documentation, not a control.</li>
+</ul>
+<h3 id="35-cost-and-capacity" data-from="7135" data-to="7160">3.5 Cost and Capacity</h3>
+<p data-from="7162" data-to="7413">The capacity model assumes a steady 36,000 events/second. Our Calliope telemetry shows a peak-to-mean ratio of roughly 4.2:1, with a sustained daily peak near 151,000 events/second between 09:00 and 11:00 UTC. The document should model peak, not mean.</p>
+<p data-from="7415" data-to="7616">Storage projections similarly assume a compression ratio of 6.8:1 based on a 40 GB sample. That sample was drawn from a single high-cardinality-free source. I would expect a blended ratio nearer 3.5:1.</p>
+<hr data-from="7618" data-to="7621">
+<h2 id="4-findings-register" data-from="7623" data-to="7646">4. Findings Register</h2>
+<div class="mdr-table-wrap" data-from="7648" data-to="8754">
+  <table data-from="7648" data-to="8754">
+    <thead data-from="7648" data-to="7682">
+      <tr data-from="7648" data-to="7682">
+        <th data-from="7650" data-to="7652">ID</th>
+        <th data-from="7655" data-to="7663">Severity</th>
+        <th data-from="7666" data-to="7670">Area</th>
+        <th data-from="7673" data-to="7680">Finding</th>
+      </tr>
+    </thead>
+    <tbody data-from="7701" data-to="8754">
+      <tr data-from="7701" data-to="7788">
+        <td data-from="7703" data-to="7709">MDP-01</td>
+        <td data-from="7712" data-to="7720">Blocking</td>
+        <td data-from="7723" data-to="7734">Reliability</td>
+        <td data-from="7737" data-to="7786">No dead-letter path defined for exhausted retries</td>
+      </tr>
+      <tr data-from="7789" data-to="7883">
+        <td data-from="7791" data-to="7797">MDP-02</td>
+        <td data-from="7800" data-to="7808">Blocking</td>
+        <td data-from="7811" data-to="7822">Reliability</td>
+        <td data-from="7825" data-to="7881">SLO measurement window undefined; no error budget policy</td>
+      </tr>
+      <tr data-from="7884" data-to="7979">
+        <td data-from="7886" data-to="7892">MDP-03</td>
+        <td data-from="7895" data-to="7903">Blocking</td>
+        <td data-from="7906" data-to="7918">Architecture</td>
+        <td data-from="7921" data-to="7977">Normalizer described as stateless but holds dedupe state</td>
+      </tr>
+      <tr data-from="7980" data-to="8055">
+        <td data-from="7982" data-to="7988">MDP-04</td>
+        <td data-from="7991" data-to="7999">Blocking</td>
+        <td data-from="8002" data-to="8010">Security</td>
+        <td data-from="8013" data-to="8053">Cold-tier encryption at rest unspecified</td>
+      </tr>
+      <tr data-from="8056" data-to="8127">
+        <td data-from="8058" data-to="8064">MDP-05</td>
+        <td data-from="8067" data-to="8075">Blocking</td>
+        <td data-from="8078" data-to="8086">Security</td>
+        <td data-from="8089" data-to="8125">Federator delegation model ambiguous</td>
+      </tr>
+      <tr data-from="8128" data-to="8205">
+        <td data-from="8130" data-to="8136">MDP-06</td>
+        <td data-from="8139" data-to="8147">Blocking</td>
+        <td data-from="8150" data-to="8154">Cost</td>
+        <td data-from="8157" data-to="8203">Capacity model uses mean, not peak, throughput</td>
+      </tr>
+      <tr data-from="8206" data-to="8296">
+        <td data-from="8208" data-to="8214">MDP-07</td>
+        <td data-from="8217" data-to="8225">Blocking</td>
+        <td data-from="8228" data-to="8237">Migration</td>
+        <td data-from="8240" data-to="8294">No migration plan; 41 downstream consumers unaddressed</td>
+      </tr>
+      <tr data-from="8297" data-to="8365">
+        <td data-from="8299" data-to="8305">MDP-08</td>
+        <td data-from="8308" data-to="8316">Blocking</td>
+        <td data-from="8319" data-to="8323">Data</td>
+        <td data-from="8326" data-to="8363">Schema retirement lifecycle undefined</td>
+      </tr>
+      <tr data-from="8366" data-to="8457">
+        <td data-from="8368" data-to="8374">MDP-09</td>
+        <td data-from="8377" data-to="8385">Blocking</td>
+        <td data-from="8388" data-to="8399">Reliability</td>
+        <td data-from="8402" data-to="8455">Retry pseudocode contradicts stated producer deadline</td>
+      </tr>
+      <tr data-from="8458" data-to="8535">
+        <td data-from="8460" data-to="8466">MDP-10</td>
+        <td data-from="8469" data-to="8477">Blocking</td>
+        <td data-from="8480" data-to="8490">Governance</td>
+        <td data-from="8493" data-to="8533">PII tagging has no enforcement mechanism</td>
+      </tr>
+      <tr data-from="8536" data-to="8626">
+        <td data-from="8538" data-to="8544">MDP-11</td>
+        <td data-from="8547" data-to="8555">Blocking</td>
+        <td data-from="8558" data-to="8562">Cost</td>
+        <td data-from="8565" data-to="8624">Compression ratio extrapolated from unrepresentative sample</td>
+      </tr>
+      <tr data-from="8627" data-to="8693">
+        <td data-from="8629" data-to="8635">MDP-12</td>
+        <td data-from="8638" data-to="8643">Major</td>
+        <td data-from="8646" data-to="8658">Architecture</td>
+        <td data-from="8661" data-to="8691">Fan-out limit of 8 unjustified</td>
+      </tr>
+      <tr data-from="8694" data-to="8754">
+        <td data-from="8696" data-to="8702">MDP-13</td>
+        <td data-from="8705" data-to="8710">Major</td>
+        <td data-from="8713" data-to="8717">Docs</td>
+        <td data-from="8720" data-to="8752">Diagram 7 contradicts §3.6 prose</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="8756" data-to="8849"><em data-from="8756" data-to="8849">(Remaining 34 findings are recorded inline in the review tool and are not reproduced here.)</em></p>
+<hr data-from="8851" data-to="8854">
+<h2 id="5-questions-for-the-author" data-from="8856" data-to="8886">5. Questions for the Author</h2>
+<ol data-from="8888" data-to="9801">
+  <li data-from="8888" data-to="9022">Is the 90-second dedupe window a product requirement or an implementation artifact? If the former, what drove that specific number?</li>
+  <li data-from="9023" data-to="9111">Are any of the 41 Calliope consumers already idempotent, and do we have an inventory?</li>
+  <li data-from="9112" data-to="9241">What is the intended behaviour when the Registry is unavailable — fail closed, or fall back to last-known-good cached schemas?</li>
+  <li data-from="9242" data-to="9428">Was a single-service (monolithic) alternative considered and rejected? Section 2 jumps straight to the four-service decomposition without showing the alternatives that were discarded.</li>
+  <li data-from="9429" data-to="9501">Does the $412,000 figure include egress, or compute and storage only?</li>
+  <li data-from="9502" data-to="9629">Who owns the Federator after launch? The RACI table lists the Ingestion team for three services and leaves the fourth blank.</li>
+  <li data-from="9630" data-to="9801">Is there a hard requirement for exactly-once delivery, or is at-least-once with downstream idempotency acceptable? The document uses both phrases in different sections.</li>
+</ol>
+<hr data-from="9803" data-to="9806">
+<h2 id="6-recommended-changes" data-from="9808" data-to="9833">6. Recommended Changes</h2>
+<p data-from="9835" data-to="9855">Ordered by priority:</p>
+<ol data-from="9857" data-to="11051">
+  <li data-from="9857" data-to="10110"><strong data-from="9860" data-to="9901">Add a Failure Modes section (new §6).</strong> Enumerate at minimum: Registry unavailable, Normalizer partition loss, cold-tier write failure, Federator backend timeout, and poison-message handling. For each, state detection, mitigation, and blast radius.</li>
+  <li data-from="10111" data-to="10284"><strong data-from="10114" data-to="10147">Rewrite §5.1 retry semantics.</strong> Add full jitter, reconcile the timeout arithmetic with the producer deadline, and specify the dead-letter destination and its retention.</li>
+  <li data-from="10285" data-to="10460"><strong data-from="10288" data-to="10330">Rebuild the cost model in the appendix</strong> with peak throughput, a blended compression ratio, and explicit line items for egress and inter-AZ transfer. Show the arithmetic.</li>
+  <li data-from="10461" data-to="10661"><strong data-from="10464" data-to="10510">Promote migration to a first-class section</strong>, even if the detail lands in a companion document. At minimum: consumer inventory, cutover strategy (dual-write? shadow read?), and rollback criteria.</li>
+  <li data-from="10662" data-to="10781"><strong data-from="10665" data-to="10713">Resolve the stateless/stateful contradiction</strong> for the Normalizer and document the partition-affinity requirement.</li>
+  <li data-from="10782" data-to="10872"><strong data-from="10785" data-to="10816">Define the schema lifecycle</strong> including retirement, with minimum durations per stage.</li>
+  <li data-from="10873" data-to="10949"><strong data-from="10876" data-to="10897">Correct Diagram 7</strong> and add a diagram-to-section cross-reference table.</li>
+  <li data-from="10950" data-to="11051">Minor: standardise on either "batch" or "envelope" throughout; both are used for the same concept.</li>
+</ol>
+<hr data-from="11053" data-to="11056">
+<h2 id="7-re-review-requirements" data-from="11058" data-to="11086">7. Re-review Requirements</h2>
+<p data-from="11088" data-to="11268">I would like to re-review the document once items 1–5 above are addressed. Items 6–8 can be verified asynchronously. I do not require a full re-read; a diff walkthrough of 30 minut</p>

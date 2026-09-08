@@ -1,0 +1,353 @@
+<h1 id="technical-specification-dataweave-configuration-service" data-from="0" data-to="58">Technical Specification: DataWeave Configuration Service</h1>
+<h2 id="overview" data-from="60" data-to="71">Overview</h2>
+<p data-from="73" data-to="315">The DataWeave Configuration Service is a distributed system for managing runtime configuration parameters across microservices in a cloud environment. This specification outlines the requirements and API design for version 2.1 of the service.</p>
+<h2 id="executive-summary" data-from="317" data-to="337">Executive Summary</h2>
+<blockquote data-from="339" data-to="749">
+  <p data-from="341" data-to="749">The DataWeave Configuration Service provides a centralized repository for application configuration with real-time synchronization capabilities. It enables teams to modify application behavior without redeployment while maintaining strict access controls and audit trails. The service supports hierarchical configurations, environment-specific overrides, and reactive change propagation to connected clients.</p>
+</blockquote>
+<hr data-from="751" data-to="754">
+<h2 id="requirements" data-from="756" data-to="771">Requirements</h2>
+<h3 id="functional-requirements" data-from="773" data-to="800">Functional Requirements</h3>
+<ul data-from="802" data-to="1285">
+  <li class="mdr-task" data-from="802" data-to="864"><input type="checkbox" disabled data-from="804" data-to="807">Support CRUD operations on configuration key-value pairs</li>
+  <li class="mdr-task" data-from="865" data-to="931"><input type="checkbox" disabled checked data-from="867" data-to="870">Implement role-based access control (RBAC) for all endpoints</li>
+  <li class="mdr-task" data-from="932" data-to="1002"><input type="checkbox" disabled checked data-from="934" data-to="937">Provide real-time change notifications via WebSocket connections</li>
+  <li class="mdr-task" data-from="1003" data-to="1067"><input type="checkbox" disabled data-from="1005" data-to="1008">Enable configuration versioning with rollback capabilities</li>
+  <li class="mdr-task" data-from="1068" data-to="1117"><input type="checkbox" disabled checked data-from="1070" data-to="1073">Support hierarchical namespace organization</li>
+  <li class="mdr-task" data-from="1118" data-to="1179"><input type="checkbox" disabled data-from="1120" data-to="1123">Generate audit logs for all configuration modifications</li>
+  <li class="mdr-task" data-from="1180" data-to="1228"><input type="checkbox" disabled data-from="1182" data-to="1185">Implement configuration validation schemas</li>
+  <li class="mdr-task" data-from="1229" data-to="1285"><input type="checkbox" disabled checked data-from="1231" data-to="1234">Allow environment-specific configuration overrides</li>
+</ul>
+<h3 id="non-functional-requirements" data-from="1287" data-to="1318">Non-Functional Requirements</h3>
+<ul data-from="1320" data-to="1619">
+  <li class="mdr-task" data-from="1320" data-to="1382"><input type="checkbox" disabled checked data-from="1322" data-to="1325">Achieve 99.95% availability with multi-region deployment</li>
+  <li class="mdr-task" data-from="1383" data-to="1450"><input type="checkbox" disabled checked data-from="1385" data-to="1388">Support 10,000+ concurrent WebSocket connections per instance</li>
+  <li class="mdr-task" data-from="1451" data-to="1507"><input type="checkbox" disabled data-from="1453" data-to="1456">Respond to configuration queries within 50ms (p95)</li>
+  <li class="mdr-task" data-from="1508" data-to="1571"><input type="checkbox" disabled checked data-from="1510" data-to="1513">Maintain consistency across all replicas within 2 seconds</li>
+  <li class="mdr-task" data-from="1572" data-to="1619"><input type="checkbox" disabled data-from="1574" data-to="1577">Support configurations up to 10MB per key</li>
+</ul>
+<h2 id="system-architecture" data-from="1621" data-to="1643">System Architecture</h2>
+<h3 id="configuration-hierarchy" data-from="1645" data-to="1672">Configuration Hierarchy</h3>
+<p data-from="1674" data-to="1733">The configuration system uses a nested namespace structure:</p>
+<ol data-from="1735" data-to="2412">
+  <li data-from="1735" data-to="1852"><strong data-from="1738" data-to="1754">Global Level</strong> (top-level defaults)<ul data-from="1779" data-to="1852">
+      <li data-from="1779" data-to="1804">Service-wide parameters</li>
+      <li data-from="1808" data-to="1827">Security policies</li>
+      <li data-from="1831" data-to="1852">Rate limiting rules</li>
+    </ul></li>
+  <li data-from="1853" data-to="2193"><strong data-from="1856" data-to="1873">Service Level</strong> (per-microservice)<ul data-from="1896" data-to="2193">
+      <li data-from="1896" data-to="1917">Service identifiers</li>
+      <li data-from="1921" data-to="2166">Database connection pools<ul data-from="1954" data-to="2166">
+          <li data-from="1954" data-to="2069">Primary database settings<ul data-from="1989" data-to="2069">
+              <li data-from="1989" data-to="2037">Connection timeout in milliseconds: <span class="mdr-math" data-tex="T_{conn}" data-from="2027" data-to="2037">T_{conn}</span></li>
+              <li data-from="2045" data-to="2069">Maximum retry attempts</li>
+            </ul></li>
+          <li data-from="2075" data-to="2166">Cache layer configuration<ul data-from="2110" data-to="2166">
+              <li data-from="2110" data-to="2135">Redis cluster endpoints</li>
+              <li data-from="2143" data-to="2166">TTL values in seconds</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="2170" data-to="2193">API endpoint mappings</li>
+    </ul></li>
+  <li data-from="2194" data-to="2321"><strong data-from="2197" data-to="2218">Environment Level</strong> (production, staging, development)<ul data-from="2257" data-to="2321">
+      <li data-from="2257" data-to="2289">Environment-specific overrides</li>
+      <li data-from="2293" data-to="2321">Resource allocation limits</li>
+    </ul></li>
+  <li data-from="2322" data-to="2412"><strong data-from="2325" data-to="2343">Instance Level</strong> (individual pod/container)<ul data-from="2374" data-to="2412">
+      <li data-from="2374" data-to="2395">Runtime adjustments</li>
+      <li data-from="2399" data-to="2412">Debug flags</li>
+    </ul></li>
+</ol>
+<h3 id="mathematical-model" data-from="2414" data-to="2436">Mathematical Model</h3>
+<p data-from="2438" data-to="2613">Configuration resolution follows a priority-based model. For a requested parameter <span class="mdr-math" data-tex="p" data-from="2521" data-to="2524">p</span> in service <span class="mdr-math" data-tex="s" data-from="2536" data-to="2539">s</span> under environment <span class="mdr-math" data-tex="e" data-from="2558" data-to="2561">e</span>, the effective value <span class="mdr-math" data-tex="V(p, s, e)" data-from="2583" data-to="2595">V(p, s, e)</span> is determined by:</p>
+<div class="mdr-math-block" data-tex="V(p, s, e) = \begin{cases}
+I_{value} &amp; \text{if instance override exists} \\
+E_{value} &amp; \text{else if environment override exists} \\
+S_{value} &amp; \text{else if service config exists} \\
+G_{value} &amp; \text{else if global config exists} \\
+\text{ERROR} &amp; \text{otherwise}
+\end{cases}" data-from="2615" data-to="2900">
+  V(p, s, e) = \begin{cases}
+I_{value} &amp; \text{if instance override exists} \\
+E_{value} &amp; \text{else if environment override exists} \\
+S_{value} &amp; \text{else if service config exists} \\
+G_{value} &amp; \text{else if global config exists} \\
+\text{ERROR} &amp; \text{otherwise}
+\end{cases}
+</div>
+<p data-from="2902" data-to="3018">where <span class="mdr-math" data-tex="I" data-from="2908" data-to="2911">I</span>, <span class="mdr-math" data-tex="E" data-from="2913" data-to="2916">E</span>, <span class="mdr-math" data-tex="S" data-from="2918" data-to="2921">S</span>, and <span class="mdr-math" data-tex="G" data-from="2927" data-to="2930">G</span> represent instance, environment, service, and global configuration layers respectively.</p>
+<h2 id="data-model" data-from="3020" data-to="3033">Data Model</h2>
+<h3 id="configuration-entry-schema" data-from="3035" data-to="3065">Configuration Entry Schema</h3>
+<div class="mdr-table-wrap" data-from="3067" data-to="4152">
+  <table data-from="3067" data-to="4152">
+    <thead data-from="3067" data-to="3118">
+      <tr data-from="3067" data-to="3118">
+        <th data-from="3069" data-to="3074">Field</th>
+        <th data-from="3077" data-to="3081">Type</th>
+        <th data-from="3084" data-to="3092">Required</th>
+        <th data-from="3095" data-to="3106">Description</th>
+        <th data-from="3109" data-to="3116">Example</th>
+      </tr>
+    </thead>
+    <tbody data-from="3171" data-to="4152">
+      <tr data-from="3171" data-to="3231">
+        <td data-from="3173" data-to="3177"><code data-from="3173" data-to="3177">id</code></td>
+        <td data-from="3180" data-to="3184">UUID</td>
+        <td data-from="3187" data-to="3190">Yes</td>
+        <td data-from="3193" data-to="3210">Unique identifier</td>
+        <td data-from="3213" data-to="3229"><code data-from="3213" data-to="3229">a7f3-4k9x-2m8p</code></td>
+      </tr>
+      <tr data-from="3232" data-to="3312">
+        <td data-from="3234" data-to="3239"><code data-from="3234" data-to="3239">key</code></td>
+        <td data-from="3242" data-to="3248">String</td>
+        <td data-from="3251" data-to="3254">Yes</td>
+        <td data-from="3257" data-to="3278">Namespaced config key</td>
+        <td data-from="3281" data-to="3310"><code data-from="3281" data-to="3310">services.payment.timeout_ms</code></td>
+      </tr>
+      <tr data-from="3313" data-to="3406">
+        <td data-from="3315" data-to="3322"><code data-from="3315" data-to="3322">value</code></td>
+        <td data-from="3325" data-to="3328">Any</td>
+        <td data-from="3331" data-to="3334">Yes</td>
+        <td data-from="3337" data-to="3395">Configuration value (string, number, boolean, JSON object)</td>
+        <td data-from="3398" data-to="3404"><code data-from="3398" data-to="3404">5000</code></td>
+      </tr>
+      <tr data-from="3407" data-to="3488">
+        <td data-from="3409" data-to="3420"><code data-from="3409" data-to="3420">namespace</code></td>
+        <td data-from="3423" data-to="3429">String</td>
+        <td data-from="3432" data-to="3435">Yes</td>
+        <td data-from="3438" data-to="3465">Hierarchical namespace path</td>
+        <td data-from="3468" data-to="3486"><code data-from="3468" data-to="3486">services.payment</code></td>
+      </tr>
+      <tr data-from="3489" data-to="3556">
+        <td data-from="3491" data-to="3504"><code data-from="3491" data-to="3504">environment</code></td>
+        <td data-from="3507" data-to="3513">String</td>
+        <td data-from="3516" data-to="3518">No</td>
+        <td data-from="3521" data-to="3539">Target environment</td>
+        <td data-from="3542" data-to="3554"><code data-from="3542" data-to="3554">production</code></td>
+      </tr>
+      <tr data-from="3557" data-to="3635">
+        <td data-from="3559" data-to="3571"><code data-from="3559" data-to="3571">service_id</code></td>
+        <td data-from="3574" data-to="3580">String</td>
+        <td data-from="3583" data-to="3585">No</td>
+        <td data-from="3588" data-to="3613">Target service identifier</td>
+        <td data-from="3616" data-to="3633"><code data-from="3616" data-to="3633">payment-service</code></td>
+      </tr>
+      <tr data-from="3636" data-to="3710">
+        <td data-from="3638" data-to="3647"><code data-from="3638" data-to="3647">version</code></td>
+        <td data-from="3650" data-to="3657">Integer</td>
+        <td data-from="3660" data-to="3663">Yes</td>
+        <td data-from="3666" data-to="3701">Version number for tracking changes</td>
+        <td data-from="3704" data-to="3708"><code data-from="3704" data-to="3708">42</code></td>
+      </tr>
+      <tr data-from="3711" data-to="3791">
+        <td data-from="3713" data-to="3725"><code data-from="3713" data-to="3725">created_at</code></td>
+        <td data-from="3728" data-to="3737">Timestamp</td>
+        <td data-from="3740" data-to="3743">Yes</td>
+        <td data-from="3746" data-to="3764">Creation timestamp</td>
+        <td data-from="3767" data-to="3789"><code data-from="3767" data-to="3789">2024-01-15T10:30:00Z</code></td>
+      </tr>
+      <tr data-from="3792" data-to="3882">
+        <td data-from="3794" data-to="3807"><code data-from="3794" data-to="3807">modified_at</code></td>
+        <td data-from="3810" data-to="3819">Timestamp</td>
+        <td data-from="3822" data-to="3825">Yes</td>
+        <td data-from="3828" data-to="3855">Last modification timestamp</td>
+        <td data-from="3858" data-to="3880"><code data-from="3858" data-to="3880">2024-01-16T14:22:15Z</code></td>
+      </tr>
+      <tr data-from="3883" data-to="3957">
+        <td data-from="3885" data-to="3898"><code data-from="3885" data-to="3898">modified_by</code></td>
+        <td data-from="3901" data-to="3907">String</td>
+        <td data-from="3910" data-to="3913">Yes</td>
+        <td data-from="3916" data-to="3940">User ID of last modifier</td>
+        <td data-from="3943" data-to="3955"><code data-from="3943" data-to="3955">user-12345</code></td>
+      </tr>
+      <tr data-from="3958" data-to="4069">
+        <td data-from="3960" data-to="3979"><code data-from="3960" data-to="3979">validation_schema</code></td>
+        <td data-from="3982" data-to="3988">Object</td>
+        <td data-from="3991" data-to="3993">No</td>
+        <td data-from="3996" data-to="4028">JSON schema for value validation</td>
+        <td data-from="4031" data-to="4067"><code data-from="4031" data-to="4067">{"type": "number", "minimum": 100}</code></td>
+      </tr>
+      <tr data-from="4070" data-to="4152">
+        <td data-from="4072" data-to="4078"><code data-from="4072" data-to="4078">tags</code></td>
+        <td data-from="4081" data-to="4086">Array</td>
+        <td data-from="4089" data-to="4091">No</td>
+        <td data-from="4094" data-to="4118">Searchable metadata tags</td>
+        <td data-from="4121" data-to="4150"><code data-from="4121" data-to="4150">["critical", "performance"]</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="api-specification" data-from="4154" data-to="4174">API Specification</h2>
+<h3 id="base-url" data-from="4176" data-to="4188">Base URL</h3>
+<pre class="mdr-code" data-from="4190" data-to="4240"><code data-verbatim data-from="4194" data-to="4236">https://config.dataweave.internal/api/v2.1</code></pre>
+<h3 id="authentication" data-from="4242" data-to="4260">Authentication</h3>
+<p data-from="4262" data-to="4405">All endpoints require a Bearer token in the <code data-from="4306" data-to="4321">Authorization</code> header. Tokens are issued by the Identity Service and contain embedded RBAC scopes.</p>
+<h3 id="endpoints" data-from="4407" data-to="4420">Endpoints</h3>
+<h4 id="get-configurations" data-from="4422" data-to="4446">GET /configurations</h4>
+<p data-from="4448" data-to="4500">Retrieve configurations matching specified criteria.</p>
+<p data-from="4502" data-to="4523"><strong data-from="4502" data-to="4523">Query Parameters:</strong></p>
+<ul data-from="4524" data-to="4837">
+  <li data-from="4524" data-to="4574"><code data-from="4526" data-to="4537">namespace</code> (string): Filter by namespace prefix</li>
+  <li data-from="4575" data-to="4622"><code data-from="4577" data-to="4590">environment</code> (string): Filter by environment</li>
+  <li data-from="4623" data-to="4676"><code data-from="4625" data-to="4637">service_id</code> (string): Filter by service identifier</li>
+  <li data-from="4677" data-to="4724"><code data-from="4679" data-to="4685">tags</code> (array): Filter by tags (OR operation)</li>
+  <li data-from="4725" data-to="4785"><code data-from="4727" data-to="4734">limit</code> (integer, default: 100): Maximum results to return</li>
+  <li data-from="4786" data-to="4837"><code data-from="4788" data-to="4796">offset</code> (integer, default: 0): Pagination offset</li>
+</ul>
+<p data-from="4839" data-to="4852"><strong data-from="4839" data-to="4852">Response:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="4854" data-to="5415"><code class="language-json" data-verbatim data-from="4862" data-to="5411">{
+  "status": "success",
+  "data": {
+    "items": [
+      {
+        "id": "a7f3-4k9x-2m8p",
+        "key": "services.payment.timeout_ms",
+        "value": 5000,
+        "namespace": "services.payment",
+        "environment": "production",
+        "service_id": "payment-service",
+        "version": 42,
+        "created_at": "2024-01-15T10:30:00Z",
+        "modified_at": "2024-01-16T14:22:15Z",
+        "modified_by": "user-12345",
+        "tags": ["critical", "performance"]
+      }
+    ],
+    "total": 247,
+    "limit": 100,
+    "offset": 0
+  }
+}</code></pre>
+<h4 id="post-configurations" data-from="5417" data-to="5442">POST /configurations</h4>
+<p data-from="5444" data-to="5477">Create a new configuration entry.</p>
+<p data-from="5479" data-to="5496"><strong data-from="5479" data-to="5496">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="5498" data-to="5808"><code class="language-json" data-verbatim data-from="5506" data-to="5804">{
+  "key": "services.notification.batch_size",
+  "value": 250,
+  "namespace": "services.notification",
+  "environment": "staging",
+  "service_id": "notification-service",
+  "validation_schema": {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": 1000
+  },
+  "tags": ["performance", "batch"]
+}</code></pre>
+<p data-from="5810" data-to="5838"><strong data-from="5810" data-to="5826">Status Code:</strong> 201 Created</p>
+<p data-from="5840" data-to="5853"><strong data-from="5840" data-to="5853">Response:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="5855" data-to="6251"><code class="language-json" data-verbatim data-from="5863" data-to="6247">{
+  "status": "success",
+  "data": {
+    "id": "k2m9-7x3f-9q1l",
+    "key": "services.notification.batch_size",
+    "value": 250,
+    "namespace": "services.notification",
+    "environment": "staging",
+    "service_id": "notification-service",
+    "version": 1,
+    "created_at": "2024-01-17T09:15:30Z",
+    "modified_at": "2024-01-17T09:15:30Z",
+    "modified_by": "user-67890"
+  }
+}</code></pre>
+<h4 id="patch-configurationsid" data-from="6253" data-to="6284">PATCH /configurations/{id}</h4>
+<p data-from="6286" data-to="6325">Update an existing configuration entry.</p>
+<p data-from="6327" data-to="6347"><strong data-from="6327" data-to="6347">Path Parameters:</strong></p>
+<ul data-from="6348" data-to="6397">
+  <li data-from="6348" data-to="6397"><code data-from="6350" data-to="6354">id</code> (string, required): Configuration entry ID</li>
+</ul>
+<p data-from="6399" data-to="6416"><strong data-from="6399" data-to="6416">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="6418" data-to="6501"><code class="language-json" data-verbatim data-from="6426" data-to="6497">{
+  "value": 300,
+  "tags": ["performance", "batch", "high-priority"]
+}</code></pre>
+<p data-from="6503" data-to="6516"><strong data-from="6503" data-to="6516">Response:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="6518" data-to="6914"><code class="language-json" data-verbatim data-from="6526" data-to="6910">{
+  "status": "success",
+  "data": {
+    "id": "k2m9-7x3f-9q1l",
+    "key": "services.notification.batch_size",
+    "value": 300,
+    "namespace": "services.notification",
+    "environment": "staging",
+    "service_id": "notification-service",
+    "version": 2,
+    "created_at": "2024-01-17T09:15:30Z",
+    "modified_at": "2024-01-17T10:45:22Z",
+    "modified_by": "user-67890"
+  }
+}</code></pre>
+<h4 id="delete-configurationsid" data-from="6916" data-to="6948">DELETE /configurations/{id}</h4>
+<p data-from="6950" data-to="6979">Remove a configuration entry.</p>
+<p data-from="6981" data-to="7012"><strong data-from="6981" data-to="6997">Status Code:</strong> 204 No Content</p>
+<h4 id="websocket-wssubscribe" data-from="7014" data-to="7042">WebSocket /ws/subscribe</h4>
+<p data-from="7044" data-to="7104">Establish a real-time subscription to configuration changes.</p>
+<p data-from="7106" data-to="7132"><strong data-from="7106" data-to="7132">Connection Parameters:</strong></p>
+<ul data-from="7133" data-to="7248">
+  <li data-from="7133" data-to="7189"><code data-from="7135" data-to="7142">token</code> (query parameter): Bearer authentication token</li>
+  <li data-from="7190" data-to="7248"><code data-from="7192" data-to="7203">namespace</code> (query parameter): Namespace to subscribe to</li>
+</ul>
+<p data-from="7250" data-to="7280"><strong data-from="7250" data-to="7280">Example JavaScript Client:</strong></p>
+<pre class="mdr-code" data-lang="javascript" data-from="7282" data-to="7708"><code class="language-javascript" data-verbatim data-from="7296" data-to="7704">const socket = new WebSocket(
+  'wss://config.dataweave.internal/api/v2.1/ws/subscribe' +
+  '?token=eyJhbGc...' +
+  '&amp;namespace=services.payment'
+);
+
+socket.onmessage = (event) =&gt; {
+  const message = JSON.parse(event.data);
+  if (message.type === 'configuration_updated') {
+    console.log('Updated config:', message.data);
+  }
+};
+
+socket.onerror = (error) =&gt; {
+  console.error('WebSocket error:', error);
+};</code></pre>
+<p data-from="7710" data-to="7729"><strong data-from="7710" data-to="7729">Message Format:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="7731" data-to="8010"><code class="language-json" data-verbatim data-from="7739" data-to="8006">{
+  "type": "configuration_updated",
+  "timestamp": "2024-01-17T11:20:45Z",
+  "data": {
+    "id": "a7f3-4k9x-2m8p",
+    "key": "services.payment.timeout_ms",
+    "value": 6000,
+    "action": "updated",
+    "previous_value": 5000,
+    "modified_by": "user-12345"
+  }
+}</code></pre>
+<h2 id="security-considerations" data-from="8012" data-to="8038">Security Considerations</h2>
+<h3 id="access-control" data-from="8040" data-to="8058">Access Control</h3>
+<p data-from="8060" data-to="8111">The service enforces RBAC with the following roles:</p>
+<ul data-from="8113" data-to="8298">
+  <li data-from="8113" data-to="8150"><code data-from="8115" data-to="8128">config:read</code> - View configurations</li>
+  <li data-from="8151" data-to="8202"><code data-from="8153" data-to="8167">config:write</code> - Create and update configurations</li>
+  <li data-from="8203" data-to="8244"><code data-from="8205" data-to="8220">config:delete</code> - Remove configurations</li>
+  <li data-from="8245" data-to="8298"><code data-from="8247" data-to="8261">config:admin</code> - Manage service policies and access</li>
+</ul>
+<p data-from="8300" data-to="8440">All modifications require the <code data-from="8330" data-to="8344">config:write</code> role or higher. The <code data-from="8365" data-to="8378">modified_by</code> field in responses identifies the user initiating the change.</p>
+<h3 id="encryption" data-from="8442" data-to="8456">Encryption</h3>
+<ul data-from="8458" data-to="8610">
+  <li data-from="8458" data-to="8494">All API communications use TLS 1.3</li>
+  <li data-from="8495" data-to="8553">Sensitive values are encrypted at rest using AES-256-GCM</li>
+  <li data-from="8554" data-to="8610">Configuration backups are stored in encrypted archives</li>
+</ul>
+<h2 id="deployment-and-monitoring" data-from="8612" data-to="8640">Deployment and Monitoring</h2>
+<h3 id="health-check-endpoint" data-from="8642" data-to="8667">Health Check Endpoint</h3>
+<pre class="mdr-code" data-from="8669" data-to="8688"><code data-verbatim data-from="8673" data-to="8684">GET /health</code></pre>
+<p data-from="8690" data-to="8763">Returns service status, including database connectivity and cache health.</p>
+<h3 id="task-checklist-for-deployment" data-from="8765" data-to="8798">Task Checklist for Deployment</h3>
+<ul data-from="8800" data-to="9148">
+  <li class="mdr-task" data-from="8800" data-to="8862"><input type="checkbox" disabled data-from="8802" data-to="8805">Provision database with appropriate replication settings</li>
+  <li class="mdr-task" data-from="8863" data-to="8913"><input type="checkbox" disabled checked data-from="8865" data-to="8868">Configure TLS certificates for all endpoints</li>
+  <li class="mdr-task" data-from="8914" data-to="8961"><input type="checkbox" disabled checked data-from="8916" data-to="8919">Set up monitoring dashboards and alerting</li>
+  <li class="mdr-task" data-from="8962" data-to="9007"><input type="checkbox" disabled data-from="8964" data-to="8967">Deploy to primary and secondary regions</li>
+  <li class="mdr-task" data-from="9008" data-to="9046"><input type="checkbox" disabled checked data-from="9010" data-to="9013">Run end-to-end integration tests</li>
+  <li class="mdr-task" data-from="9047" data-to="9102"><input type="checkbox" disabled data-from="9049" data-to="9052">Establish backup and disaster recovery procedures</li>
+  <li class="mdr-task" data-from="9103" data-to="9148"><input type="checkbox" disabled checked data-from="9105" data-to="9108">Document runbooks for incident response</li>
+</ul>
+<hr data-from="9150" data-to="9153">
+<h2 id="conclusion" data-from="9155" data-to="9168">Conclusion</h2>
+<p data-from="9170" data-to="9479">The DataWeave Configuration Service provides a robust, scalable solution for managing distributed application configurations. By implementing this specification, development teams gain fine-grained control over application behavior while maintaining security, auditability, and high availability requirements.</p>

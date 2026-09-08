@@ -1,13 +1,27 @@
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { EditorSelection, type Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { type EditorMode, setModeEffect } from '@mdreader/editor-core';
 import type { Commands, FileFormat } from '@mdreader/ipc';
+import { headings, type OutlineEntry } from '@mdreader/markdown';
 import { Doc, nextId } from './document.svelte.ts';
 import { basename, dirname, shortenDir, tabLabels } from './paths.ts';
+import type { Enhancer } from './read/enhance.ts';
+import { ReadView } from './read/view.ts';
 import { countWords, describeError, describeFormat } from './text.ts';
 
-/** Read arrives in WP 1.4; the switch shows it, disabled, until then. */
-export type ViewMode = EditorMode;
+/** The three projections of one buffer (design 4.2). */
+export type ViewMode = EditorMode | 'read';
+
+/**
+ * Where the next mount should put the document: the source offset to show,
+ * and how far down the pane to put it. A mode switch keeps the reader in
+ * the same place even though the two views measure in different units.
+ */
+export interface Anchor {
+  offset: number;
+  y: number;
+}
 
 /** One tab: a view onto a document, with the state that is per view. */
 export interface Tab {
@@ -17,6 +31,9 @@ export interface Tab {
   pinned: boolean;
   selection: EditorSelection;
   scrollTop: number;
+  anchor: Anchor | null;
+  /** Heading ids folded in Read mode, kept while the tab is open. */
+  folded: string[];
 }
 
 interface ClosedTab {
@@ -41,6 +58,10 @@ export interface WorkspaceOptions {
   pickFiles?: () => Promise<string[]>;
   /** The OS save panel, for the first save of an untitled document. */
   pickSaveTarget?: (suggested: string) => Promise<string | null>;
+  /** Opens a link in the system browser; the webview never navigates. */
+  openExternal?: (url: string) => void;
+  /** Shiki, KaTeX and Mermaid. Left out in tests, which do not need them. */
+  enhancer?: Enhancer;
 }
 
 /** What a file we create ourselves looks like until the user says otherwise. */
@@ -56,6 +77,8 @@ const CLOSED_LIMIT = 20;
 const RECENTS_LIMIT = 50;
 /** Long enough that a fast typist counts once per pause, not once per key. */
 const WORD_COUNT_DELAY = 250;
+/** How long the outline may wait for the parser before showing what there is. */
+const OUTLINE_TIMEOUT = 30;
 
 /**
  * The window's state: which documents are open, which tabs show them,
@@ -71,6 +94,10 @@ export class Workspace {
   status = $state('');
   words = $state(0);
   saving = $state(false);
+  sidebar = $state(false);
+  outline = $state<OutlineEntry[]>([]);
+  /** False while a long document is still being parsed in the background. */
+  outlineComplete = $state(true);
   palette = $state<{ open: boolean; kind: PaletteKind; query: string; index: number }>({
     open: false,
     kind: 'files',
@@ -81,6 +108,7 @@ export class Workspace {
   private readonly docs = new Map<string, Doc>();
   private closed = $state<ClosedTab[]>([]);
   private mounted: { view: EditorView; tab: Tab } | null = null;
+  private reading: { view: ReadView; tab: Tab } | null = null;
   private untitledCount = 0;
   private epoch = $state(0);
   private countTimer: ReturnType<typeof setTimeout> | null = null;
@@ -104,6 +132,8 @@ export class Workspace {
   mountKey: string | null = $derived(
     this.activeId === null ? null : `${this.activeId}:${this.epoch}`,
   );
+  /** Read mode is a different view, so it is a different mount. */
+  readMode: boolean = $derived(this.activeTab?.mode === 'read');
 
   doc(tab: Tab): Doc {
     const doc = this.docs.get(tab.docId);
@@ -148,7 +178,8 @@ export class Workspace {
     this.untitledCount += 1;
     const doc = new Doc('', { untitledName: `Untitled ${this.untitledCount}` });
     this.docs.set(doc.id, doc);
-    this.addTab(doc);
+    // A file opens in Read (design 4.2), but an empty one has nothing to read.
+    this.addTab(doc, 'edit');
   }
 
   /** A second view onto the same document; undo is shared through its state. */
@@ -157,19 +188,20 @@ export class Workspace {
     if (!tab) return;
     // The live cursor lives in the view until the tab gives it up.
     this.syncMounted();
-    const copy = this.addTab(this.doc(tab));
-    copy.mode = tab.mode;
+    const copy = this.addTab(this.doc(tab), tab.mode);
     copy.selection = tab.selection;
   }
 
-  private addTab(doc: Doc, at?: number): Tab {
+  private addTab(doc: Doc, mode: ViewMode = 'read', at?: number): Tab {
     const tab: Tab = {
       id: nextId('tab'),
       docId: doc.id,
-      mode: 'edit',
+      mode,
       pinned: false,
       selection: EditorSelection.single(0),
       scrollTop: 0,
+      anchor: null,
+      folded: [],
     };
     const pinned = this.pinnedCount();
     const index = Math.min(Math.max(at ?? this.tabs.length, pinned), this.tabs.length);
@@ -209,7 +241,10 @@ export class Workspace {
     const tab = this.tabs[index] as Tab;
     const doc = this.doc(tab);
     const wasActive = this.activeId === tab.id;
-    if (wasActive) this.unmount();
+    if (wasActive) {
+      this.unmount();
+      this.unmountRead();
+    }
     this.tabs.splice(index, 1);
     this.closed = [{ tab: { ...tab }, doc, index }, ...this.closed].slice(0, CLOSED_LIMIT);
     if (!this.tabs.some((other) => other.docId === doc.id)) this.docs.delete(doc.id);
@@ -270,22 +305,33 @@ export class Workspace {
   setMode(mode: ViewMode): void {
     const tab = this.activeTab;
     if (!tab || tab.mode === mode) return;
+    // Read is a different view; Edit and Source are the same view
+    // reconfigured, which is what keeps switching between them instant.
+    if (tab.mode === 'read') this.unmountRead();
+    else if (mode === 'read') this.syncMounted();
     tab.mode = mode;
-    this.mounted?.view.dispatch({ effects: setModeEffect(mode) });
+    if (mode !== 'read') this.mounted?.view.dispatch({ effects: setModeEffect(mode) });
+    if (mode !== 'read' && this.sidebar) this.refreshOutline();
   }
 
   get view(): EditorView | null {
     return this.mounted?.view ?? null;
   }
 
+  get readView(): ReadView | null {
+    return this.reading?.view ?? null;
+  }
+
+  /** Give the keyboard back to whichever view is in front. */
   focusEditor(): void {
-    this.mounted?.view.focus();
+    if (this.reading) this.reading.view.focus();
+    else this.mounted?.view.focus();
   }
 
   /** Mount the active tab's view. The component calls this from an effect. */
   mount(parent: HTMLElement): void {
     const tab = this.activeTab;
-    if (!tab || this.mounted) return;
+    if (!tab || this.mounted || tab.mode === 'read') return;
     const doc = this.doc(tab);
     const view: EditorView = new EditorView({
       state: doc.state,
@@ -294,8 +340,71 @@ export class Workspace {
     });
     this.mounted = { view, tab };
     view.dispatch({ selection: tab.selection, effects: setModeEffect(tab.mode) });
-    view.scrollDOM.scrollTop = tab.scrollTop;
+    const anchor = tab.anchor;
+    if (anchor) {
+      // Put the same source offset where the reader last saw it, rather
+      // than at a scroll position measured in another view's pixels.
+      view.dispatch({
+        effects: EditorView.scrollIntoView(Math.min(anchor.offset, view.state.doc.length), {
+          y: 'start',
+          yMargin: anchor.y,
+        }),
+      });
+      tab.anchor = null;
+    } else {
+      view.scrollDOM.scrollTop = tab.scrollTop;
+    }
     view.focus();
+  }
+
+  /** Mount Read mode for the active tab. */
+  mountRead(parent: HTMLElement): void {
+    const tab = this.activeTab;
+    if (!tab || this.reading || tab.mode !== 'read') return;
+    const doc = this.doc(tab);
+    const view = new ReadView({
+      parent,
+      state: doc.state,
+      folded: tab.folded,
+      enhance: this.options.enhancer,
+      onEdit: (offset, y) => this.editAt(offset, y),
+      onOutline: (entries, complete) => {
+        this.outline = entries;
+        this.outlineComplete = complete;
+      },
+      onFolded: (ids) => {
+        tab.folded = ids;
+      },
+      onLink: (href, external) => this.openLink(href, external),
+    });
+    this.reading = { view, tab };
+    view.scrollToOffset(tab.anchor?.offset ?? tab.selection.main.head);
+    tab.anchor = null;
+  }
+
+  /** Save what Read mode knows onto its tab and drop it. */
+  unmountRead(): void {
+    const reading = this.reading;
+    if (!reading) return;
+    const tab = this.tabs.find((other) => other.id === reading.tab.id);
+    if (tab) {
+      tab.anchor = { offset: reading.view.topOffset(), y: 0 };
+      tab.folded = reading.view.foldedIds;
+    }
+    this.reading = null;
+    reading.view.destroy();
+  }
+
+  /** A click in Read mode: the same buffer, at the character clicked. */
+  editAt(offset: number, y = 0): void {
+    const tab = this.activeTab;
+    if (!tab) return;
+    const doc = this.doc(tab);
+    const at = Math.max(0, Math.min(offset, doc.state.doc.length));
+    this.unmountRead();
+    tab.selection = EditorSelection.single(at);
+    tab.anchor = { offset: at, y };
+    tab.mode = 'edit';
   }
 
   /** Copy what the live view knows back onto the tab that owns it. */
@@ -306,9 +415,18 @@ export class Workspace {
     if (tab) {
       tab.selection = mounted.view.state.selection;
       tab.scrollTop = mounted.view.scrollDOM.scrollTop;
+      tab.anchor = { offset: this.topOfView(mounted.view), y: 0 };
     }
     const doc = this.docs.get(mounted.tab.docId);
     if (doc) doc.state = mounted.view.state;
+  }
+
+  /** The source offset at the top of a mounted editor's viewport. */
+  private topOfView(view: EditorView): number {
+    const rect = view.scrollDOM.getBoundingClientRect();
+    return (
+      view.posAtCoords({ x: rect.left + 4, y: rect.top + 4 }) ?? view.state.selection.main.head
+    );
   }
 
   /** Save the view state back onto its tab and drop the view. */
@@ -400,7 +518,8 @@ export class Workspace {
       return false;
     }
     this.unmount();
-    doc.replace(result.data.content, tab.mode);
+    this.unmountRead();
+    doc.replace(result.data.content, tab.mode === 'read' ? 'edit' : tab.mode);
     doc.meta = result.data.meta;
     tab.selection = EditorSelection.single(0);
     this.epoch += 1;
@@ -450,6 +569,62 @@ export class Workspace {
     else if (choice.path) await this.openPath(choice.path);
   }
 
+  // --- the outline and the sidebar ----------------------------------------
+
+  toggleSidebar(): void {
+    this.sidebar = !this.sidebar;
+    if (this.sidebar) this.refreshOutline();
+  }
+
+  /**
+   * The outline of the active document. Read mode reports it as it renders;
+   * in the other two modes it is a walk of the same parse, which for a long
+   * document may not have reached the end yet — hence `outlineComplete`.
+   */
+  refreshOutline(): void {
+    if (this.reading) return;
+    const doc = this.activeDoc;
+    if (!doc) {
+      this.outline = [];
+      this.outlineComplete = true;
+      return;
+    }
+    const length = doc.state.doc.length;
+    const tree = ensureSyntaxTree(doc.state, length, OUTLINE_TIMEOUT) ?? syntaxTree(doc.state);
+    this.outline = headings(tree, doc.text);
+    this.outlineComplete = tree.length >= length;
+  }
+
+  /** Click an outline entry: scroll in Read, move the cursor in the others. */
+  goToHeading(entry: OutlineEntry): void {
+    const tab = this.activeTab;
+    if (!tab) return;
+    if (this.reading) {
+      this.reading.view.scrollToId(entry.id);
+      return;
+    }
+    const view = this.mounted?.view;
+    if (!view) return;
+    view.dispatch({
+      selection: EditorSelection.single(Math.min(entry.from, view.state.doc.length)),
+      effects: EditorView.scrollIntoView(Math.min(entry.from, view.state.doc.length), {
+        y: 'start',
+        yMargin: 8,
+      }),
+    });
+    view.focus();
+  }
+
+  /** A link in Read mode. The webview never navigates (design 6.2). */
+  openLink(href: string, external: boolean): void {
+    if (external) {
+      if (this.options.openExternal) this.options.openExternal(href);
+      else this.status = `Cannot open ${href} here`;
+      return;
+    }
+    this.status = `${href} opens with the folder workspace, which is WP 2.4`;
+  }
+
   // --- word count ---------------------------------------------------------
 
   countNow(): void {
@@ -458,6 +633,7 @@ export class Workspace {
       this.countTimer = null;
     }
     this.words = countWords(this.activeDoc?.text ?? '');
+    if (this.sidebar) this.refreshOutline();
   }
 
   private scheduleWordCount(): void {
@@ -465,11 +641,13 @@ export class Workspace {
     this.countTimer = setTimeout(() => {
       this.countTimer = null;
       this.words = countWords(this.activeDoc?.text ?? '');
+      if (this.sidebar) this.refreshOutline();
     }, WORD_COUNT_DELAY);
   }
 
   destroy(): void {
     if (this.countTimer !== null) clearTimeout(this.countTimer);
     this.unmount();
+    this.unmountRead();
   }
 }

@@ -1,0 +1,171 @@
+<h1 id="project-halyard-multi-region-migration-of-the-meridian-billing-platform" data-from="0" data-to="75">Project Halyard — Multi-Region Migration of the Meridian Billing Platform</h1>
+<p data-from="77" data-to="289"><strong data-from="77" data-to="96">Document owner:</strong> Priya Raghunathan, Director of Platform Engineering
+<strong data-from="149" data-to="161">Version:</strong> 2.3 (draft) · <strong data-from="176" data-to="193">Last revised:</strong> 14 March
+<strong data-from="203" data-to="214">Status:</strong> <mark data-from="215" data-to="289">Approved for Phase 1 execution; Phases 3–4 pending budget confirmation</mark></p>
+<hr data-from="291" data-to="294">
+<h2 id="1-purpose-and-scope" data-from="296" data-to="319">1. Purpose and Scope</h2>
+<p data-from="321" data-to="702">Project Halyard moves the Meridian billing platform from a single-region deployment in <code data-from="408" data-to="422">us-cascade-1</code> to an active/active topology spanning <code data-from="461" data-to="475">us-cascade-1</code> and <code data-from="480" data-to="491">eu-tarn-2</code>. The business driver is twofold: a contractual commitment to <strong data-from="553" data-to="576">99.98% availability</strong> for our four largest enterprise accounts, and a data-residency requirement from the Halberd Group contract signed in January.</p>
+<p data-from="704" data-to="840">Out of scope: the legacy Ferrous invoicing connector (sunset planned separately), and any change to the customer-facing pricing catalog.</p>
+<hr data-from="842" data-to="845">
+<h2 id="2-phases-and-milestones" data-from="847" data-to="874">2. Phases and Milestones</h2>
+<h3 id="phase-0-discovery-and-baseline-4-weeks" data-from="876" data-to="924">Phase 0 — Discovery and Baseline <em data-from="913" data-to="924">(4 weeks)</em></h3>
+<p data-from="926" data-to="968">Owner: <strong data-from="933" data-to="951">Dmitri Solokov</strong>, Staff Architect</p>
+<ol data-from="970" data-to="1299">
+  <li data-from="970" data-to="1028">Inventory all 63 services and classify by statefulness.</li>
+  <li data-from="1029" data-to="1111">Capture a 30-day performance baseline (p50/p95/p99 latency, error budget burn).</li>
+  <li data-from="1112" data-to="1227">Produce the <strong data-from="1127" data-to="1159">Data Classification Register</strong> listing every table containing personally identifiable information.</li>
+  <li data-from="1228" data-to="1299">Deliver a written go/no-go recommendation to the steering committee.</li>
+</ol>
+<ul data-from="1301" data-to="1507">
+  <li data-from="1301" data-to="1363"><strong data-from="1303" data-to="1321">Milestone M0.1</strong> — Service inventory signed off <em data-from="1353" data-to="1363">(week 2)</em></li>
+  <li data-from="1364" data-to="1446"><strong data-from="1366" data-to="1384">Milestone M0.2</strong> — Baseline dashboard live in Kestrel Observability <em data-from="1436" data-to="1446">(week 3)</em></li>
+  <li data-from="1447" data-to="1507"><strong data-from="1449" data-to="1467">Milestone M0.3</strong> — Go/no-go decision recorded <em data-from="1497" data-to="1507">(week 4)</em></li>
+</ul>
+<h3 id="phase-1-foundation-7-weeks" data-from="1509" data-to="1545">Phase 1 — Foundation <em data-from="1534" data-to="1545">(7 weeks)</em></h3>
+<p data-from="1547" data-to="1591">Owner: <strong data-from="1554" data-to="1570">Amara Ndiaye</strong>, Infrastructure Lead</p>
+<p data-from="1593" data-to="1672">The foundation phase builds the second region without cutting over any traffic.</p>
+<ul data-from="1674" data-to="2529">
+  <li data-from="1674" data-to="2092"><p data-from="1676" data-to="1696">Network and identity</p><ul data-from="1699" data-to="2092">
+      <li data-from="1699" data-to="1943">Provision the <code data-from="1715" data-to="1726">eu-tarn-2</code> landing zone<ul data-from="1744" data-to="1943">
+          <li data-from="1744" data-to="1789">VPC peering with transit gateway attachment</li>
+          <li data-from="1794" data-to="1943">Private DNS zone <code data-from="1813" data-to="1840">internal.meridian.halyard</code><ul data-from="1847" data-to="1943">
+              <li data-from="1847" data-to="1888">Health-check records with 15-second TTL</li>
+              <li data-from="1895" data-to="1943">Failover policy set to <em data-from="1920" data-to="1935">latency-based</em> routing</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="1946" data-to="2092">Federate IAM roles across regions<ul data-from="1986" data-to="2092">
+          <li data-from="1986" data-to="2092">Break-glass accounts stored in the Vault cluster<ul data-from="2043" data-to="2092">
+              <li data-from="2043" data-to="2092">Quarterly rotation enforced by the Sentinel job</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="2093" data-to="2324"><p data-from="2095" data-to="2105">Data layer</p><ul data-from="2108" data-to="2324">
+      <li data-from="2108" data-to="2324">Stand up the Ravine Postgres replica set<ul data-from="2155" data-to="2324">
+          <li data-from="2155" data-to="2324">Logical replication for the 11 billing tables<ul data-from="2209" data-to="2324">
+              <li data-from="2209" data-to="2279">Conflict resolution: last-writer-wins with a monotonic <code data-from="2266" data-to="2279">revision_id</code></li>
+              <li data-from="2286" data-to="2324">Lag alarm threshold at <strong data-from="2311" data-to="2324">4 seconds</strong></li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="2326" data-to="2397"><p data-from="2328" data-to="2397"><strong data-from="2328" data-to="2346">Milestone M1.1</strong> — Landing zone provisioned and hardened <em data-from="2387" data-to="2397">(week 3)</em></p></li>
+  <li data-from="2398" data-to="2475"><p data-from="2400" data-to="2475"><strong data-from="2400" data-to="2418">Milestone M1.2</strong> — Replica lag sustained under 4s for 72 hours <em data-from="2465" data-to="2475">(week 6)</em></p></li>
+  <li data-from="2476" data-to="2529"><p data-from="2478" data-to="2529"><strong data-from="2478" data-to="2496">Milestone M1.3</strong> — Phase 1 exit review <em data-from="2519" data-to="2529">(week 7)</em></p></li>
+</ul>
+<h3 id="phase-2-shadow-traffic-5-weeks" data-from="2531" data-to="2571">Phase 2 — Shadow Traffic <em data-from="2560" data-to="2571">(5 weeks)</em></h3>
+<p data-from="2573" data-to="2613">Owner: <strong data-from="2580" data-to="2600">Tobias Lindqvist</strong>, SRE Manager</p>
+<p data-from="2615" data-to="2762">We mirror 100% of read traffic and 5% of synthetic write traffic to the new region. No customer sees a response from <code data-from="2732" data-to="2743">eu-tarn-2</code> during this phase.</p>
+<pre class="mdr-code" data-lang="python" data-from="2764" data-to="3489"><code class="language-python" data-verbatim data-from="2774" data-to="3485"># halyard/shadow_router.py — traffic mirroring decision logic
+from dataclasses import dataclass
+
+MIRROR_READ_PCT = 100
+MIRROR_WRITE_PCT = 5
+
+@dataclass
+class Request:
+    method: str
+    tenant_id: str
+    is_synthetic: bool
+
+def should_mirror(req: Request, roll: int) -&gt; bool:
+    """Return True if the request is duplicated to eu-tarn-2."""
+    if req.method in ("GET", "HEAD"):
+        return roll &lt; MIRROR_READ_PCT
+    if not req.is_synthetic:
+        return False  # never mirror real customer writes in Phase 2
+    return roll &lt; MIRROR_WRITE_PCT
+
+if __name__ == "__main__":
+    sample = Request(method="POST", tenant_id="halberd-004", is_synthetic=True)
+    print(should_mirror(sample, roll=3))  # -&gt; True</code></pre>
+<ul data-from="3491" data-to="3655">
+  <li data-from="3491" data-to="3576"><strong data-from="3493" data-to="3511">Milestone M2.1</strong> — Shadow comparator reports &lt;0.1% response divergence <em data-from="3566" data-to="3576">(week 3)</em></li>
+  <li data-from="3577" data-to="3655"><strong data-from="3579" data-to="3597">Milestone M2.2</strong> — Chaos drill: region isolation for 20 minutes <em data-from="3645" data-to="3655">(week 5)</em></li>
+</ul>
+<h3 id="phase-3-progressive-cutover-9-weeks" data-from="3657" data-to="3702">Phase 3 — Progressive Cutover <em data-from="3691" data-to="3702">(9 weeks)</em></h3>
+<p data-from="3704" data-to="3732">Owner: <strong data-from="3711" data-to="3732">Priya Raghunathan</strong></p>
+<p data-from="3734" data-to="3814">Traffic shifts in four steps, with a mandatory 5-business-day soak between each.</p>
+<ol data-from="3816" data-to="3942">
+  <li data-from="3816" data-to="3835">5% of EU tenants</li>
+  <li data-from="3836" data-to="3856">25% of EU tenants</li>
+  <li data-from="3857" data-to="3878">100% of EU tenants</li>
+  <li data-from="3879" data-to="3942">20% of North American read traffic (latency experiment only)</li>
+</ol>
+<ul data-from="3944" data-to="4106">
+  <li data-from="3944" data-to="4021"><strong data-from="3946" data-to="3964">Milestone M3.1</strong> — First paying tenant served from <code data-from="3999" data-to="4010">eu-tarn-2</code> <em data-from="4011" data-to="4021">(week 2)</em></li>
+  <li data-from="4022" data-to="4106"><strong data-from="4024" data-to="4042">Milestone M3.2</strong> — <mark data-from="4045" data-to="4095">Full EU residency compliance attested by Legal</mark> <em data-from="4096" data-to="4106">(week 7)</em></li>
+</ul>
+<h3 id="phase-4-steady-state-and-decommission-6-weeks" data-from="4108" data-to="4163">Phase 4 — Steady State and Decommission <em data-from="4152" data-to="4163">(6 weeks)</em></h3>
+<p data-from="4165" data-to="4188">Owner: <strong data-from="4172" data-to="4188">Amara Ndiaye</strong></p>
+<ul data-from="4190" data-to="4506">
+  <li data-from="4190" data-to="4243"><p data-from="4192" data-to="4243">Retire the single-region failover runbook (RB-114).</p></li>
+  <li data-from="4244" data-to="4332"><p data-from="4246" data-to="4332">Reduce <code data-from="4253" data-to="4267">us-cascade-1</code> reserved capacity by 30%, saving an estimated <strong data-from="4314" data-to="4331">$41,800/month</strong>.</p></li>
+  <li data-from="4333" data-to="4374"><p data-from="4335" data-to="4374">Publish the post-implementation review.</p></li>
+  <li data-from="4376" data-to="4443"><p data-from="4378" data-to="4443"><strong data-from="4378" data-to="4396">Milestone M4.1</strong> — Cost reduction realized on the April invoice</p></li>
+  <li data-from="4444" data-to="4506"><p data-from="4446" data-to="4506"><strong data-from="4446" data-to="4464">Milestone M4.2</strong> — PIR published and circulated <em data-from="4496" data-to="4506">(week 6)</em></p></li>
+</ul>
+<hr data-from="4508" data-to="4511">
+<h2 id="3-risk-register" data-from="4513" data-to="4532">3. Risk Register</h2>
+<div class="mdr-table-wrap" data-from="4534" data-to="5356">
+  <table data-from="4534" data-to="5356">
+    <thead data-from="4534" data-to="4590">
+      <tr data-from="4534" data-to="4590">
+        <th data-from="4536" data-to="4538">ID</th>
+        <th data-from="4541" data-to="4545">Risk</th>
+        <th data-from="4548" data-to="4558">Likelihood</th>
+        <th data-from="4561" data-to="4567">Impact</th>
+        <th data-from="4570" data-to="4575">Owner</th>
+        <th data-from="4578" data-to="4588">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody data-from="4647" data-to="5356">
+      <tr data-from="4647" data-to="4797">
+        <td data-from="4649" data-to="4653">R-01</td>
+        <td data-from="4656" data-to="4708">Replication lag spikes during month-end billing runs</td>
+        <td data-from="4711" data-to="4715">High</td>
+        <td data-from="4718" data-to="4722">High</td>
+        <td data-from="4725" data-to="4739">Dmitri Solokov</td>
+        <td data-from="4742" data-to="4795">Throttle batch jobs; add a dedicated replication slot</td>
+      </tr>
+      <tr data-from="4798" data-to="4957">
+        <td data-from="4800" data-to="4804">R-02</td>
+        <td data-from="4807" data-to="4858">Cross-region write conflicts corrupt invoice totals</td>
+        <td data-from="4861" data-to="4867">Medium</td>
+        <td data-from="4870" data-to="4878">Critical</td>
+        <td data-from="4881" data-to="4897">Tobias Lindqvist</td>
+        <td data-from="4900" data-to="4955">Tenant-pinned write routing; nightly reconciliation job</td>
+      </tr>
+      <tr data-from="4958" data-to="5088">
+        <td data-from="4960" data-to="4964">R-03</td>
+        <td data-from="4967" data-to="5007">Budget for Phase 3 not approved by 1 May</td>
+        <td data-from="5010" data-to="5016">Medium</td>
+        <td data-from="5019" data-to="5023">High</td>
+        <td data-from="5026" data-to="5043">Priya Raghunathan</td>
+        <td data-from="5046" data-to="5086">Pre-brief the finance committee in April</td>
+      </tr>
+      <tr data-from="5089" data-to="5239">
+        <td data-from="5091" data-to="5095">R-04</td>
+        <td data-from="5098" data-to="5149">Key-person dependency on the Ravine replica tooling</td>
+        <td data-from="5152" data-to="5156">High</td>
+        <td data-from="5159" data-to="5165">Medium</td>
+        <td data-from="5168" data-to="5180">Amara Ndiaye</td>
+        <td data-from="5183" data-to="5237">Pair-rotation and a written operations guide by week 5</td>
+      </tr>
+      <tr data-from="5240" data-to="5356">
+        <td data-from="5242" data-to="5246">R-05</td>
+        <td data-from="5249" data-to="5284">Legal attestation delayed past M3.2</td>
+        <td data-from="5287" data-to="5290">Low</td>
+        <td data-from="5293" data-to="5297">High</td>
+        <td data-from="5300" data-to="5313">Fenella Okoro</td>
+        <td data-from="5316" data-to="5354">Start the review packet during Phase 2</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="5358" data-to="5433"><em data-from="5358" data-to="5433">Risks are re-scored every second Thursday at the Halyard steering review.</em></p>
+<hr data-from="5435" data-to="5438">
+<h2 id="4-governance" data-from="5440" data-to="5456">4. Governance</h2>
+<ul data-from="5458" data-to="5800">
+  <li data-from="5458" data-to="5538"><strong data-from="5460" data-to="5472">Cadence:</strong> Weekly 30-minute working session; fortnightly steering committee.</li>
+  <li data-from="5539" data-to="5628"><strong data-from="5541" data-to="5561">Escalation path:</strong> Team lead → Priya Raghunathan → Marcus Delacroix (VP Engineering).</li>
+  <li data-from="5629" data-to="5800"><strong data-from="5631" data-to="5648">Decision log:</strong> All architectural decisions recorded as numbered ADRs in the <code data-from="5710" data-to="5729">halyard-decisions</code> repository. <mark data-from="5742" data-to="5800">No cutover step proceeds without a signed exit review.</mark></li>
+</ul>

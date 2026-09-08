@@ -1,0 +1,55 @@
+<h1 id="technical-specification-vortex-rate-limiter" data-from="0" data-to="46">Technical Specification: Vortex Rate Limiter</h1>
+<h2 id="overview" data-from="48" data-to="59">Overview</h2>
+<p data-from="61" data-to="256">Vortex is a distributed rate-limiting service designed to throttle API requests using a token-bucket algorithm with adaptive backoff. It targets throughput of <span class="mdr-math" data-tex="10^5" data-from="220" data-to="226">10^5</span> requests per second per node.</p>
+<h2 id="requirements" data-from="258" data-to="273">Requirements</h2>
+<ul data-from="275" data-to="507">
+  <li data-from="275" data-to="325">Support configurable time windows per client key</li>
+  <li data-from="326" data-to="378">Enforce burst limits independent of sustained rate</li>
+  <li data-from="379" data-to="433">Persist bucket state in a replicated key-value store</li>
+  <li data-from="434" data-to="472">Expose Prometheus-compatible metrics</li>
+  <li data-from="473" data-to="507">Provide gRPC and REST interfaces</li>
+</ul>
+<h3 id="task-list" data-from="509" data-to="522">Task List</h3>
+<ul data-from="524" data-to="722">
+  <li class="mdr-task" data-from="524" data-to="560"><input type="checkbox" disabled checked data-from="526" data-to="529">Define token-bucket data model</li>
+  <li class="mdr-task" data-from="561" data-to="602"><input type="checkbox" disabled checked data-from="563" data-to="566">Implement core rate-limit algorithm</li>
+  <li class="mdr-task" data-from="603" data-to="645"><input type="checkbox" disabled data-from="605" data-to="608">Add multi-region replication support</li>
+  <li class="mdr-task" data-from="646" data-to="678"><input type="checkbox" disabled data-from="648" data-to="651">Write load-testing harness</li>
+  <li class="mdr-task" data-from="679" data-to="722"><input type="checkbox" disabled data-from="681" data-to="684">Publish client SDKs for Go and Python</li>
+</ul>
+<hr data-from="724" data-to="727">
+<h2 id="algorithm" data-from="729" data-to="741">Algorithm</h2>
+<p data-from="743" data-to="865">The core refill logic computes available tokens <span class="mdr-math" data-tex="T" data-from="791" data-to="794">T</span> at time <span class="mdr-math" data-tex="t" data-from="803" data-to="806">t</span> using the last refill timestamp <span class="mdr-math" data-tex="t_0" data-from="839" data-to="844">t_0</span> and refill rate <span class="mdr-math" data-tex="r" data-from="861" data-to="864">r</span>:</p>
+<div class="mdr-math-block" data-tex="T(t) = \min\left(B_{max},\; T(t_0) + r \cdot (t - t_0)\right)" data-from="867" data-to="934">
+  T(t) = \min\left(B_{max},\; T(t_0) + r \cdot (t - t_0)\right)
+</div>
+<p data-from="936" data-to="1029">where <span class="mdr-math" data-tex="B_{max}" data-from="942" data-to="951">B_{max}</span> is the bucket capacity. A request of cost <span class="mdr-math" data-tex="c" data-from="994" data-to="997">c</span> is accepted when <span class="mdr-math" data-tex="T(t) \geq c" data-from="1015" data-to="1028">T(t) \geq c</span>.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="1031" data-to="1158">
+  <div class="mdr-callout-title" data-from="1033" data-to="1040">
+    Note
+  </div>
+  <p data-from="1043" data-to="1158">The refill rate <span class="mdr-math" data-tex="r" data-from="1059" data-to="1062">r</span> is expressed in tokens per millisecond to avoid floating-point drift over long-running buckets.</p>
+</blockquote>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1160" data-to="1316">
+  <div class="mdr-callout-title" data-from="1162" data-to="1172">
+    Warning
+  </div>
+  <p data-from="1175" data-to="1316">Clock skew between nodes greater than 50ms may cause inconsistent throttling decisions. Deploy NTP synchronization before production rollout.</p>
+</blockquote>
+<h2 id="api-sketch" data-from="1318" data-to="1331">API Sketch</h2>
+<pre class="mdr-code" data-lang="go" data-from="1333" data-to="1643"><code class="language-go" data-verbatim data-from="1339" data-to="1639">type Limiter interface {
+    Allow(ctx context.Context, key string, cost int) (bool, error)
+    Reset(ctx context.Context, key string) error
+    Stats(ctx context.Context, key string) (BucketStats, error)
+}
+
+type BucketStats struct {
+    Available float64
+    Capacity  float64
+    LastRefill int64
+}</code></pre>
+<blockquote data-from="1645" data-to="1749">
+  <p data-from="1647" data-to="1749">As noted during the Q3 design review: "throttling decisions must be observable, not just enforceable."</p>
+</blockquote>
+<h2 id="deployment-notes" data-from="1751" data-to="1770">Deployment Notes</h2>
+<p data-from="1772" data-to="1884">Nodes should be deployed behind a consistent-hashing load balancer, with each shard owning a disjoint key range.</p>

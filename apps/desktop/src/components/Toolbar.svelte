@@ -33,7 +33,12 @@ const unreviewed = $derived(0);
   </nav>
 
   <div class="modes" role="group" aria-label="Mode">
-    <button type="button" disabled title="Read mode arrives with the Read renderer (WP 1.4)">
+    <button
+      type="button"
+      aria-pressed={mode === 'read'}
+      disabled={doc === null}
+      onclick={() => workspace.setMode('read')}
+    >
       Read
     </button>
     <button

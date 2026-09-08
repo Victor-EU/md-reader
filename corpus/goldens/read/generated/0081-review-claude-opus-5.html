@@ -1,0 +1,62 @@
+<h1 id="review-summary-orchid-ledger-settlement-service-v3-migration-plan-draft-4-rev-2024-11-08" data-from="0" data-to="99">Review Summary — <em data-from="19" data-to="72">Orchid Ledger: Settlement Service v3 Migration Plan</em> (Draft 4, rev. 2024-11-08)</h1>
+<p data-from="101" data-to="421"><strong data-from="101" data-to="114">Reviewer:</strong> Priya Ramaswamy, Staff Engineer, Platform Reliability
+<strong data-from="169" data-to="188">Document owner:</strong> Tobias Lindqvist, Payments Infrastructure
+<strong data-from="231" data-to="249">Review window:</strong> 2024-11-11 → 2024-11-15
+<strong data-from="274" data-to="286">Verdict:</strong> <em data-from="287" data-to="309">Approve with changes</em> — the architecture is sound, but the cutover plan and failure-mode analysis are not yet operationally credible.</p>
+<hr data-from="423" data-to="426">
+<h2 id="scope-of-review" data-from="428" data-to="446">Scope of Review</h2>
+<p data-from="448" data-to="696">I reviewed all nine sections (42 pages) plus Appendix C (schema diffs) and Appendix E (load-test results). I did not review Appendix D (vendor contract terms), which is outside my remit and appears to be pending Legal sign-off from Marguerite Osei.</p>
+<h2 id="summary-of-findings" data-from="698" data-to="720">Summary of Findings</h2>
+<p data-from="722" data-to="1125">The document proposes replacing the current single-writer settlement engine with a partitioned, event-sourced service backed by a durable log. The rationale in §2 is persuasive: at the projected 2025 volume of 14,800 settlement events per second, the existing engine's advisory-lock contention becomes the dominant latency term, and the measured p99 of 840 ms already exceeds the 500 ms internal target.</p>
+<p data-from="1127" data-to="1141"><strong data-from="1127" data-to="1141">Strengths.</strong></p>
+<ol data-from="1143" data-to="1789">
+  <li data-from="1143" data-to="1466"><strong data-from="1146" data-to="1176">§3 (Partitioning strategy)</strong> is the strongest section. Keying by <code data-from="1213" data-to="1234">merchant_account_id</code> rather than <code data-from="1247" data-to="1263">transaction_id</code> correctly preserves per-merchant ordering, which is the only ordering guarantee downstream reconciliation actually depends on. The rebalancing protocol described in §3.4 is straightforward and testable.</li>
+  <li data-from="1467" data-to="1650"><strong data-from="1470" data-to="1484">Appendix E</strong> is unusually honest. Reporting the 6.2% error rate observed during the third load run — instead of silently rerunning it — makes the whole document more trustworthy.</li>
+  <li data-from="1651" data-to="1789"><strong data-from="1654" data-to="1676">§7 (Observability)</strong> specifies emitted metrics with cardinality budgets, which is a level of rigor most design docs in this org skip.</li>
+</ol>
+<p data-from="1791" data-to="1813"><strong data-from="1791" data-to="1813">Material concerns.</strong></p>
+<ol data-from="1815" data-to="3295">
+  <li data-from="1815" data-to="2168"><strong data-from="1818" data-to="1869">The dual-write window is underspecified (§5.2).</strong> The plan states that v2 and v3 will both write settlement records for "a period of stabilization" but never bounds that period, names an owner, or defines the divergence threshold that would trigger rollback. In my experience these windows expand indefinitely unless a date is committed in writing.</li>
+  <li data-from="2169" data-to="2476"><strong data-from="2172" data-to="2227">No reconciliation story for in-flight state (§5.4).</strong> At cutover there will be settlements that have been accepted by v2 but not yet finalized. The document assumes this set is empty because the drain step precedes cutover, but the drain is described as "best effort." Best-effort drains leave residue.</li>
+  <li data-from="2477" data-to="2853"><strong data-from="2480" data-to="2522">Idempotency key collision risk (§4.3).</strong> The proposed key is <code data-from="2543" data-to="2609">sha256(merchant_account_id || amount_minor || rounded_timestamp)</code> with a 60-second rounding bucket. Two legitimate identical-amount charges from the same merchant within one bucket would be silently deduplicated. This is a correctness bug, not a tuning parameter. The key must include a client-supplied nonce.</li>
+  <li data-from="2854" data-to="3081"><strong data-from="2857" data-to="2900">Backpressure behavior is unstated (§6).</strong> When the log broker is unavailable, does the API return 503, buffer to local disk, or block? Each choice has different implications for the upstream gateway's retry storm behavior.</li>
+  <li data-from="3082" data-to="3295"><strong data-from="3085" data-to="3146">The 11-week timeline (§8) does not include a bake period.</strong> Weeks 9–11 are cutover, decommission, and documentation. There is no interval where v3 carries full production traffic while v2 remains recoverable.</li>
+</ol>
+<blockquote data-from="3297" data-to="3585">
+  <p data-from="3299" data-to="3585">The plan's central assumption — that partitioning removes the ordering constraint rather than relocating it — deserves an explicit paragraph. Ordering does not disappear; it moves to the rebalance boundary, and that boundary is where I expect the first production incident to originate.</p>
+</blockquote>
+<p data-from="3587" data-to="3669">Suggested illustration for §4.3, showing the key construction I'd propose instead:</p>
+<pre class="mdr-code" data-lang="python" data-from="3671" data-to="4057"><code class="language-python" data-verbatim data-from="3681" data-to="4053">def idempotency_key(req):
+    # Client nonce is REQUIRED; no timestamp bucketing.
+    if not req.client_nonce:
+        raise BadRequest("client_nonce is required")
+    material = "|".join([
+        req.merchant_account_id,
+        str(req.amount_minor),
+        req.currency,
+        req.client_nonce,
+    ])
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()</code></pre>
+<h2 id="open-questions" data-from="4059" data-to="4076">Open Questions</h2>
+<ol data-from="4078" data-to="4706">
+  <li data-from="4078" data-to="4214">What is the retention period on the durable log, and does it exceed the longest legally mandated dispute window (I believe 180 days)?</li>
+  <li data-from="4215" data-to="4331">Who owns the rebalance protocol at 03:00 on a Sunday? §3.4 describes the mechanism but names no on-call rotation.</li>
+  <li data-from="4332" data-to="4449">Has the 6.2% error rate from load run 3 been root-caused, or is it still attributed to "test harness instability"?</li>
+  <li data-from="4450" data-to="4572">Does the reconciliation team (Devansh Kapoor's group) have a signed-off schema contract, or is Appendix C aspirational?</li>
+  <li data-from="4573" data-to="4706">What happens to the 2,100 merchants currently on the legacy fee schedule — are they in scope for migration or explicitly deferred?</li>
+</ol>
+<h2 id="recommended-changes" data-from="4708" data-to="4730">Recommended Changes</h2>
+<ul data-from="4732" data-to="5572">
+  <li class="mdr-task" data-from="4732" data-to="4795"><input type="checkbox" disabled checked data-from="4734" data-to="4737">Add a version/date header and a changelog table to page 1</li>
+  <li class="mdr-task" data-from="4796" data-to="4887"><input type="checkbox" disabled checked data-from="4798" data-to="4801">Correct the throughput figure in §2.1 (states 14,800/s; Appendix E measures 12,400/s)</li>
+  <li class="mdr-task" data-from="4888" data-to="4966"><input type="checkbox" disabled checked data-from="4890" data-to="4893">Fix the broken cross-reference from §6.2 to "§9.3," which does not exist</li>
+  <li class="mdr-task" data-from="4967" data-to="5074"><input type="checkbox" disabled data-from="4969" data-to="4972">Replace the timestamp-bucketed idempotency key with a client-nonce construction (§4.3) — <strong data-from="5062" data-to="5074">blocking</strong></li>
+  <li class="mdr-task" data-from="5075" data-to="5178"><input type="checkbox" disabled data-from="5077" data-to="5080">Bound the dual-write window to a specific number of days with a named owner (§5.2) — <strong data-from="5166" data-to="5178">blocking</strong></li>
+  <li class="mdr-task" data-from="5179" data-to="5274"><input type="checkbox" disabled data-from="5181" data-to="5184">Add a backpressure subsection to §6 specifying broker-unavailable behavior — <strong data-from="5262" data-to="5274">blocking</strong></li>
+  <li class="mdr-task" data-from="5275" data-to="5351"><input type="checkbox" disabled data-from="5277" data-to="5280">Insert a two-week bake period into the §8 timeline before decommission</li>
+  <li class="mdr-task" data-from="5352" data-to="5443"><input type="checkbox" disabled data-from="5354" data-to="5357">Add a rollback runbook as Appendix F, including the maximum tolerable data divergence</li>
+  <li class="mdr-task" data-from="5444" data-to="5515"><input type="checkbox" disabled data-from="5446" data-to="5449">Document the in-flight settlement reconciliation procedure (§5.4)</li>
+  <li class="mdr-task" data-from="5516" data-to="5572"><input type="checkbox" disabled data-from="5518" data-to="5521">Clarify legacy fee-schedule merchant scope in §1.3</li>
+</ul>
+<h2 id="next-steps" data-from="5574" data-to="5587">Next Steps</h2>
+<p data-from="5589" data-to="5898">I suggest a 45-minute working session with Tobias, Devansh, and someone from Gateway to close the three blocking items. If those are resolved, I expect to sign off on Draft 5 without a further full review. Non-blocking items can be tracked as follow-ups against the migration epic rather than gating approval.</p>

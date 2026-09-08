@@ -1,0 +1,291 @@
+<h1 id="project-nightingale-predictive-maintenance-platform" data-from="0" data-to="54">Project Nightingale: Predictive Maintenance Platform</h1>
+<h2 id="project-overview" data-from="56" data-to="75">Project Overview</h2>
+<p data-from="77" data-to="444"><strong data-from="77" data-to="100">Project Nightingale</strong> is an initiative by <strong data-from="121" data-to="152">Solandra Industrial Systems</strong> to build a predictive maintenance platform for its fleet of 214 industrial compressors deployed across 12 regional plants. The platform will use sensor telemetry and machine learning to forecast equipment failure <em data-from="366" data-to="374">before</em> it happens, reducing unplanned downtime and extending asset lifespan.</p>
+<p data-from="446" data-to="718">The project sponsor is <strong data-from="469" data-to="489">Priya Nandakumar</strong>, VP of Operations, and the executive stakeholder is <strong data-from="542" data-to="557">Marcus Feld</strong>, CTO. The core delivery team is drawn from the <strong data-from="605" data-to="632">Applied Analytics Guild</strong>, a cross-functional group of data scientists, engineers, and reliability specialists.</p>
+<blockquote data-from="720" data-to="871">
+  <p data-from="722" data-to="871">"We don't need a system that tells us a machine failed. We need one that tells us it's <em data-from="809" data-to="816">about</em> to."
+ — Priya Nandakumar, Kickoff Address, March 2024</p>
+</blockquote>
+<hr data-from="873" data-to="876">
+<h2 id="objectives" data-from="878" data-to="891">Objectives</h2>
+<ul data-from="893" data-to="1191">
+  <li data-from="893" data-to="979">Reduce unplanned compressor downtime by <strong data-from="935" data-to="942">35%</strong> within 12 months of full deployment.</li>
+  <li data-from="980" data-to="1027">Achieve a false-positive alert rate below 8%.</li>
+  <li data-from="1028" data-to="1123">Establish a reusable telemetry pipeline for future asset classes (pumps, turbines, chillers).</li>
+  <li data-from="1124" data-to="1191">Deliver a self-service dashboard for plant reliability engineers.</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="note" data-from="1193" data-to="1394">
+  <div class="mdr-callout-title" data-from="1195" data-to="1202">
+    Note
+  </div>
+  <p data-from="1205" data-to="1394">This plan assumes existing SCADA infrastructure at all 12 plants is compatible with the new edge-gateway hardware. A compatibility audit is scheduled in Phase 1 to validate this assumption.</p>
+</blockquote>
+<hr data-from="1396" data-to="1399">
+<h2 id="phase-1-discovery-data-foundations" data-from="1401" data-to="1441">Phase 1: Discovery &amp; Data Foundations</h2>
+<p data-from="1443" data-to="1513"><strong data-from="1443" data-to="1456">Duration:</strong> 8 weeks
+<strong data-from="1465" data-to="1475">Owner:</strong> <em data-from="1476" data-to="1493">Renata Oyelaran</em>, Lead Data Engineer</p>
+<h3 id="goals" data-from="1515" data-to="1524">Goals</h3>
+<p data-from="1526" data-to="1745">The discovery phase establishes ground truth about the current state of sensor coverage, historical failure records, and data quality. Without this foundation, downstream modeling work in Phase 3 would be built on sand.</p>
+<h3 id="key-activities" data-from="1747" data-to="1765">Key Activities</h3>
+<ol data-from="1767" data-to="2169">
+  <li data-from="1767" data-to="2004">Inventory existing sensors across all 214 compressors<ul data-from="1827" data-to="2004">
+      <li data-from="1827" data-to="1954">Vibration sensors (accelerometers)<ul data-from="1869" data-to="1954">
+          <li data-from="1869" data-to="1900">Confirm sampling rate ≥ 2 kHz</li>
+          <li data-from="1906" data-to="1954">Confirm calibration date within last 18 months</li>
+        </ul></li>
+      <li data-from="1958" data-to="1978">Temperature probes</li>
+      <li data-from="1982" data-to="2004">Pressure transducers</li>
+    </ul></li>
+  <li data-from="2005" data-to="2053">Audit historical maintenance logs (2019–2024)</li>
+  <li data-from="2054" data-to="2106">Interview reliability engineers at 4 pilot plants</li>
+  <li data-from="2107" data-to="2169">Draft a data governance charter with <strong data-from="2147" data-to="2169">Legal &amp; Compliance</strong></li>
+</ol>
+<h3 id="milestones" data-from="2171" data-to="2185">Milestones</h3>
+<div class="mdr-table-wrap" data-from="2187" data-to="2421">
+  <table data-from="2187" data-to="2421">
+    <thead data-from="2187" data-to="2222">
+      <tr data-from="2187" data-to="2222">
+        <th data-from="2189" data-to="2198">Milestone</th>
+        <th data-from="2201" data-to="2212">Target Date</th>
+        <th data-from="2215" data-to="2220">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="2237" data-to="2421">
+      <tr data-from="2237" data-to="2293">
+        <td data-from="2239" data-to="2264">Sensor inventory complete</td>
+        <td data-from="2267" data-to="2273">Week 3</td>
+        <td data-from="2276" data-to="2291">Renata Oyelaran</td>
+      </tr>
+      <tr data-from="2294" data-to="2359">
+        <td data-from="2296" data-to="2329">Historical data extract validated</td>
+        <td data-from="2332" data-to="2338">Week 5</td>
+        <td data-from="2341" data-to="2357">Tomasz Wieczorek</td>
+      </tr>
+      <tr data-from="2360" data-to="2421">
+        <td data-from="2362" data-to="2391">Governance charter signed off</td>
+        <td data-from="2394" data-to="2400">Week 8</td>
+        <td data-from="2403" data-to="2419">Priya Nandakumar</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="tasks" data-from="2423" data-to="2432">Tasks</h3>
+<ul data-from="2434" data-to="2686">
+  <li class="mdr-task" data-from="2434" data-to="2483"><input type="checkbox" disabled checked data-from="2436" data-to="2439">Confirm plant list and compressor asset IDs</li>
+  <li class="mdr-task" data-from="2484" data-to="2533"><input type="checkbox" disabled checked data-from="2486" data-to="2489">Set up secure data lake staging environment</li>
+  <li class="mdr-task" data-from="2534" data-to="2588"><input type="checkbox" disabled data-from="2536" data-to="2539">Complete calibration audit for vibration sensors</li>
+  <li class="mdr-task" data-from="2589" data-to="2646"><input type="checkbox" disabled data-from="2591" data-to="2594">Finalize data-sharing agreement with plant IT teams</li>
+  <li class="mdr-task" data-from="2647" data-to="2686"><input type="checkbox" disabled data-from="2649" data-to="2652">Publish discovery findings report</li>
+</ul>
+<h3 id="risks" data-from="2688" data-to="2697">Risks</h3>
+<ul data-from="2699" data-to="3093">
+  <li data-from="2699" data-to="2898"><strong data-from="2701" data-to="2723">Data sparsity risk</strong>: Some older compressors (pre-2016 models) may lack sufficient sensor coverage, limiting model training data. <em data-from="2833" data-to="2845">Mitigation</em>: prioritize retrofit budget for the 22 oldest units.</li>
+  <li data-from="2899" data-to="3093"><strong data-from="2901" data-to="2924">Stakeholder fatigue</strong>: Reliability engineers at pilot plants have limited bandwidth for interviews. <em data-from="3003" data-to="3015">Mitigation</em>: cap interviews at 45 minutes, offer async written surveys as an alternative.</li>
+</ul>
+<hr data-from="3095" data-to="3098">
+<h2 id="phase-2-platform-architecture" data-from="3100" data-to="3133">Phase 2: Platform Architecture</h2>
+<p data-from="3135" data-to="3217"><strong data-from="3135" data-to="3148">Duration:</strong> 10 weeks
+<strong data-from="3158" data-to="3168">Owner:</strong> <em data-from="3169" data-to="3188">Julian Castellane</em>, Principal Systems Architect</p>
+<h3 id="goals-1" data-from="3219" data-to="3228">Goals</h3>
+<p data-from="3230" data-to="3405">Design a scalable ingestion-to-inference architecture that can handle telemetry from all 12 plants simultaneously, with room to onboard three additional asset classes by 2026.</p>
+<h3 id="architecture-summary" data-from="3407" data-to="3431">Architecture Summary</h3>
+<p data-from="3433" data-to="3660">The pipeline follows a standard streaming architecture: edge gateways buffer and forward sensor readings to a regional message broker, which feeds both a real-time anomaly scorer and a batch data warehouse for model retraining.</p>
+<pre class="mdr-code" data-lang="yaml" data-from="3662" data-to="3973"><code class="language-yaml" data-verbatim data-from="3670" data-to="3969">pipeline:
+  ingestion:
+    protocol: MQTT
+    broker: regional-kafka-cluster
+    batch_interval_seconds: 15
+  processing:
+    stream_engine: flink
+    anomaly_scorer: onnx-runtime
+  storage:
+    hot_tier: timescaledb
+    cold_tier: parquet-on-s3
+  serving:
+    api: fastapi
+    dashboard: react-dash</code></pre>
+<h3 id="key-decisions" data-from="3975" data-to="3992">Key Decisions</h3>
+<ul data-from="3994" data-to="4360">
+  <li data-from="3994" data-to="4179"><strong data-from="3996" data-to="4024">Edge vs. cloud inference</strong>: Given plant network latency averages ~140 ms, we will run a lightweight anomaly scorer <em data-from="4113" data-to="4126">at the edge</em> and reserve full model inference for the cloud tier.</li>
+  <li data-from="4180" data-to="4360"><strong data-from="4182" data-to="4207">Message broker choice</strong>: Kafka was selected over RabbitMQ for its superior throughput under burst conditions (compressor startup events generate spikes of ~4,000 messages/sec).</li>
+</ul>
+<h3 id="milestones-1" data-from="4362" data-to="4376">Milestones</h3>
+<ul data-from="4378" data-to="4579">
+  <li class="mdr-task" data-from="4378" data-to="4426"><input type="checkbox" disabled checked data-from="4380" data-to="4383">Architecture decision record (ADR) drafted</li>
+  <li class="mdr-task" data-from="4427" data-to="4476"><input type="checkbox" disabled checked data-from="4429" data-to="4432">Security review with InfoSec team completed</li>
+  <li class="mdr-task" data-from="4477" data-to="4529"><input type="checkbox" disabled data-from="4479" data-to="4482">Reference architecture approved by Marcus Feld</li>
+  <li class="mdr-task" data-from="4530" data-to="4579"><input type="checkbox" disabled data-from="4532" data-to="4535">Edge gateway hardware procurement finalized</li>
+</ul>
+<h3 id="risks-1" data-from="4581" data-to="4590">Risks</h3>
+<blockquote class="mdr-callout" data-callout="warning" data-from="4592" data-to="4799">
+  <div class="mdr-callout-title" data-from="4594" data-to="4604">
+    Warning
+  </div>
+  <p data-from="4607" data-to="4799">The chosen edge-gateway vendor, <strong data-from="4639" data-to="4657">Korvex Systems</strong>, has a historical average lead time of 11 weeks for bulk orders. Any delay in procurement approval directly threatens the Phase 3 start date.</p>
+</blockquote>
+<p data-from="4801" data-to="4818">Additional risks:</p>
+<ul data-from="4819" data-to="5044">
+  <li data-from="4819" data-to="4916"><strong data-from="4821" data-to="4839">Vendor lock-in</strong>: Heavy reliance on Kafka-managed services could complicate future migration.</li>
+  <li data-from="4917" data-to="5044"><strong data-from="4919" data-to="4942">Network reliability</strong>: Two plants (Denholt and Ashcombe) have reported intermittent WAN outages exceeding 30 minutes/month.</li>
+</ul>
+<hr data-from="5046" data-to="5049">
+<h2 id="phase-3-model-development" data-from="5051" data-to="5080">Phase 3: Model Development</h2>
+<p data-from="5082" data-to="5157"><strong data-from="5082" data-to="5095">Duration:</strong> 12 weeks
+<strong data-from="5105" data-to="5115">Owner:</strong> <em data-from="5116" data-to="5135">Dr. Amara Solheim</em>, Head of Data Science</p>
+<h3 id="goals-2" data-from="5159" data-to="5168">Goals</h3>
+<p data-from="5170" data-to="5390">Build and validate predictive models capable of forecasting compressor bearing failure and seal degradation with sufficient lead time (target: <strong data-from="5313" data-to="5325">72 hours</strong> advance warning) for maintenance crews to schedule intervention.</p>
+<h3 id="modeling-approach" data-from="5392" data-to="5413">Modeling Approach</h3>
+<p data-from="5415" data-to="5648">We frame failure prediction as a survival analysis problem. Let <span class="mdr-math" data-tex="T" data-from="5479" data-to="5482">T</span> denote the time to failure for a given compressor unit, and let <span class="mdr-math" data-tex="x_i" data-from="5547" data-to="5552">x_i</span> represent the feature vector of sensor readings at time <span class="mdr-math" data-tex="i" data-from="5609" data-to="5612">i</span>. The hazard function is modeled as:</p>
+<div class="mdr-math-block" data-tex="h(t \mid x) = h_0(t) \cdot \exp\left(\beta_1 x_1 + \beta_2 x_2 + \cdots + \beta_k x_k\right)" data-from="5650" data-to="5748">
+  h(t \mid x) = h_0(t) \cdot \exp\left(\beta_1 x_1 + \beta_2 x_2 + \cdots + \beta_k x_k\right)
+</div>
+<p data-from="5750" data-to="5994">where <span class="mdr-math" data-tex="h_0(t)" data-from="5756" data-to="5764">h_0(t)</span> is the baseline hazard and <span class="mdr-math" data-tex="\beta_k" data-from="5792" data-to="5801">\beta_k</span> are learned feature weights. Feature engineering includes rolling statistics such as the vibration RMS over a 10-minute window, denoted <span class="mdr-math" data-tex="x_{\text{rms}} = \sqrt{\frac{1}{n}\sum_{i=1}^n v_i^2}" data-from="5938" data-to="5993">x_{\text{rms}} = \sqrt{\frac{1}{n}\sum_{i=1}^n v_i^2}</span>.</p>
+<h3 id="key-activities-1" data-from="5996" data-to="6014">Key Activities</h3>
+<ol data-from="6016" data-to="6542">
+  <li data-from="6016" data-to="6276">Feature engineering pipeline<ul data-from="6051" data-to="6276">
+      <li data-from="6051" data-to="6224">Rolling window statistics (RMS, kurtosis, skewness)<ul data-from="6110" data-to="6224">
+          <li data-from="6110" data-to="6128">10-minute window</li>
+          <li data-from="6134" data-to="6224">60-minute window<ul data-from="6160" data-to="6224">
+              <li data-from="6160" data-to="6224">Cross-validated against known failure events from Phase 1 logs</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="6228" data-to="6276">Frequency-domain features (FFT peak detection)</li>
+    </ul></li>
+  <li data-from="6277" data-to="6363">Baseline model training (Cox proportional hazards, gradient-boosted survival trees)</li>
+  <li data-from="6364" data-to="6429"><strong data-from="6367" data-to="6387">Model evaluation</strong> against held-out failure events from 2023</li>
+  <li data-from="6430" data-to="6542">Bias and fairness review — ensuring the model does not systematically underperform on older compressor models</li>
+</ol>
+<h3 id="milestones-2" data-from="6544" data-to="6558">Milestones</h3>
+<div class="mdr-table-wrap" data-from="6560" data-to="6854">
+  <table data-from="6560" data-to="6854">
+    <thead data-from="6560" data-to="6595">
+      <tr data-from="6560" data-to="6595">
+        <th data-from="6562" data-to="6571">Milestone</th>
+        <th data-from="6574" data-to="6585">Target Date</th>
+        <th data-from="6588" data-to="6593">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="6610" data-to="6854">
+      <tr data-from="6610" data-to="6670">
+        <td data-from="6612" data-to="6640">Feature pipeline v1 complete</td>
+        <td data-from="6643" data-to="6649">Week 4</td>
+        <td data-from="6652" data-to="6668">Tomasz Wieczorek</td>
+      </tr>
+      <tr data-from="6671" data-to="6722">
+        <td data-from="6673" data-to="6695">Baseline model trained</td>
+        <td data-from="6698" data-to="6704">Week 7</td>
+        <td data-from="6707" data-to="6720">Amara Solheim</td>
+      </tr>
+      <tr data-from="6723" data-to="6797">
+        <td data-from="6725" data-to="6769">Model achieves ≥ 80% recall at 72-hr horizon</td>
+        <td data-from="6772" data-to="6779">Week 10</td>
+        <td data-from="6782" data-to="6795">Amara Solheim</td>
+      </tr>
+      <tr data-from="6798" data-to="6854">
+        <td data-from="6800" data-to="6826">Final model card published</td>
+        <td data-from="6829" data-to="6836">Week 12</td>
+        <td data-from="6839" data-to="6852">Amara Solheim</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="tasks-1" data-from="6856" data-to="6865">Tasks</h3>
+<ul data-from="6867" data-to="7167">
+  <li class="mdr-task" data-from="6867" data-to="6950"><input type="checkbox" disabled checked data-from="6869" data-to="6872">Establish train/validation/test split by plant, not by time, to avoid leakage</li>
+  <li class="mdr-task" data-from="6951" data-to="7001"><input type="checkbox" disabled checked data-from="6953" data-to="6956">Build baseline logistic regression benchmark</li>
+  <li class="mdr-task" data-from="7002" data-to="7060"><input type="checkbox" disabled data-from="7004" data-to="7007">Tune gradient-boosted survival model hyperparameters</li>
+  <li class="mdr-task" data-from="7061" data-to="7120"><input type="checkbox" disabled data-from="7063" data-to="7066">Complete fairness audit across compressor age cohorts</li>
+  <li class="mdr-task" data-from="7121" data-to="7167"><input type="checkbox" disabled data-from="7123" data-to="7126">Document model limitations in model card</li>
+</ul>
+<h3 id="risks-2" data-from="7169" data-to="7178">Risks</h3>
+<ul data-from="7180" data-to="7761">
+  <li data-from="7180" data-to="7381"><strong data-from="7182" data-to="7201">Class imbalance</strong>: Failures are rare events (~1.8% of unit-months), which can bias models toward predicting "no failure." <em data-from="7306" data-to="7318">Mitigation</em>: use focal loss and synthetic oversampling of failure windows.</li>
+  <li data-from="7382" data-to="7581"><strong data-from="7384" data-to="7415">Overfitting to pilot plants</strong>: Since only 4 plants have rich historical labels, models may not generalize to the remaining 8. <em data-from="7512" data-to="7524">Mitigation</em>: hold out one pilot plant entirely for final validation.</li>
+  <li data-from="7582" data-to="7761"><mark data-from="7584" data-to="7601">Critical risk</mark>: If recall at the 72-hour horizon falls below 65%, the maintenance lead time will be operationally useless, and the project's core value proposition collapses.</li>
+</ul>
+<hr data-from="7763" data-to="7766">
+<h2 id="phase-4-pilot-deployment" data-from="7768" data-to="7796">Phase 4: Pilot Deployment</h2>
+<p data-from="7798" data-to="7901"><strong data-from="7798" data-to="7811">Duration:</strong> 6 weeks
+<strong data-from="7820" data-to="7830">Owner:</strong> <em data-from="7831" data-to="7848">Renata Oyelaran</em> (Data Engineering) &amp; <em data-from="7870" data-to="7889">Dr. Amara Solheim</em> (Model Ops)</p>
+<h3 id="goals-3" data-from="7903" data-to="7912">Goals</h3>
+<p data-from="7914" data-to="8086">Deploy the full pipeline — edge ingestion, streaming inference, and dashboard alerts — to the four pilot plants: <strong data-from="8027" data-to="8041">Brackwater</strong>, <strong data-from="8043" data-to="8054">Denholt</strong>, <strong data-from="8056" data-to="8067">Sundale</strong>, and <strong data-from="8073" data-to="8085">Ashcombe</strong>.</p>
+<h3 id="key-activities-2" data-from="8088" data-to="8106">Key Activities</h3>
+<ol data-from="8108" data-to="8336">
+  <li data-from="8108" data-to="8147">Install edge gateways at pilot sites</li>
+  <li data-from="8148" data-to="8227">Shadow-mode deployment (model runs but does not trigger maintenance tickets)</li>
+  <li data-from="8228" data-to="8297">Compare model alerts against actual maintenance events for 3 weeks</li>
+  <li data-from="8298" data-to="8336">Go/no-go review with plant managers</li>
+</ol>
+<h3 id="milestones-3" data-from="8338" data-to="8352">Milestones</h3>
+<ul data-from="8354" data-to="8527">
+  <li class="mdr-task" data-from="8354" data-to="8397"><input type="checkbox" disabled checked data-from="8356" data-to="8359">Edge gateways installed at Brackwater</li>
+  <li class="mdr-task" data-from="8398" data-to="8457"><input type="checkbox" disabled data-from="8400" data-to="8403">Edge gateways installed at Denholt, Sundale, Ashcombe</li>
+  <li class="mdr-task" data-from="8458" data-to="8492"><input type="checkbox" disabled data-from="8460" data-to="8463">Shadow-mode results reviewed</li>
+  <li class="mdr-task" data-from="8493" data-to="8527"><input type="checkbox" disabled data-from="8495" data-to="8498">Go/no-go decision documented</li>
+</ul>
+<h3 id="risks-3" data-from="8529" data-to="8538">Risks</h3>
+<blockquote class="mdr-callout" data-callout="note" data-from="8540" data-to="8718">
+  <div class="mdr-callout-title" data-from="8542" data-to="8549">
+    Note
+  </div>
+  <p data-from="8552" data-to="8718">Shadow-mode deployment is <em data-from="8578" data-to="8594">non-negotiable</em> for this phase. Skipping it to save time would remove our only safety net against false alarms disrupting plant operations.</p>
+</blockquote>
+<ul data-from="8720" data-to="9076">
+  <li data-from="8720" data-to="8922"><strong data-from="8722" data-to="8739">Alert fatigue</strong>: If the false-positive rate exceeds targets during shadow mode, plant staff may begin ignoring alerts entirely, a phenomenon reliability literature sometimes calls "alarm blindness."</li>
+  <li data-from="8923" data-to="9076"><strong data-from="8925" data-to="8942">Staffing gaps</strong>: Ashcombe plant is currently short two reliability technicians, which may delay their ability to act on the go/no-go review findings.</li>
+</ul>
+<hr data-from="9078" data-to="9081">
+<h2 id="phase-5-full-rollout-handover" data-from="9083" data-to="9118">Phase 5: Full Rollout &amp; Handover</h2>
+<p data-from="9120" data-to="9173"><strong data-from="9120" data-to="9133">Duration:</strong> 14 weeks
+<strong data-from="9143" data-to="9153">Owner:</strong> <em data-from="9154" data-to="9173">Julian Castellane</em></p>
+<h3 id="goals-4" data-from="9175" data-to="9184">Goals</h3>
+<p data-from="9186" data-to="9331">Scale the platform to all remaining 8 plants, transition operational ownership to the <strong data-from="9272" data-to="9298">Plant Reliability Team</strong>, and formally close the project.</p>
+<h3 id="key-activities-3" data-from="9333" data-to="9351">Key Activities</h3>
+<ol data-from="9353" data-to="9545">
+  <li data-from="9353" data-to="9427">Staged rollout in three waves of plants (grouped by regional proximity)</li>
+  <li data-from="9428" data-to="9474">Training sessions for reliability engineers</li>
+  <li data-from="9475" data-to="9510">Knowledge transfer documentation</li>
+  <li data-from="9511" data-to="9545">90-day hypercare support window</li>
+</ol>
+<h3 id="milestones-4" data-from="9547" data-to="9561">Milestones</h3>
+<div class="mdr-table-wrap" data-from="9563" data-to="9876">
+  <table data-from="9563" data-to="9876">
+    <thead data-from="9563" data-to="9598">
+      <tr data-from="9563" data-to="9598">
+        <th data-from="9565" data-to="9574">Milestone</th>
+        <th data-from="9577" data-to="9588">Target Date</th>
+        <th data-from="9591" data-to="9596">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="9613" data-to="9876">
+      <tr data-from="9613" data-to="9680">
+        <td data-from="9615" data-to="9649">Wave 1 rollout (3 plants) complete</td>
+        <td data-from="9652" data-to="9658">Week 4</td>
+        <td data-from="9661" data-to="9678">Julian Castellane</td>
+      </tr>
+      <tr data-from="9681" data-to="9748">
+        <td data-from="9683" data-to="9717">Wave 2 rollout (3 plants) complete</td>
+        <td data-from="9720" data-to="9726">Week 8</td>
+        <td data-from="9729" data-to="9746">Julian Castellane</td>
+      </tr>
+      <tr data-from="9749" data-to="9817">
+        <td data-from="9751" data-to="9785">Wave 3 rollout (2 plants) complete</td>
+        <td data-from="9788" data-to="9795">Week 12</td>
+        <td data-from="9798" data-to="9815">Julian Castellane</td>
+      </tr>
+      <tr data-from="9818" data-to="9876">
+        <td data-from="9820" data-to="9846">Hypercare period concludes</td>
+        <td data-from="9849" data-to="9856">Week 14</td>
+        <td data-from="9859" data-to="9874">Renata Oyelaran</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="tasks-2" data-from="9878" data-to="9887">Tasks</h3>
+<ul data-from="9889" data-to="10087">
+  <li class="mdr-task" data-from="9889" data-to="9925"><input type="checkbox" disabled data-from="9891" data-to="9894">Draft plant onboarding runbook</li>
+  <li class="mdr-task" data-from="9926" data-to="9991"><input type="checkbox" disabled data-from="9928" data-to="9931">Conduct training workshops (3 sessions, ~25 attendees each)</li>
+  <li class="mdr-task" data-from="9992" data-to="10043"><input type="checkbox" disabled data-from="9994" data-to="9997">Transfer on-call rotation to Reliability Team</li>
+  <li class="mdr-task" data-from="10044" data-to="10087"><input type="checkbox" disabled data-from="10046" data-to="10049">Final project retrospective published</li>
+</ul>
+<h3 id="ris" data-from="10089" data-to="10096">Ris</h3>

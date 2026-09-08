@@ -1,6 +1,8 @@
 <script lang="ts">
 import EditorPane from './components/EditorPane.svelte';
 import Palette from './components/Palette.svelte';
+import ReadPane from './components/ReadPane.svelte';
+import Sidebar from './components/Sidebar.svelte';
 import StatusBar from './components/StatusBar.svelte';
 import TabStrip from './components/TabStrip.svelte';
 import Toolbar from './components/Toolbar.svelte';
@@ -49,7 +51,23 @@ function drop(event: DragEvent) {
 <div class="frame" ondragover={(event) => event.preventDefault()} ondrop={drop} role="application">
   <TabStrip {workspace} />
   <Toolbar {workspace} />
-  <EditorPane {workspace} />
+  <div class="middle">
+    {#if workspace.sidebar}
+      <Sidebar {workspace} />
+    {/if}
+    {#if workspace.activeId === null}
+      <main class="page">
+        <div class="blank">
+          <h1>MD Reader</h1>
+          <p>Open a markdown file, drop one on the window, or start a new one.</p>
+        </div>
+      </main>
+    {:else if workspace.readMode}
+      <ReadPane {workspace} />
+    {:else}
+      <EditorPane {workspace} />
+    {/if}
+  </div>
   <StatusBar {workspace} />
   {#if workspace.palette.open}
     <Palette {workspace} {registry} />

@@ -12,6 +12,21 @@ export default defineConfig({
           name: 'markdown',
           environment: 'node',
           include: ['packages/markdown/src/**/*.test.ts'],
+          exclude: ['**/*.browser.test.ts'],
+        },
+      },
+      {
+        // The read renderer's DOM adapter against the same goldens the node
+        // project writes, in both engines (plan 7.2).
+        test: {
+          name: 'markdown-browser',
+          include: ['packages/markdown/src/**/*.browser.test.ts'],
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            instances: [{ browser: 'chromium' }, { browser: 'webkit' }],
+          },
         },
       },
       {

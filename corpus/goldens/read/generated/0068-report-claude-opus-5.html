@@ -1,0 +1,176 @@
+<h1 id="project-halyard-status-report" data-from="0" data-to="33">Project Halyard — Status Report</h1>
+<p data-from="35" data-to="213"><strong data-from="35" data-to="56">Reporting period:</strong> March 3 – March 14, 2025
+<strong data-from="82" data-to="92">Owner:</strong> Priya Raghunathan, Platform Engineering
+<strong data-from="133" data-to="144">Status:</strong> <mark data-from="145" data-to="213">At risk — schedule slip of 6 working days on the migration track</mark></p>
+<hr data-from="215" data-to="218">
+<h2 id="1-executive-summary" data-from="220" data-to="243">1. Executive Summary</h2>
+<p data-from="245" data-to="655">Halyard replaces our legacy batch ingestion service (<code data-from="298" data-to="313">corvid-loader</code>) with a streaming pipeline built on the internal Tidewater event bus. Throughput and correctness targets for Phase 2 have been met ahead of plan, but the <strong data-from="468" data-to="510">cutover of tenant shard <code data-from="494" data-to="508">eu-central-b</code></strong> slipped after we discovered schema drift in three downstream consumers. We are recommending a <em data-from="605" data-to="632">two-week hardening window</em> before Phase 3 begins.</p>
+<hr data-from="657" data-to="660">
+<h2 id="2-metrics" data-from="662" data-to="675">2. Metrics</h2>
+<div class="mdr-table-wrap" data-from="677" data-to="1202">
+  <table data-from="677" data-to="1202">
+    <thead data-from="677" data-to="732">
+      <tr data-from="677" data-to="732">
+        <th data-from="679" data-to="685">Metric</th>
+        <th data-from="688" data-to="694">Target</th>
+        <th data-from="697" data-to="708">Last period</th>
+        <th data-from="711" data-to="722">This period</th>
+        <th data-from="725" data-to="730">Trend</th>
+      </tr>
+    </thead>
+    <tbody data-from="755" data-to="1202">
+      <tr data-from="755" data-to="823">
+        <td data-from="757" data-to="784">Median ingest latency (p50)</td>
+        <td data-from="787" data-to="795">≤ 400 ms</td>
+        <td data-from="798" data-to="804">610 ms</td>
+        <td data-from="807" data-to="817"><strong data-from="807" data-to="817">312 ms</strong></td>
+        <td data-from="820" data-to="821">▲</td>
+      </tr>
+      <tr data-from="824" data-to="876">
+        <td data-from="826" data-to="844">Tail latency (p99)</td>
+        <td data-from="847" data-to="854">≤ 2.0 s</td>
+        <td data-from="857" data-to="862">4.8 s</td>
+        <td data-from="865" data-to="870">2.4 s</td>
+        <td data-from="873" data-to="874">▲</td>
+      </tr>
+      <tr data-from="877" data-to="933">
+        <td data-from="879" data-to="902">Records processed / day</td>
+        <td data-from="905" data-to="910">900 M</td>
+        <td data-from="913" data-to="918">740 M</td>
+        <td data-from="921" data-to="927">1.02 B</td>
+        <td data-from="930" data-to="931">▲</td>
+      </tr>
+      <tr data-from="934" data-to="995">
+        <td data-from="936" data-to="959">Duplicate emission rate</td>
+        <td data-from="962" data-to="970">&lt; 0.01 %</td>
+        <td data-from="973" data-to="979">0.19 %</td>
+        <td data-from="982" data-to="989">0.004 %</td>
+        <td data-from="992" data-to="993">▲</td>
+      </tr>
+      <tr data-from="996" data-to="1055">
+        <td data-from="998" data-to="1027">Dead-letter queue depth (avg)</td>
+        <td data-from="1030" data-to="1035">&lt; 500</td>
+        <td data-from="1038" data-to="1043">3,140</td>
+        <td data-from="1046" data-to="1049">812</td>
+        <td data-from="1052" data-to="1053">▲</td>
+      </tr>
+      <tr data-from="1056" data-to="1112">
+        <td data-from="1058" data-to="1085">Unit + integration coverage</td>
+        <td data-from="1088" data-to="1092">80 %</td>
+        <td data-from="1095" data-to="1099">71 %</td>
+        <td data-from="1102" data-to="1106">76 %</td>
+        <td data-from="1109" data-to="1110">▲</td>
+      </tr>
+      <tr data-from="1113" data-to="1151">
+        <td data-from="1115" data-to="1133">Open Sev-2 defects</td>
+        <td data-from="1136" data-to="1137">0</td>
+        <td data-from="1140" data-to="1141">5</td>
+        <td data-from="1144" data-to="1145">3</td>
+        <td data-from="1148" data-to="1149">▬</td>
+      </tr>
+      <tr data-from="1152" data-to="1202">
+        <td data-from="1154" data-to="1172">Monthly infra cost</td>
+        <td data-from="1175" data-to="1180">$48 K</td>
+        <td data-from="1183" data-to="1188">$61 K</td>
+        <td data-from="1191" data-to="1196">$52 K</td>
+        <td data-from="1199" data-to="1200">▲</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="1204" data-to="1308">Cost reduction came almost entirely from retiring the <code data-from="1258" data-to="1273">corvid-loader</code> warm standby fleet in <code data-from="1296" data-to="1307">us-west-2</code>.</p>
+<hr data-from="1310" data-to="1313">
+<h2 id="3-what-shipped" data-from="1315" data-to="1333">3. What Shipped</h2>
+<ul data-from="1335" data-to="1887">
+  <li data-from="1335" data-to="1732"><strong data-from="1337" data-to="1366">Exactly-once sink adapter</strong> (<code data-from="1368" data-to="1389">halyard-sink v0.9.3</code>)<ul data-from="1393" data-to="1732">
+      <li data-from="1393" data-to="1466">Idempotency keys derived from <code data-from="1425" data-to="1466">(tenant_id, source_offset, schema_hash)</code></li>
+      <li data-from="1469" data-to="1732">Rollback path validated against three failure modes:<ul data-from="1528" data-to="1732">
+          <li data-from="1528" data-to="1570">Broker partition reassignment mid-commit</li>
+          <li data-from="1575" data-to="1732">Sink database failover<ul data-from="1606" data-to="1732">
+              <li data-from="1606" data-to="1657"><em data-from="1608" data-to="1648">Primary → replica promotion under 12 s</em> — passed</li>
+              <li data-from="1664" data-to="1732"><em data-from="1666" data-to="1690">Split-brain simulation</em> — <strong data-from="1693" data-to="1708">failed once</strong>, fix merged in PR #2214</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="1733" data-to="1799"><strong data-from="1735" data-to="1755">Backfill tooling</strong> for historical replay windows up to 90 days</li>
+  <li data-from="1800" data-to="1887">Observability: 14 new dashboards, 9 alert rules, <mark data-from="1851" data-to="1887">one paging rule retired as noisy</mark></li>
+</ul>
+<hr data-from="1889" data-to="1892">
+<h2 id="4-reference-implementation" data-from="1894" data-to="1924">4. Reference Implementation</h2>
+<p data-from="1926" data-to="1991">The consumer contract check that caught the drift now runs in CI:</p>
+<pre class="mdr-code" data-lang="python" data-from="1993" data-to="2719"><code class="language-python" data-verbatim data-from="2003" data-to="2715">def validate_contract(payload: dict, contract: Contract) -&gt; list[str]:
+    """Return a list of human-readable drift findings."""
+    findings = []
+    for field, spec in contract.fields.items():
+        if field not in payload:
+            if spec.required:
+                findings.append(f"missing required field: {field}")
+            continue
+        actual = type(payload[field]).__name__
+        if actual != spec.type_name:
+            findings.append(
+                f"{field}: expected {spec.type_name}, saw {actual}"
+            )
+    unknown = set(payload) - set(contract.fields)
+    if unknown and contract.strict:
+        findings.append(f"unexpected fields: {sorted(unknown)}")
+    return findings</code></pre>
+<hr data-from="2721" data-to="2724">
+<h2 id="5-risks" data-from="2726" data-to="2737">5. Risks</h2>
+<ol data-from="2739" data-to="3107">
+  <li data-from="2739" data-to="2899"><strong data-from="2742" data-to="2782">Schema drift in downstream consumers</strong> — <em data-from="2785" data-to="2815">high likelihood, high impact</em><ul data-from="2819" data-to="2899">
+      <li data-from="2819" data-to="2840">Owner: Devon Okafor</li>
+      <li data-from="2844" data-to="2899">Mitigation: contract tests gated in CI as of March 11</li>
+    </ul></li>
+  <li data-from="2900" data-to="3060"><strong data-from="2903" data-to="2954">Backfill contention with nightly reporting jobs</strong> — <em data-from="2957" data-to="2974">medium / medium</em><ul data-from="2978" data-to="3060">
+      <li data-from="2978" data-to="3060">Mitigation: throttle backfill to 30 % of broker capacity between 01:00–05:00 UTC</li>
+    </ul></li>
+  <li data-from="3061" data-to="3107">Staffing: one engineer rotates off March 28</li>
+</ol>
+<hr data-from="3109" data-to="3112">
+<h2 id="6-next-steps" data-from="3114" data-to="3130">6. Next Steps</h2>
+<div class="mdr-table-wrap" data-from="3132" data-to="3524">
+  <table data-from="3132" data-to="3524">
+    <thead data-from="3132" data-to="3160">
+      <tr data-from="3132" data-to="3160">
+        <th data-from="3134" data-to="3135">#</th>
+        <th data-from="3138" data-to="3144">Action</th>
+        <th data-from="3147" data-to="3152">Owner</th>
+        <th data-from="3155" data-to="3158">Due</th>
+      </tr>
+    </thead>
+    <tbody data-from="3179" data-to="3524">
+      <tr data-from="3179" data-to="3254">
+        <td data-from="3181" data-to="3182">1</td>
+        <td data-from="3185" data-to="3228">Land split-brain fix and re-run chaos suite</td>
+        <td data-from="3231" data-to="3243">M. Villareal</td>
+        <td data-from="3246" data-to="3252">Mar 19</td>
+      </tr>
+      <tr data-from="3255" data-to="3318">
+        <td data-from="3257" data-to="3258">2</td>
+        <td data-from="3261" data-to="3290">Cut over <code data-from="3270" data-to="3284">eu-central-b</code> shard</td>
+        <td data-from="3293" data-to="3307">P. Raghunathan</td>
+        <td data-from="3310" data-to="3316">Mar 24</td>
+      </tr>
+      <tr data-from="3319" data-to="3395">
+        <td data-from="3321" data-to="3322">3</td>
+        <td data-from="3325" data-to="3372">Publish consumer migration guide (v2 contracts)</td>
+        <td data-from="3375" data-to="3384">D. Okafor</td>
+        <td data-from="3387" data-to="3393">Mar 26</td>
+      </tr>
+      <tr data-from="3396" data-to="3449">
+        <td data-from="3398" data-to="3399">4</td>
+        <td data-from="3402" data-to="3424">Raise coverage to 80 %</td>
+        <td data-from="3427" data-to="3439">S. Lindqvist</td>
+        <td data-from="3442" data-to="3447">Apr 2</td>
+      </tr>
+      <tr data-from="3450" data-to="3524">
+        <td data-from="3452" data-to="3453">5</td>
+        <td data-from="3456" data-to="3497">Phase 3 scoping review with Data Platform</td>
+        <td data-from="3500" data-to="3514">P. Raghunathan</td>
+        <td data-from="3517" data-to="3522">Apr 4</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="3526" data-to="3677"><strong data-from="3526" data-to="3549">Decision requested:</strong> approval for the hardening window. Without it, Phase 3 begins on top of <em data-from="3622" data-to="3649">three known Sev-2 defects</em>, which we do not recommend.</p>

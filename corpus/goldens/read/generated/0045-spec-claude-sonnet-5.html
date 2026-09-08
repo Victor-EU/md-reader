@@ -1,0 +1,72 @@
+<h1 id="technical-specification-aurora-rate-limiter-service-arls" data-from="0" data-to="61">Technical Specification: Aurora Rate Limiter Service (ARLS)</h1>
+<h2 id="1-overview" data-from="63" data-to="77">1. Overview</h2>
+<p data-from="79" data-to="405">The Aurora Rate Limiter Service (ARLS) is a distributed token-bucket rate limiting system designed to protect the Meridian API Gateway from traffic spikes. ARLS provides sub-millisecond decision latency by maintaining an in-memory bucket state synchronized across a cluster of nodes using a gossip protocol called Whisperline.</p>
+<h2 id="2-requirements" data-from="407" data-to="425">2. Requirements</h2>
+<ol data-from="427" data-to="934">
+  <li data-from="427" data-to="510">The service must support at least 250,000 rate-limit checks per second per node.</li>
+  <li data-from="511" data-to="589">Decision latency must not exceed <span class="mdr-math" data-tex="1.2" data-from="547" data-to="552">1.2</span> milliseconds at the 99th percentile.</li>
+  <li data-from="590" data-to="693">Bucket state must synchronize across nodes within <span class="mdr-math" data-tex="50" data-from="643" data-to="647">50</span> milliseconds under normal network conditions.</li>
+  <li data-from="694" data-to="775">The system must support per-client, per-endpoint, and global rate limit tiers.</li>
+  <li data-from="776" data-to="851">Configuration changes must propagate without requiring service restarts.</li>
+  <li data-from="852" data-to="934">All rate limit decisions must be logged with a correlation ID for auditability.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="note" data-from="936" data-to="1100">
+  <div class="mdr-callout-title" data-from="938" data-to="945">
+    Note
+  </div>
+  <p data-from="948" data-to="1100">ARLS is designed for read-heavy workloads. Write-heavy clients (e.g., bulk ingestion pipelines) should use the companion <strong data-from="1069" data-to="1091">Aurora Burst Queue</strong> instead.</p>
+</blockquote>
+<h2 id="3-token-bucket-model" data-from="1102" data-to="1126">3. Token Bucket Model</h2>
+<p data-from="1128" data-to="1278">Each client bucket is defined by a capacity <span class="mdr-math" data-tex="C" data-from="1172" data-to="1175">C</span> and a refill rate <span class="mdr-math" data-tex="r" data-from="1194" data-to="1197">r</span> (tokens per second). At time <span class="mdr-math" data-tex="t" data-from="1227" data-to="1230">t</span>, the number of available tokens is computed as:</p>
+<div class="mdr-math-block" data-tex="T(t) = \min\left(C,\; T(t_0) + r \cdot (t - t_0)\right)" data-from="1280" data-to="1341">
+  T(t) = \min\left(C,\; T(t_0) + r \cdot (t - t_0)\right)
+</div>
+<p data-from="1343" data-to="1530">where <span class="mdr-math" data-tex="t_0" data-from="1349" data-to="1354">t_0</span> is the timestamp of the last recorded update. A request consumes <span class="mdr-math" data-tex="k" data-from="1420" data-to="1423">k</span> tokens; it is admitted if <span class="mdr-math" data-tex="T(t) \geq k" data-from="1450" data-to="1463">T(t) \geq k</span>, otherwise it is rejected with a <code data-from="1497" data-to="1520">429 Too Many Requests</code> response.</p>
+<p data-from="1532" data-to="1637">The refill rate <span class="mdr-math" data-tex="r" data-from="1548" data-to="1551">r</span> is derived from the configured quota <span class="mdr-math" data-tex="Q" data-from="1589" data-to="1592">Q</span> (requests per window <span class="mdr-math" data-tex="W" data-from="1614" data-to="1617">W</span>) using <span class="mdr-math" data-tex="r = Q / W" data-from="1625" data-to="1636">r = Q / W</span>.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1639" data-to="1864">
+  <div class="mdr-callout-title" data-from="1641" data-to="1651">
+    Warning
+  </div>
+  <p data-from="1654" data-to="1864">If clock skew between nodes exceeds <span class="mdr-math" data-tex="200" data-from="1690" data-to="1695">200</span> milliseconds, bucket synchronization via Whisperline may produce inconsistent admission decisions. Deploy NTP synchronization with a maximum drift tolerance of <span class="mdr-math" data-tex="50" data-from="1856" data-to="1860">50</span> ms.</p>
+</blockquote>
+<h2 id="4-api-sketch" data-from="1866" data-to="1882">4. API Sketch</h2>
+<h3 id="41-check-endpoint" data-from="1884" data-to="1906">4.1 Check Endpoint</h3>
+<pre class="mdr-code" data-lang="http" data-from="1908" data-to="2054"><code class="language-http" data-verbatim data-from="1916" data-to="2050">POST /v2/ratelimit/check
+Content-Type: application/json
+
+{
+  "client_id": "tenant-8841",
+  "endpoint": "/orders/create",
+  "cost": 1
+}</code></pre>
+<p data-from="2056" data-to="2065">Response:</p>
+<pre class="mdr-code" data-lang="json" data-from="2067" data-to="2186"><code class="language-json" data-verbatim data-from="2075" data-to="2182">{
+  "allowed": true,
+  "remaining_tokens": 42.5,
+  "retry_after_ms": 0,
+  "correlation_id": "arls-7f3a9c"
+}</code></pre>
+<h3 id="42-configuration-update" data-from="2188" data-to="2216">4.2 Configuration Update</h3>
+<pre class="mdr-code" data-lang="go" data-from="2218" data-to="2556"><code class="language-go" data-verbatim data-from="2224" data-to="2552">type BucketConfig struct {
+    ClientID   string
+    Endpoint   string
+    Capacity   float64
+    RefillRate float64 // tokens per second
+}
+
+func UpdateBucketConfig(cfg BucketConfig) error {
+    // Validates and pushes config to Whisperline gossip layer
+    // Returns error if capacity &lt;= 0 or refill rate &lt;= 0
+    return nil
+}</code></pre>
+<h3 id="43-metrics-export" data-from="2558" data-to="2580">4.3 Metrics Export</h3>
+<p data-from="2582" data-to="2668">The service exposes a Prometheus-compatible metrics endpoint at <code data-from="2646" data-to="2656">/metrics</code>, including:</p>
+<ul data-from="2670" data-to="2780">
+  <li data-from="2670" data-to="2720"><code data-from="2672" data-to="2720">arls_requests_total{result="allowed|rejected"}</code></li>
+  <li data-from="2721" data-to="2754"><code data-from="2723" data-to="2754">arls_decision_latency_seconds</code></li>
+  <li data-from="2755" data-to="2780"><code data-from="2757" data-to="2780">arls_sync_lag_seconds</code></li>
+</ul>
+<h2 id="5-failure-modes" data-from="2782" data-to="2801">5. Failure Modes</h2>
+<p data-from="2803" data-to="3063">If a node loses connectivity to the Whisperline mesh for longer than <span class="mdr-math" data-tex="5" data-from="2872" data-to="2875">5</span> seconds, it enters <strong data-from="2895" data-to="2912">degraded mode</strong>, falling back to locally cached bucket states with a conservative capacity reduction factor of <span class="mdr-math" data-tex="0.75" data-from="3008" data-to="3014">0.75</span> to avoid over-admission during partition events.</p>
+<h2 id="6-deployment-notes" data-from="3065" data-to="3087">6. Deployment Notes</h2>
+<p data-from="3089" data-to="3345">ARLS nodes should be deployed in odd-numbered quorum sizes (3, 5, or 7) to avoid split-brain scenarios in the Whisperline consensus layer. Each node requires a minimum of 2 vCPUs and 4 GiB memory for the reference workload of 100,000 active client buckets.</p>

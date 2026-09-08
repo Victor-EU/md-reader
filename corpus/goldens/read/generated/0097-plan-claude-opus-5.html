@@ -1,0 +1,227 @@
+<h1 id="project-plan-harbormaster-migration" data-from="0" data-to="38">Project Plan: Harbormaster Migration</h1>
+<p data-from="40" data-to="278"><strong data-from="40" data-to="56">Document ID:</strong> PP-2291-HRB
+<strong data-from="69" data-to="81">Version:</strong> 1.4
+<strong data-from="86" data-to="103">Last revised:</strong> 12 March
+<strong data-from="113" data-to="129">Prepared by:</strong> Delia Ravenscroft, Program Manager, Platform Services
+<strong data-from="184" data-to="198">Approvers:</strong> Terrence Oyelaran (VP Engineering), Nadia Kirchmann (Director, Data Operations)</p>
+<hr data-from="280" data-to="283">
+<h2 id="1-executive-summary" data-from="285" data-to="308">1. Executive Summary</h2>
+<p data-from="310" data-to="751">Harbormaster is the internal replacement for our aging order-routing service, Pelican. Pelican currently handles roughly 4.2 million routing decisions per day across eleven regional warehouses, but it runs on a monolithic Java 8 codebase with a single PostgreSQL 11 primary and no meaningful horizontal scaling story. Over the last two quarters we recorded 31 production incidents attributable to Pelican, of which nine were Sev-2 or higher.</p>
+<p data-from="753" data-to="1039">Harbormaster decomposes routing into three services — <strong data-from="807" data-to="817">Intake</strong>, <strong data-from="819" data-to="830">Scoring</strong>, and <strong data-from="836" data-to="848">Dispatch</strong> — backed by an event log and a read-optimized projection store. The migration is a phased cutover using dual-write and shadow-read techniques so that we never require a hard flag-day switch.</p>
+<p data-from="1041" data-to="1213"><strong data-from="1041" data-to="1063">Target completion:</strong> 14 November
+<strong data-from="1076" data-to="1096">Budget envelope:</strong> $1.86M (engineering time, infrastructure, and vendor licensing)
+<strong data-from="1161" data-to="1175">Headcount:</strong> 14 FTE at peak, drawn from four teams</p>
+<hr data-from="1215" data-to="1218">
+<h2 id="2-goals-and-non-goals" data-from="1220" data-to="1245">2. Goals and Non-Goals</h2>
+<h3 id="goals" data-from="1247" data-to="1256">Goals</h3>
+<ol data-from="1258" data-to="1675">
+  <li data-from="1258" data-to="1316">Reduce p99 routing latency from 840 ms to under 220 ms.</li>
+  <li data-from="1317" data-to="1405">Support 12,000 routing decisions per second sustained, with burst capacity to 20,000.</li>
+  <li data-from="1406" data-to="1466">Eliminate the single-primary database as a failure point.</li>
+  <li data-from="1467" data-to="1582">Give warehouse operations a self-service interface for routing rule changes (currently a five-day ticket cycle).</li>
+  <li data-from="1583" data-to="1675">Retire Pelican entirely, including its two cron sidecars and the <code data-from="1651" data-to="1666">pelican-admin</code> console.</li>
+</ol>
+<h3 id="non-goals" data-from="1677" data-to="1690">Non-Goals</h3>
+<ul data-from="1692" data-to="1956">
+  <li data-from="1692" data-to="1772">Rewriting the inventory reservation subsystem (tracked separately as PP-2310).</li>
+  <li data-from="1773" data-to="1868">Changing the carrier integration contracts. Harbormaster speaks the same downstream protocol.</li>
+  <li data-from="1869" data-to="1956">Multi-region active-active. We remain active-passive with a documented 22-minute RTO.</li>
+</ul>
+<hr data-from="1958" data-to="1961">
+<h2 id="3-phases" data-from="1963" data-to="1975">3. Phases</h2>
+<h3 id="phase-0-foundations-complete" data-from="1977" data-to="2013">Phase 0 — Foundations (complete)</h3>
+<p data-from="2015" data-to="2103"><strong data-from="2015" data-to="2026">Window:</strong> 6 January – 7 February
+<strong data-from="2050" data-to="2060">Owner:</strong> Marcus Deveraux (Staff Engineer, Platform)</p>
+<p data-from="2105" data-to="2343">Established the shared infrastructure: Kafka cluster <code data-from="2158" data-to="2175">hbr-events-prod</code> with 24 partitions per topic, the Terraform module set, CI pipelines, and the observability baseline (traces into Lightkeeper, metrics into our Prometheus federation).</p>
+<p data-from="2345" data-to="2635">Exit criteria met on 5 February, two days early. The only carryover was the load-testing harness, which slipped into Phase 1 because the synthetic order generator needed a rewrite when we discovered the sample dataset had been anonymized in a way that destroyed the geographic distribution.</p>
+<h3 id="phase-1-intake-service-and-shadow-traffic" data-from="2637" data-to="2684">Phase 1 — Intake Service and Shadow Traffic</h3>
+<p data-from="2686" data-to="2775"><strong data-from="2686" data-to="2697">Window:</strong> 10 February – 28 March
+<strong data-from="2721" data-to="2731">Owner:</strong> Priya Sundaravel (Tech Lead, Order Systems)</p>
+<p data-from="2777" data-to="3082">Build the Intake service, which accepts routing requests, validates them, normalizes address data, and publishes to the event log. Intake runs in shadow mode: it receives a mirrored copy of production traffic from Pelican's ingress, processes it fully, and discards the output while recording divergences.</p>
+<p data-from="3084" data-to="3373">The divergence detector compares Intake's normalized output against Pelican's for every mirrored request. Our acceptance bar is a divergence rate under 0.05% across a rolling seven-day window, excluding a known-and-accepted list of address-formatting differences in Quebec and Puerto Rico.</p>
+<h3 id="phase-2-scoring-engine" data-from="3375" data-to="3403">Phase 2 — Scoring Engine</h3>
+<p data-from="3405" data-to="3494"><strong data-from="3405" data-to="3416">Window:</strong> 17 March – 30 May
+<strong data-from="3435" data-to="3445">Owner:</strong> Bo Hallenbeck (Principal Engineer, Optimization)</p>
+<p data-from="3496" data-to="3837">The Scoring service is the technically hardest component. It evaluates candidate warehouse-carrier pairs against a weighted cost model incorporating distance, capacity utilization, SLA risk, and negotiated carrier rates. Pelican's scoring logic lives in a 6,400-line class with no test coverage; a substantial part of Phase 2 is archaeology.</p>
+<p data-from="3839" data-to="3988">We are reimplementing scoring as a rule DAG with explicit inputs, which makes the logic testable and lets operations modify weights without a deploy.</p>
+<pre class="mdr-code" data-lang="python" data-from="3990" data-to="5224"><code class="language-python" data-verbatim data-from="4000" data-to="5220"># scoring/dag.py — excerpt from the rule evaluation core
+from dataclasses import dataclass
+from typing import Callable, Iterable
+
+@dataclass(frozen=True)
+class Candidate:
+    warehouse_id: str
+    carrier_code: str
+    transit_days: int
+    unit_cost_cents: int
+    capacity_headroom: float  # 0.0 (full) to 1.0 (empty)
+
+@dataclass(frozen=True)
+class Rule:
+    name: str
+    weight: float
+    evaluate: Callable[[Candidate], float]  # returns 0.0–1.0
+
+def score(candidate: Candidate, rules: Iterable[Rule]) -&gt; float:
+    total_weight = 0.0
+    accumulated = 0.0
+    for rule in rules:
+        raw = rule.evaluate(candidate)
+        if not 0.0 &lt;= raw &lt;= 1.0:
+            raise ValueError(f"rule {rule.name} returned {raw}, out of range")
+        accumulated += raw * rule.weight
+        total_weight += rule.weight
+    return accumulated / total_weight if total_weight else 0.0
+
+RULESET_V3 = [
+    Rule("transit_speed", 0.35, lambda c: max(0.0, 1.0 - (c.transit_days / 7))),
+    Rule("cost_efficiency", 0.30, lambda c: max(0.0, 1.0 - (c.unit_cost_cents / 4200))),
+    Rule("capacity_safety", 0.25, lambda c: c.capacity_headroom),
+    Rule("carrier_reliability", 0.10, lambda c: CARRIER_SCORES.get(c.carrier_code, 0.5)),
+]</code></pre>
+<p data-from="5226" data-to="5462">Phase 2 includes a parity campaign: replay 90 days of historical routing decisions through both engines and reconcile. Target agreement is 99.3% on final warehouse selection; disagreements must be individually explained and categorized.</p>
+<h3 id="phase-3-dispatch-and-dual-write" data-from="5464" data-to="5501">Phase 3 — Dispatch and Dual-Write</h3>
+<p data-from="5503" data-to="5600"><strong data-from="5503" data-to="5514">Window:</strong> 12 May – 25 July
+<strong data-from="5532" data-to="5542">Owner:</strong> Ingrid Solheim (Senior Engineer, Fulfillment Integration)</p>
+<p data-from="5602" data-to="5862">Dispatch consumes scoring decisions and emits carrier bookings. During this phase, both Pelican and Harbormaster write to the downstream booking system, with Harbormaster's writes tagged as provisional and reconciled by an audit job that runs every 15 minutes.</p>
+<p data-from="5864" data-to="6153">This phase carries the highest blast radius. A duplicate booking is a real financial event — approximately $34 in wasted carrier commitment per occurrence — so dual-write is gated behind a per-warehouse feature flag and starts with our smallest facility (Terrace Falls, ~9,000 orders/day).</p>
+<h3 id="phase-4-progressive-cutover" data-from="6155" data-to="6188">Phase 4 — Progressive Cutover</h3>
+<p data-from="6190" data-to="6269"><strong data-from="6190" data-to="6201">Window:</strong> 28 July – 17 October
+<strong data-from="6223" data-to="6233">Owner:</strong> Delia Ravenscroft (Program Manager)</p>
+<p data-from="6271" data-to="6463">Warehouse-by-warehouse cutover in five waves. Each wave requires a 96-hour soak with clean metrics before the next begins. Rollback is a flag flip, verified by drill at the start of each wave.</p>
+<div class="mdr-table-wrap" data-from="6465" data-to="6824">
+  <table data-from="6465" data-to="6824">
+    <thead data-from="6465" data-to="6514">
+      <tr data-from="6465" data-to="6514">
+        <th data-from="6467" data-to="6471">Wave</th>
+        <th data-from="6474" data-to="6484">Warehouses</th>
+        <th data-from="6487" data-to="6499">Daily volume</th>
+        <th data-from="6502" data-to="6512">Start date</th>
+      </tr>
+    </thead>
+    <tbody data-from="6533" data-to="6824">
+      <tr data-from="6533" data-to="6572">
+        <td data-from="6535" data-to="6536">1</td>
+        <td data-from="6539" data-to="6552">Terrace Falls</td>
+        <td data-from="6555" data-to="6560">9,000</td>
+        <td data-from="6563" data-to="6570">28 July</td>
+      </tr>
+      <tr data-from="6573" data-to="6626">
+        <td data-from="6575" data-to="6576">2</td>
+        <td data-from="6579" data-to="6602">Ashgrove, Bellamy Point</td>
+        <td data-from="6605" data-to="6612">141,000</td>
+        <td data-from="6615" data-to="6624">11 August</td>
+      </tr>
+      <tr data-from="6627" data-to="6696">
+        <td data-from="6629" data-to="6630">3</td>
+        <td data-from="6633" data-to="6670">Kestrel Junction, Mordant Hill, Vance</td>
+        <td data-from="6673" data-to="6680">612,000</td>
+        <td data-from="6683" data-to="6694">1 September</td>
+      </tr>
+      <tr data-from="6697" data-to="6769">
+        <td data-from="6699" data-to="6700">4</td>
+        <td data-from="6703" data-to="6740">Halloway, Piedmont North, Sable Creek</td>
+        <td data-from="6743" data-to="6752">1,480,000</td>
+        <td data-from="6755" data-to="6767">22 September</td>
+      </tr>
+      <tr data-from="6770" data-to="6824">
+        <td data-from="6772" data-to="6773">5</td>
+        <td data-from="6776" data-to="6797">Corvid Bay, Thornmere</td>
+        <td data-from="6800" data-to="6809">1,958,000</td>
+        <td data-from="6812" data-to="6822">13 October</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="phase-5-decommission" data-from="6826" data-to="6852">Phase 5 — Decommission</h3>
+<p data-from="6854" data-to="6917"><strong data-from="6854" data-to="6865">Window:</strong> 20 October – 14 November
+<strong data-from="6891" data-to="6901">Owner:</strong> Marcus Deveraux</p>
+<p data-from="6919" data-to="7189">Pelican goes read-only for 14 days, then its compute is destroyed and its database snapshotted to cold storage with a seven-year retention tag (finance requirement, ref FIN-4402). The <code data-from="7103" data-to="7118">pelican-admin</code> console is removed from the internal portal and its DNS entry retired.</p>
+<hr data-from="7191" data-to="7194">
+<h2 id="4-milestones" data-from="7196" data-to="7212">4. Milestones</h2>
+<ul data-from="7214" data-to="7842">
+  <li class="mdr-task" data-from="7214" data-to="7292"><input type="checkbox" disabled checked data-from="7216" data-to="7219"><strong data-from="7220" data-to="7226">M1</strong> — Foundations complete, event log live in production (5 February)</li>
+  <li class="mdr-task" data-from="7293" data-to="7359"><input type="checkbox" disabled checked data-from="7295" data-to="7298"><strong data-from="7299" data-to="7305">M2</strong> — Intake shadow traffic at 100% mirror rate (3 March)</li>
+  <li class="mdr-task" data-from="7360" data-to="7438"><input type="checkbox" disabled checked data-from="7362" data-to="7365"><strong data-from="7366" data-to="7372">M3</strong> — Divergence rate below 0.05% sustained for seven days (21 March)</li>
+  <li class="mdr-task" data-from="7439" data-to="7516"><input type="checkbox" disabled data-from="7441" data-to="7444"><strong data-from="7445" data-to="7451">M4</strong> — Scoring parity campaign passes 99.3% agreement (target 16 May)</li>
+  <li class="mdr-task" data-from="7517" data-to="7626"><input type="checkbox" disabled data-from="7519" data-to="7522"><strong data-from="7523" data-to="7529">M5</strong> — Dual-write enabled at Terrace Falls with zero duplicate bookings over 10 days (target 27 June)</li>
+  <li class="mdr-task" data-from="7627" data-to="7687"><input type="checkbox" disabled data-from="7629" data-to="7632"><strong data-from="7633" data-to="7639">M6</strong> — Wave 3 cutover complete (target 12 September)</li>
+  <li class="mdr-task" data-from="7688" data-to="7760"><input type="checkbox" disabled data-from="7690" data-to="7693"><strong data-from="7694" data-to="7700">M7</strong> — All eleven warehouses on Harbormaster (target 17 October)</li>
+  <li class="mdr-task" data-from="7761" data-to="7842"><input type="checkbox" disabled data-from="7763" data-to="7766"><strong data-from="7767" data-to="7773">M8</strong> — Pelican decommissioned, cost savings realized (target 14 November)</li>
+</ul>
+<hr data-from="7844" data-to="7847">
+<h2 id="5-ownership-matrix" data-from="7849" data-to="7871">5. Ownership Matrix</h2>
+<div class="mdr-table-wrap" data-from="7873" data-to="8523">
+  <table data-from="7873" data-to="8523">
+    <thead data-from="7873" data-to="7919">
+      <tr data-from="7873" data-to="7919">
+        <th data-from="7875" data-to="7879">Area</th>
+        <th data-from="7882" data-to="7895">Primary owner</th>
+        <th data-from="7898" data-to="7904">Backup</th>
+        <th data-from="7907" data-to="7917">Escalation</th>
+      </tr>
+    </thead>
+    <tbody data-from="7938" data-to="8523">
+      <tr data-from="7938" data-to="8018">
+        <td data-from="7940" data-to="7960">Program coordination</td>
+        <td data-from="7963" data-to="7980">Delia Ravenscroft</td>
+        <td data-from="7983" data-to="7996">Aurelio Banks</td>
+        <td data-from="7999" data-to="8016">Terrence Oyelaran</td>
+      </tr>
+      <tr data-from="8019" data-to="8091">
+        <td data-from="8021" data-to="8035">Intake service</td>
+        <td data-from="8038" data-to="8054">Priya Sundaravel</td>
+        <td data-from="8057" data-to="8069">Kwame Otieno</td>
+        <td data-from="8072" data-to="8089">Terrence Oyelaran</td>
+      </tr>
+      <tr data-from="8092" data-to="8161">
+        <td data-from="8094" data-to="8108">Scoring engine</td>
+        <td data-from="8111" data-to="8124">Bo Hallenbeck</td>
+        <td data-from="8127" data-to="8139">Yuki Tashiro</td>
+        <td data-from="8142" data-to="8159">Terrence Oyelaran</td>
+      </tr>
+      <tr data-from="8162" data-to="8235">
+        <td data-from="8164" data-to="8184">Dispatch integration</td>
+        <td data-from="8187" data-to="8201">Ingrid Solheim</td>
+        <td data-from="8204" data-to="8215">Ramona Feld</td>
+        <td data-from="8218" data-to="8233">Nadia Kirchmann</td>
+      </tr>
+      <tr data-from="8236" data-to="8310">
+        <td data-from="8238" data-to="8257">Infrastructure &amp; CI</td>
+        <td data-from="8260" data-to="8275">Marcus Deveraux</td>
+        <td data-from="8278" data-to="8290">Solene Abara</td>
+        <td data-from="8293" data-to="8308">Nadia Kirchmann</td>
+      </tr>
+      <tr data-from="8311" data-to="8380">
+        <td data-from="8313" data-to="8327">Data migration</td>
+        <td data-from="8330" data-to="8342">Yuki Tashiro</td>
+        <td data-from="8345" data-to="8360">Marcus Deveraux</td>
+        <td data-from="8363" data-to="8378">Nadia Kirchmann</td>
+      </tr>
+      <tr data-from="8381" data-to="8461">
+        <td data-from="8383" data-to="8407">Ops readiness &amp; runbooks</td>
+        <td data-from="8410" data-to="8421">Ramona Feld</td>
+        <td data-from="8424" data-to="8441">Delia Ravenscroft</td>
+        <td data-from="8444" data-to="8459">Nadia Kirchmann</td>
+      </tr>
+      <tr data-from="8462" data-to="8523">
+        <td data-from="8464" data-to="8481">Warehouse liaison</td>
+        <td data-from="8484" data-to="8497">Aurelio Banks</td>
+        <td data-from="8500" data-to="8501">—</td>
+        <td data-from="8504" data-to="8521">Terrence Oyelaran</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="8525" data-to="8528">
+<h2 id="6-risks" data-from="8530" data-to="8541">6. Risks</h2>
+<p data-from="8543" data-to="9057"><strong data-from="8543" data-to="8597">R-01 — Scoring logic archaeology exceeds estimate.</strong>
+<em data-from="8598" data-to="8631">Likelihood: High. Impact: High.</em>
+Pelican's scoring class has no tests and at least three code paths that appear dead but may not be. Mitigation: allocate 240 engineer-hours explicitly for reverse-engineering, and treat the 90-day replay as the source of truth rather than the source code. If parity stalls below 98%, we accept a documented behavior change with sign-off from Fulfillment Operations rather than chasing exact equivalence. Owner: Bo Hallenbeck.</p>
+<p data-from="9059" data-to="9390"><strong data-from="9059" data-to="9115">R-02 — Duplicate carrier bookings during dual-write.</strong>
+<em data-from="9116" data-to="9151">Likelihood: Medium. Impact: High.</em>
+Mitigation: provisional-write tagging, 15-minute reconciliation audit, per-warehouse flags, and a hard circuit breaker that disables Harbormaster dispatch if more than three duplicates occur in any 60-minute window. Owner: Ingrid Solheim.</p>
+<p data-from="9392" data-to="9702"><strong data-from="9392" data-to="9451">R-03 — Kafka partition hot-spotting under holiday load.</strong>
+<em data-from="9452" data-to="9489">Likelihood: Medium. Impact: Medium.</em>
+Our partition key is warehouse ID, and Corvid Bay alone is 26% of volume. Mitigation: composite key of warehouse ID plus order-hash bucket, tested at 20,000 decisions/second before Wave 5. Owner: Marcus Deveraux.</p>
+<p data-from="9704" data-to="9733">**R-04 — Wave 5 collides with</p>

@@ -5,6 +5,18 @@ import { defineConfig } from 'vitest/config';
 /** The shell's components and rune stores, in both engines. */
 export default defineConfig({
   plugins: [svelte()],
+  // Read mode loads these three on demand; naming them here means the
+  // runner optimizes them up front instead of reloading mid-test.
+  optimizeDeps: {
+    include: [
+      'katex',
+      'mermaid',
+      'shiki/core',
+      'shiki/engine/javascript',
+      'shiki/langs',
+      'shiki/themes',
+    ],
+  },
   test: {
     name: 'desktop-browser',
     include: ['src/**/*.browser.test.ts'],

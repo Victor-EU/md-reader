@@ -1,0 +1,89 @@
+<h1 id="project-halyard-status-report" data-from="0" data-to="33">Project Halyard — Status Report</h1>
+<p data-from="35" data-to="173"><strong data-from="35" data-to="56">Reporting period:</strong> Sprint 27 (Mar 3 – Mar 14)
+<strong data-from="84" data-to="94">Owner:</strong> Priya Venkataraman, Platform Engineering
+<strong data-from="136" data-to="147">Status:</strong> 🟡 On track with one risk</p>
+<hr data-from="175" data-to="178">
+<h2 id="summary" data-from="180" data-to="190">Summary</h2>
+<p data-from="192" data-to="388">Halyard's ingestion rewrite moved from staging to a 10% production canary on Tuesday. Tail latency improved sharply, but the replay service continues to leak file descriptors under sustained load.</p>
+<blockquote data-from="390" data-to="552">
+  <p data-from="392" data-to="552">The canary held p99 under 200 ms through Thursday's traffic peak — the first time we've cleared that bar without shedding load.
+ — Marcus Oyelaran, SRE on-call</p>
+</blockquote>
+<h2 id="metrics" data-from="554" data-to="564">Metrics</h2>
+<div class="mdr-table-wrap" data-from="566" data-to="824">
+  <table data-from="566" data-to="824">
+    <thead data-from="566" data-to="609">
+      <tr data-from="566" data-to="609">
+        <th data-from="568" data-to="574">Metric</th>
+        <th data-from="577" data-to="586">Sprint 26</th>
+        <th data-from="589" data-to="598">Sprint 27</th>
+        <th data-from="601" data-to="607">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="628" data-to="824">
+      <tr data-from="628" data-to="679">
+        <td data-from="630" data-to="648">p99 ingest latency</td>
+        <td data-from="651" data-to="657">412 ms</td>
+        <td data-from="660" data-to="666">187 ms</td>
+        <td data-from="669" data-to="677">&lt; 250 ms</td>
+      </tr>
+      <tr data-from="680" data-to="733">
+        <td data-from="682" data-to="704">Events/sec (sustained)</td>
+        <td data-from="707" data-to="713">44,000</td>
+        <td data-from="716" data-to="722">71,500</td>
+        <td data-from="725" data-to="731">60,000</td>
+      </tr>
+      <tr data-from="734" data-to="779">
+        <td data-from="736" data-to="757">Error budget consumed</td>
+        <td data-from="760" data-to="763">38%</td>
+        <td data-from="766" data-to="769">21%</td>
+        <td data-from="772" data-to="777">&lt; 30%</td>
+      </tr>
+      <tr data-from="780" data-to="824">
+        <td data-from="782" data-to="800">Unit test coverage</td>
+        <td data-from="803" data-to="808">72.4%</td>
+        <td data-from="811" data-to="816">81.9%</td>
+        <td data-from="819" data-to="822">85%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="completed-and-outstanding" data-from="826" data-to="854">Completed and Outstanding</h2>
+<ul data-from="856" data-to="1204">
+  <li class="mdr-task" data-from="856" data-to="920"><input type="checkbox" disabled checked data-from="858" data-to="861">Migrate <code data-from="870" data-to="880">codec-v3</code> serialization to the shared buffer pool</li>
+  <li class="mdr-task" data-from="921" data-to="968"><input type="checkbox" disabled checked data-from="923" data-to="926">Add backpressure signaling between shards</li>
+  <li class="mdr-task" data-from="969" data-to="1024"><input type="checkbox" disabled checked data-from="971" data-to="974">Publish canary dashboards to the Beacon workspace</li>
+  <li class="mdr-task" data-from="1025" data-to="1162"><input type="checkbox" disabled data-from="1027" data-to="1030">Fix descriptor leak in <code data-from="1054" data-to="1069">replay-worker</code><ul data-from="1072" data-to="1162">
+      <li class="mdr-task" data-from="1072" data-to="1124"><input type="checkbox" disabled checked data-from="1074" data-to="1077">Reproduce locally with the 6-hour soak harness</li>
+      <li class="mdr-task" data-from="1127" data-to="1162"><input type="checkbox" disabled data-from="1129" data-to="1132">Patch and validate under load</li>
+    </ul></li>
+  <li class="mdr-task" data-from="1163" data-to="1204"><input type="checkbox" disabled data-from="1165" data-to="1168">Draft runbook for shard rebalancing</li>
+</ul>
+<h2 id="architecture-notes" data-from="1206" data-to="1227">Architecture Notes</h2>
+<ul data-from="1229" data-to="1486">
+  <li data-from="1229" data-to="1434">Ingest tier<ul data-from="1245" data-to="1434">
+      <li data-from="1245" data-to="1403">Shard router<ul data-from="1264" data-to="1403">
+          <li data-from="1264" data-to="1301">Consistent hashing over <code data-from="1290" data-to="1301">tenant_id</code></li>
+          <li data-from="1306" data-to="1403">Fallback to round-robin when a shard is quarantined<ul data-from="1366" data-to="1403">
+              <li data-from="1366" data-to="1403">Quarantine expires after 90 seconds</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="1406" data-to="1434">Buffer pool (32 MiB slabs)</li>
+    </ul></li>
+  <li data-from="1435" data-to="1486">Storage tier<ul data-from="1452" data-to="1486">
+      <li data-from="1452" data-to="1486">Cold tier flush every 15 minutes</li>
+    </ul></li>
+</ul>
+<pre class="mdr-code" data-lang="python" data-from="1488" data-to="1771"><code class="language-python" data-verbatim data-from="1498" data-to="1767">def choose_shard(tenant_id: str, shards: list[str], quarantined: set[str]) -&gt; str:
+    healthy = [s for s in shards if s not in quarantined]
+    if not healthy:
+        raise RuntimeError("no healthy shards available")
+    return healthy[hash(tenant_id) % len(healthy)]</code></pre>
+<h2 id="next-steps" data-from="1773" data-to="1786">Next Steps</h2>
+<ol data-from="1788" data-to="2044">
+  <li data-from="1788" data-to="1858">Land the descriptor-leak patch and run a 12-hour soak (due Mar 18).</li>
+  <li data-from="1859" data-to="1909">Expand the canary to 35% of production traffic.</li>
+  <li data-from="1910" data-to="1974">Raise coverage to 85% by backfilling tests on <code data-from="1959" data-to="1973">shard_router</code>.</li>
+  <li data-from="1975" data-to="2044">Schedule a design review for the rebalancing runbook with Storage.</li>
+</ol>
+<p data-from="2046" data-to="2108"><strong data-from="2046" data-to="2054">Ask:</strong> one week of Dolores Kim's time for load-test tooling.</p>

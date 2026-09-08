@@ -1,0 +1,74 @@
+<h1 id="project-nimbus-weekly-status-report" data-from="0" data-to="39">Project Nimbus — Weekly Status Report</h1>
+<p data-from="41" data-to="121"><strong data-from="41" data-to="50">Date:</strong> March 14, 2025
+<strong data-from="66" data-to="77">Author:</strong> <em data-from="78" data-to="98">Priya Chandrasekar</em>, Lead Systems Engineer</p>
+<h2 id="overview" data-from="123" data-to="134">Overview</h2>
+<p data-from="136" data-to="351">Project Nimbus continues progress on the distributed caching layer for the <strong data-from="211" data-to="230">Aurora Platform</strong>. This week's focus was on reducing tail latency in the read path and stabilizing the sharding algorithm under high load.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="353" data-to="489">
+  <div class="mdr-callout-title" data-from="355" data-to="362">
+    Note
+  </div>
+  <p data-from="365" data-to="489">The staging cluster was upgraded to v2.4.1 on Tuesday. All downstream services report <mark data-from="451" data-to="469">nominal health</mark> as of this writing.</p>
+</blockquote>
+<h2 id="key-metrics" data-from="491" data-to="505">Key Metrics</h2>
+<div class="mdr-table-wrap" data-from="507" data-to="697">
+  <table data-from="507" data-to="697">
+    <thead data-from="507" data-to="544">
+      <tr data-from="507" data-to="544">
+        <th data-from="509" data-to="515">Metric</th>
+        <th data-from="518" data-to="523">Value</th>
+        <th data-from="526" data-to="542">Δ from last week</th>
+      </tr>
+    </thead>
+    <tbody data-from="559" data-to="697">
+      <tr data-from="559" data-to="593">
+        <td data-from="561" data-to="572">p50 latency</td>
+        <td data-from="575" data-to="581">4.2 ms</td>
+        <td data-from="584" data-to="591">-0.6 ms</td>
+      </tr>
+      <tr data-from="594" data-to="630">
+        <td data-from="596" data-to="607">p99 latency</td>
+        <td data-from="610" data-to="617">38.7 ms</td>
+        <td data-from="620" data-to="628">-12.3 ms</td>
+      </tr>
+      <tr data-from="631" data-to="665">
+        <td data-from="633" data-to="647">Cache hit rate</td>
+        <td data-from="650" data-to="655">94.1%</td>
+        <td data-from="658" data-to="663">+1.8%</td>
+      </tr>
+      <tr data-from="666" data-to="697">
+        <td data-from="668" data-to="678">Error rate</td>
+        <td data-from="681" data-to="686">0.03%</td>
+        <td data-from="689" data-to="695">-0.01%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="699" data-to="896">The latency improvement is largely attributed to the new consistent-hashing implementation. For a ring with <span class="mdr-math" data-tex="n" data-from="807" data-to="810">n</span> nodes, the expected number of keys remapped after a node join/leave is approximately:</p>
+<div class="mdr-math-block" data-tex="E[\text{remapped}] \approx \frac{K}{n}" data-from="898" data-to="942">
+  E[\text{remapped}] \approx \frac{K}{n}
+</div>
+<p data-from="944" data-to="1083">where <span class="mdr-math" data-tex="K" data-from="950" data-to="953">K</span> is the total number of keys. Empirically, our measured remap rate closely matched this bound during the failover drill on Monday.</p>
+<h2 id="engineering-notes" data-from="1085" data-to="1105">Engineering Notes</h2>
+<p data-from="1107" data-to="1169">The sharding logic was refactored for clarity and testability:</p>
+<pre class="mdr-code" data-lang="python" data-from="1171" data-to="1331"><code class="language-python" data-verbatim data-from="1181" data-to="1327">def shard_for_key(key: str, ring: list[int]) -&gt; int:
+    h = hash(key) % (2**32)
+    idx = bisect.bisect(ring, h) % len(ring)
+    return ring[idx]</code></pre>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1333" data-to="1532">
+  <div class="mdr-callout-title" data-from="1335" data-to="1345">
+    Warning
+  </div>
+  <p data-from="1348" data-to="1532">Under extreme skew (&gt;80% traffic to a single shard), the current rebalancer can take upwards of <em data-from="1444" data-to="1455">9 seconds</em> to converge. This is <strong data-from="1477" data-to="1504">not yet production-safe</strong> and needs urgent attention.</p>
+</blockquote>
+<p data-from="1534" data-to="1579">As one reviewer noted during the design sync:</p>
+<blockquote data-from="1581" data-to="1674">
+  <p data-from="1583" data-to="1674">"The rebalancer is correct, but correctness alone won't save us during a hot-key incident."</p>
+</blockquote>
+<h2 id="next-steps" data-from="1676" data-to="1689">Next Steps</h2>
+<ol data-from="1691" data-to="1937">
+  <li data-from="1691" data-to="1742">Implement adaptive load-shedding for hot shards.</li>
+  <li data-from="1743" data-to="1809">Extend chaos-testing suite to simulate skewed traffic patterns.</li>
+  <li data-from="1810" data-to="1869">Finalize documentation for the <em data-from="1844" data-to="1850">v2.5</em> release candidate.</li>
+  <li data-from="1870" data-to="1937">Schedule a cross-team review with the Aurora Platform SRE group.</li>
+</ol>
+<p data-from="1939" data-to="2063">Overall, the team remains on track for the <strong data-from="1982" data-to="1994">April 10</strong> milestone, contingent on resolving the rebalancer performance issue.</p>

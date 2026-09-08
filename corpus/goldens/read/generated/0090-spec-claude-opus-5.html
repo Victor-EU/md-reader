@@ -1,0 +1,233 @@
+<h1 id="technical-specification-kestrel-ledger-sync-service-kls" data-from="0" data-to="60">Technical Specification: Kestrel Ledger Sync Service (KLS)</h1>
+<p data-from="62" data-to="247"><strong data-from="62" data-to="78">Document ID:</strong> KLS-SPEC-0042
+<strong data-from="93" data-to="106">Revision:</strong> 3.1
+<strong data-from="111" data-to="122">Status:</strong> <em data-from="123" data-to="150">Draft for internal review</em>
+<strong data-from="151" data-to="161">Owner:</strong> Distributed Systems Group, Halyard Platform Engineering
+<strong data-from="218" data-to="236">Last modified:</strong> 2031-04-18</p>
+<hr data-from="249" data-to="252">
+<h2 id="1-purpose-and-scope" data-from="254" data-to="277">1. Purpose and Scope</h2>
+<p data-from="279" data-to="659">The Kestrel Ledger Sync Service (KLS) provides eventually-consistent replication of append-only transaction ledgers between geographically distributed edge nodes and a regional aggregation tier. It is intended for deployments where network partitions are frequent, links are metered, and clients cannot tolerate a synchronous write path exceeding <strong data-from="626" data-to="635">40 ms</strong> at the 95th percentile.</p>
+<p data-from="661" data-to="965">This document covers the wire protocol, conflict resolution semantics, storage contract, and the public HTTP API surface. It does <strong data-from="791" data-to="798">not</strong> cover the operator console, the billing meter export pipeline, or the hardware attestation flow — those are described in KLS-SPEC-0043 and KLS-SPEC-0051 respectively.</p>
+<p data-from="967" data-to="1137"><em data-from="967" data-to="982">Out of scope:</em> multi-tenant key custody, on-disk encryption at rest (handled by the underlying Sablefish volume driver), and any form of cross-region strong consistency.</p>
+<hr data-from="1139" data-to="1142">
+<h2 id="2-definitions" data-from="1144" data-to="1161">2. Definitions</h2>
+<div class="mdr-table-wrap" data-from="1163" data-to="1795">
+  <table data-from="1163" data-to="1795">
+    <thead data-from="1163" data-to="1181">
+      <tr data-from="1163" data-to="1181">
+        <th data-from="1165" data-to="1169">Term</th>
+        <th data-from="1172" data-to="1179">Meaning</th>
+      </tr>
+    </thead>
+    <tbody data-from="1192" data-to="1795">
+      <tr data-from="1192" data-to="1291">
+        <td data-from="1194" data-to="1204"><strong data-from="1194" data-to="1204">Ledger</strong></td>
+        <td data-from="1207" data-to="1289">An ordered, append-only sequence of <em data-from="1243" data-to="1252">entries</em> identified by a 128-bit <code data-from="1277" data-to="1288">ledger_id</code>.</td>
+      </tr>
+      <tr data-from="1292" data-to="1409">
+        <td data-from="1294" data-to="1303"><strong data-from="1294" data-to="1303">Entry</strong></td>
+        <td data-from="1306" data-to="1407">An immutable record containing a payload of up to 64 KiB, a monotonic <code data-from="1376" data-to="1381">seq</code>, and an author signature.</td>
+      </tr>
+      <tr data-from="1410" data-to="1507">
+        <td data-from="1412" data-to="1423"><strong data-from="1412" data-to="1423">Segment</strong></td>
+        <td data-from="1426" data-to="1505">A contiguous run of up to 4096 entries, the unit of replication and compaction.</td>
+      </tr>
+      <tr data-from="1508" data-to="1593">
+        <td data-from="1510" data-to="1520"><strong data-from="1510" data-to="1520">Anchor</strong></td>
+        <td data-from="1523" data-to="1591">A signed digest of a segment boundary used for divergence detection.</td>
+      </tr>
+      <tr data-from="1594" data-to="1680">
+        <td data-from="1596" data-to="1604"><strong data-from="1596" data-to="1604">Peer</strong></td>
+        <td data-from="1607" data-to="1678">Any node participating in gossip, either an edge node or an aggregator.</td>
+      </tr>
+      <tr data-from="1681" data-to="1795">
+        <td data-from="1683" data-to="1694"><strong data-from="1683" data-to="1694">Horizon</strong></td>
+        <td data-from="1697" data-to="1793">The highest <code data-from="1709" data-to="1714">seq</code> a peer has durably committed <em data-from="1744" data-to="1749">and</em> acknowledged to at least one quorum member.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="1797" data-to="1800">
+<h2 id="3-functional-requirements" data-from="1802" data-to="1831">3. Functional Requirements</h2>
+<ol data-from="1833" data-to="3315">
+  <li data-from="1833" data-to="2020"><strong data-from="1836" data-to="1858">Append durability.</strong> A successful append response MUST imply the entry is persisted to at least two independent storage devices on the accepting node, with <code data-from="1994" data-to="2001">fsync</code> completed on both.</li>
+  <li data-from="2021" data-to="2200"><strong data-from="2024" data-to="2037">Ordering.</strong> Entries within a single ledger MUST be totally ordered by <code data-from="2096" data-to="2101">seq</code>. Gaps in <code data-from="2111" data-to="2116">seq</code> are prohibited; a peer that detects a gap MUST enter <em data-from="2170" data-to="2183">repair mode</em> for that ledger.</li>
+  <li data-from="2201" data-to="2415"><strong data-from="2204" data-to="2220">Idempotency.</strong> Every append MUST carry a client-supplied <code data-from="2263" data-to="2273">idem_key</code> of 16–64 bytes. Replays within the retention window (default <strong data-from="2335" data-to="2346">6 hours</strong>) MUST return the original result without creating a duplicate entry.</li>
+  <li data-from="2416" data-to="2587"><strong data-from="2419" data-to="2435">Convergence.</strong> Given a quiescent network for <code data-from="2466" data-to="2505">T_conv = 3 × gossip_interval + 500 ms</code>, all reachable peers holding a ledger MUST converge to identical segment anchors.</li>
+  <li data-from="2588" data-to="2792"><strong data-from="2591" data-to="2616">Divergence detection.</strong> Anchor mismatch MUST be reported within two gossip rounds and MUST NOT be silently repaired; the service raises a <code data-from="2731" data-to="2746">LEDGER_FORKED</code> condition requiring operator acknowledgement.</li>
+  <li data-from="2793" data-to="2995"><strong data-from="2796" data-to="2813">Backpressure.</strong> When a peer's uncommitted write buffer exceeds 80% of <code data-from="2868" data-to="2882">buffer_bytes</code>, it MUST advertise reduced credit in gossip headers and reject new appends with <code data-from="2963" data-to="2968">503</code> plus a <code data-from="2976" data-to="2989">Retry-After</code> hint.</li>
+  <li data-from="2996" data-to="3162"><strong data-from="2999" data-to="3020">Metered transfer.</strong> Replication traffic MUST be compressible and MUST support a per-link byte budget; when the budget is exhausted, only anchor gossip continues.</li>
+  <li data-from="3163" data-to="3315"><strong data-from="3166" data-to="3184">Observability.</strong> Every state transition of a ledger replica MUST emit a structured event on the local audit stream with a stable <code data-from="3297" data-to="3314">transition_code</code>.</li>
+</ol>
+<hr data-from="3317" data-to="3320">
+<h2 id="4-non-functional-requirements" data-from="3322" data-to="3355">4. Non-Functional Requirements</h2>
+<ul data-from="3357" data-to="3954">
+  <li data-from="3357" data-to="3465"><strong data-from="3359" data-to="3378">Latency budget:</strong> append p50 ≤ 9 ms, p95 ≤ 40 ms, p99.9 ≤ 220 ms, measured at the node's ingress socket.</li>
+  <li data-from="3466" data-to="3629"><strong data-from="3468" data-to="3489">Throughput floor:</strong> a single edge node on reference hardware (8 vCPU, NVMe, 2 Gb/s uplink) sustains <mark data-from="3570" data-to="3599">12,000 appends per second</mark> at a mean payload of 1.2 KiB.</li>
+  <li data-from="3630" data-to="3799"><strong data-from="3632" data-to="3645">Recovery:</strong> a node rejoining after a partition of up to 72 hours MUST resynchronize without a full ledger scan, using segment anchors to bound the transferred range.</li>
+  <li data-from="3800" data-to="3880"><strong data-from="3802" data-to="3816">Footprint:</strong> resident memory MUST NOT exceed 1.5 GiB with 2000 open ledgers.</li>
+  <li data-from="3881" data-to="3954"><strong data-from="3883" data-to="3907">Availability target:</strong> 99.95% monthly for the append path per region.</li>
+</ul>
+<hr data-from="3956" data-to="3959">
+<h2 id="5-replication-model" data-from="3961" data-to="3984">5. Replication Model</h2>
+<p data-from="3986" data-to="4298">KLS uses <em data-from="3995" data-to="4020">anchored segment gossip</em>. Each peer periodically (default <code data-from="4054" data-to="4080">gossip_interval = 750 ms</code>, jittered ±20%) exchanges a compact digest vector with a randomly selected subset of <code data-from="4166" data-to="4178">fanout = 4</code> peers. The digest vector lists, for each ledger the peer holds, the highest complete segment index and its anchor hash.</p>
+<p data-from="4300" data-to="4340">Reconciliation proceeds in three phases:</p>
+<ol data-from="4342" data-to="4785">
+  <li data-from="4342" data-to="4442"><strong data-from="4345" data-to="4364">Digest exchange</strong> — peers compare vectors and identify ledgers where indices or anchors differ.</li>
+  <li data-from="4443" data-to="4616"><strong data-from="4446" data-to="4467">Range negotiation</strong> — the lagging peer requests a byte-bounded range; the leading peer responds with a delta bundle, never exceeding <code data-from="4581" data-to="4599">max_bundle_bytes</code> (default 4 MiB).</li>
+  <li data-from="4617" data-to="4785"><strong data-from="4620" data-to="4643">Apply and re-anchor</strong> — the lagging peer verifies signatures, appends entries, and recomputes anchors. Any verification failure aborts the whole bundle atomically.</li>
+</ol>
+<p data-from="4787" data-to="5117">Conflict resolution is deliberately minimal: because ledgers are single-writer per <code data-from="4870" data-to="4881">ledger_id</code> (enforced by a lease held from the aggregation tier), <em data-from="4936" data-to="5038">concurrent divergent writes indicate a lease violation and are treated as a fault, not a merge case.</em> Leases are granted for <code data-from="5062" data-to="5080">lease_ttl = 30 s</code> and renewed at one-third of the TTL.</p>
+<h3 id="51-anchor-computation" data-from="5119" data-to="5145">5.1 Anchor Computation</h3>
+<pre class="mdr-code" data-lang="python" data-from="5147" data-to="6244"><code class="language-python" data-verbatim data-from="5157" data-to="6240">import hashlib
+import struct
+
+ANCHOR_DOMAIN = b"kls/anchor/v3"
+
+def compute_anchor(segment_index: int,
+                   prev_anchor: bytes,
+                   entries: list[dict]) -&gt; bytes:
+    """Fold a segment's entries into a 32-byte anchor.
+
+    entries must be ordered by seq with no gaps. prev_anchor is the
+    anchor of segment_index - 1, or 32 zero bytes for the first segment.
+    """
+    if len(prev_anchor) != 32:
+        raise ValueError("prev_anchor must be exactly 32 bytes")
+
+    h = hashlib.blake2b(digest_size=32, person=ANCHOR_DOMAIN[:16])
+    h.update(struct.pack("&gt;Q", segment_index))
+    h.update(prev_anchor)
+
+    expected = None
+    for e in entries:
+        if expected is not None and e["seq"] != expected:
+            raise ValueError(f"gap at seq {expected}")
+        expected = e["seq"] + 1
+
+        h.update(struct.pack("&gt;Q", e["seq"]))
+        h.update(struct.pack("&gt;I", len(e["payload"])))
+        h.update(e["payload"])
+        h.update(e["author_sig"])       # 64 bytes, Ed25519
+
+    h.update(struct.pack("&gt;I", len(entries)))
+    return h.digest()</code></pre>
+<p data-from="6246" data-to="6419">Implementations in other languages MUST produce byte-identical output for the same inputs. A conformance vector set is published as <code data-from="6378" data-to="6406">kls-anchor-vectors-v3.json</code> (487 cases).</p>
+<hr data-from="6421" data-to="6424">
+<h2 id="6-public-api" data-from="6426" data-to="6442">6. Public API</h2>
+<p data-from="6444" data-to="6677">All endpoints are rooted at <code data-from="6472" data-to="6495">https://{node}/kls/v3</code>. Requests and responses use <code data-from="6524" data-to="6542">application/json</code> unless otherwise noted. Authentication uses a bearer token issued by the Halyard identity broker; tokens carry a <code data-from="6656" data-to="6670">ledger_scope</code> claim.</p>
+<h3 id="61-append-entry" data-from="6679" data-to="6699">6.1 Append Entry</h3>
+<pre class="mdr-code" data-from="6701" data-to="6742"><code data-verbatim data-from="6705" data-to="6738">POST /ledgers/{ledger_id}/entries</code></pre>
+<p data-from="6744" data-to="6755"><strong data-from="6744" data-to="6755">Headers</strong></p>
+<div class="mdr-table-wrap" data-from="6757" data-to="6957">
+  <table data-from="6757" data-to="6957">
+    <thead data-from="6757" data-to="6786">
+      <tr data-from="6757" data-to="6786">
+        <th data-from="6759" data-to="6765">Header</th>
+        <th data-from="6768" data-to="6776">Required</th>
+        <th data-from="6779" data-to="6784">Notes</th>
+      </tr>
+    </thead>
+    <tbody data-from="6801" data-to="6957">
+      <tr data-from="6801" data-to="6852">
+        <td data-from="6803" data-to="6819"><code data-from="6803" data-to="6819">X-KLS-Idem-Key</code></td>
+        <td data-from="6822" data-to="6825">yes</td>
+        <td data-from="6828" data-to="6850">16–64 bytes, base64url</td>
+      </tr>
+      <tr data-from="6853" data-to="6897">
+        <td data-from="6855" data-to="6868"><code data-from="6855" data-to="6868">X-KLS-Lease</code></td>
+        <td data-from="6871" data-to="6874">yes</td>
+        <td data-from="6877" data-to="6895">Opaque lease token</td>
+      </tr>
+      <tr data-from="6898" data-to="6957">
+        <td data-from="6900" data-to="6918"><code data-from="6900" data-to="6918">X-KLS-Durability</code></td>
+        <td data-from="6921" data-to="6923">no</td>
+        <td data-from="6926" data-to="6955"><code data-from="6926" data-to="6934">quorum</code> (default) or <code data-from="6948" data-to="6955">local</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="6959" data-to="6975"><strong data-from="6959" data-to="6975">Request body</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="6977" data-to="7157"><code class="language-json" data-verbatim data-from="6985" data-to="7153">{
+  "payload_b64": "eyJvcmRlciI6ICJBLTk5MTQifQ==",
+  "content_type": "application/vnd.halyard.order+json",
+  "labels": { "region": "eu-west-3", "priority": "normal" }
+}</code></pre>
+<p data-from="7159" data-to="7172"><strong data-from="7159" data-to="7172">Responses</strong></p>
+<ul data-from="7174" data-to="7519">
+  <li data-from="7174" data-to="7263"><code data-from="7176" data-to="7189">201 Created</code> — body contains <code data-from="7206" data-to="7211">seq</code>, <code data-from="7213" data-to="7228">segment_index</code>, <code data-from="7230" data-to="7244">commit_ts_us</code>, <code data-from="7246" data-to="7262">anchor_preview</code>.</li>
+  <li data-from="7264" data-to="7358"><code data-from="7266" data-to="7274">200 OK</code> — idempotent replay; identical body to the original <code data-from="7327" data-to="7332">201</code>, plus <code data-from="7339" data-to="7357">"replayed": true</code>.</li>
+  <li data-from="7359" data-to="7444"><code data-from="7361" data-to="7375">409 Conflict</code> — lease invalid or superseded. Body includes <code data-from="7421" data-to="7443">current_lease_holder</code>.</li>
+  <li data-from="7445" data-to="7519"><code data-from="7447" data-to="7472">503 Service Unavailable</code> — backpressure; <code data-from="7489" data-to="7502">Retry-After</code> in milliseconds.</li>
+</ul>
+<h3 id="62-read-range" data-from="7521" data-to="7539">6.2 Read Range</h3>
+<pre class="mdr-code" data-from="7541" data-to="7623"><code data-verbatim data-from="7545" data-to="7619">GET /ledgers/{ledger_id}/entries?from_seq=1024&amp;limit=256&amp;include_sigs=true</code></pre>
+<p data-from="7625" data-to="7793">Returns entries in ascending <code data-from="7654" data-to="7659">seq</code>. <code data-from="7661" data-to="7668">limit</code> is clamped to <strong data-from="7683" data-to="7690">512</strong>. The response carries <code data-from="7713" data-to="7728">X-KLS-Horizon</code> so readers can distinguish <em data-from="7756" data-to="7767">committed</em> from <em data-from="7773" data-to="7786">provisional</em> tails.</p>
+<h3 id="63-anchor-query" data-from="7795" data-to="7815">6.3 Anchor Query</h3>
+<pre class="mdr-code" data-from="7817" data-to="7886"><code data-verbatim data-from="7821" data-to="7882">GET /ledgers/{ledger_id}/anchors?from_segment=0&amp;to_segment=64</code></pre>
+<p data-from="7888" data-to="8113">Returns an array of <code data-from="7908" data-to="7964">{segment_index, anchor_hex, entry_count, sealed_at_us}</code>. Unsealed segments are omitted. This endpoint is the primary tool for external auditors and is rate-limited to <mark data-from="8076" data-to="8112">60 requests per minute per token</mark>.</p>
+<h3 id="64-lease-management" data-from="8115" data-to="8139">6.4 Lease Management</h3>
+<pre class="mdr-code" data-from="8141" data-to="8269"><code data-verbatim data-from="8145" data-to="8265">POST   /ledgers/{ledger_id}/lease        # acquire or renew
+DELETE /ledgers/{ledger_id}/lease        # voluntary release</code></pre>
+<p data-from="8271" data-to="8439">Acquisition body: <code data-from="8289" data-to="8341">{ "holder_id": "edge-tallin-07", "ttl_ms": 30000 }</code>.
+A renewal that arrives after expiry MUST fail with <code data-from="8394" data-to="8404">410 Gone</code> rather than silently re-acquiring.</p>
+<h3 id="65-peer-gossip-internal" data-from="8441" data-to="8471">6.5 Peer Gossip (internal)</h3>
+<pre class="mdr-code" data-from="8473" data-to="8538"><code data-verbatim data-from="8477" data-to="8534">POST /internal/gossip/digest
+POST /internal/gossip/bundle</code></pre>
+<p data-from="8540" data-to="8720">These are mTLS-only and never exposed beyond the replication VLAN. Bundles use a length-prefixed binary framing with Zstandard level 3; JSON is not permitted here for size reasons.</p>
+<hr data-from="8722" data-to="8725">
+<h2 id="7-error-model" data-from="8727" data-to="8744">7. Error Model</h2>
+<p data-from="8746" data-to="8779">All error bodies share the shape:</p>
+<pre class="mdr-code" data-lang="json" data-from="8781" data-to="9009"><code class="language-json" data-verbatim data-from="8789" data-to="9005">{
+  "code": "LEDGER_FORKED",
+  "message": "anchor mismatch at segment 918",
+  "retriable": false,
+  "detail": { "local_anchor": "9f2c…", "peer_anchor": "41ab…", "peer": "agg-riga-02" },
+  "trace_id": "01HZQ4T7K3M8"
+}</code></pre>
+<p data-from="9011" data-to="9180">Defined codes: <code data-from="9026" data-to="9044">IDEM_KEY_INVALID</code>, <code data-from="9046" data-to="9061">LEASE_EXPIRED</code>, <code data-from="9063" data-to="9079">LEASE_CONFLICT</code>, <code data-from="9081" data-to="9090">SEQ_GAP</code>, <code data-from="9092" data-to="9107">LEDGER_FORKED</code>, <code data-from="9109" data-to="9127">BUDGET_EXHAUSTED</code>, <code data-from="9129" data-to="9148">PAYLOAD_TOO_LARGE</code>, <code data-from="9150" data-to="9164">SCOPE_DENIED</code>, <code data-from="9166" data-to="9179">BUFFER_FULL</code>.</p>
+<p data-from="9182" data-to="9261">Clients MUST treat unknown codes as non-retriable unless <code data-from="9239" data-to="9250">retriable</code> is <code data-from="9254" data-to="9260">true</code>.</p>
+<hr data-from="9263" data-to="9266">
+<h2 id="8-configuration-surface" data-from="9268" data-to="9295">8. Configuration Surface</h2>
+<div class="mdr-table-wrap" data-from="9297" data-to="9564">
+  <table data-from="9297" data-to="9564">
+    <thead data-from="9297" data-to="9322">
+      <tr data-from="9297" data-to="9322">
+        <th data-from="9299" data-to="9302">Key</th>
+        <th data-from="9305" data-to="9312">Default</th>
+        <th data-from="9315" data-to="9320">Range</th>
+      </tr>
+    </thead>
+    <tbody data-from="9337" data-to="9564">
+      <tr data-from="9337" data-to="9378">
+        <td data-from="9339" data-to="9359"><code data-from="9339" data-to="9359">gossip_interval_ms</code></td>
+        <td data-from="9362" data-to="9365">750</td>
+        <td data-from="9368" data-to="9376">200–5000</td>
+      </tr>
+      <tr data-from="9379" data-to="9402">
+        <td data-from="9381" data-to="9389"><code data-from="9381" data-to="9389">fanout</code></td>
+        <td data-from="9392" data-to="9393">4</td>
+        <td data-from="9396" data-to="9400">2–12</td>
+      </tr>
+      <tr data-from="9403" data-to="9453">
+        <td data-from="9405" data-to="9423"><code data-from="9405" data-to="9423">max_bundle_bytes</code></td>
+        <td data-from="9426" data-to="9433">4194304</td>
+        <td data-from="9436" data-to="9451">262144–33554432</td>
+      </tr>
+      <tr data-from="9454" data-to="9494">
+        <td data-from="9456" data-to="9473"><code data-from="9456" data-to="9473">segment_entries</code></td>
+        <td data-from="9476" data-to="9480">4096</td>
+        <td data-from="9483" data-to="9492">512–16384</td>
+      </tr>
+      <tr data-from="9495" data-to="9535">
+        <td data-from="9497" data-to="9511"><code data-from="9497" data-to="9511">lease_ttl_ms</code></td>
+        <td data-from="9514" data-to="9519">30000</td>
+        <td data-from="9522" data-to="9533">5000–120000</td>
+      </tr>
+      <tr data-from="9536" data-to="9564">
+        <td data-from="9538" data-to="9556"><code data-from="9538" data-to="9556">idem_retention_s</code></td>
+        <td data-from="9559" data-to="9564">21600</td>
+      </tr>
+    </tbody>
+  </table>
+</div>

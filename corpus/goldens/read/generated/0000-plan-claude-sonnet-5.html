@@ -1,0 +1,107 @@
+<h1 id="project-nimbus-smart-irrigation-rollout" data-from="0" data-to="42">Project Nimbus: Smart Irrigation Rollout</h1>
+<h2 id="overview" data-from="44" data-to="55">Overview</h2>
+<p data-from="56" data-to="311">Project Nimbus deploys a solar-powered, sensor-driven irrigation network across the Calder Valley agricultural cooperative. The initiative spans 14 weeks and targets a 30% reduction in water usage while maintaining crop yield within <span class="mdr-math" data-tex="\pm 5\%" data-from="289" data-to="298">\pm 5\%</span> of baseline.</p>
+<h2 id="phases-and-milestones" data-from="313" data-to="337">Phases and Milestones</h2>
+<div class="mdr-table-wrap" data-from="339" data-to="913">
+  <table data-from="339" data-to="913">
+    <thead data-from="339" data-to="379">
+      <tr data-from="339" data-to="379">
+        <th data-from="341" data-to="346">Phase</th>
+        <th data-from="349" data-to="357">Duration</th>
+        <th data-from="360" data-to="369">Milestone</th>
+        <th data-from="372" data-to="377">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="398" data-to="913">
+      <tr data-from="398" data-to="486">
+        <td data-from="400" data-to="409">Discovery</td>
+        <td data-from="412" data-to="421">Weeks 1–2</td>
+        <td data-from="424" data-to="469">Site survey &amp; soil moisture baseline complete</td>
+        <td data-from="472" data-to="484">Priya Kapoor</td>
+      </tr>
+      <tr data-from="487" data-to="563">
+        <td data-from="489" data-to="495">Design</td>
+        <td data-from="498" data-to="507">Weeks 3–5</td>
+        <td data-from="510" data-to="546">Sensor network architecture approved</td>
+        <td data-from="549" data-to="561">Marcus Oduya</td>
+      </tr>
+      <tr data-from="564" data-to="654">
+        <td data-from="566" data-to="577">Procurement</td>
+        <td data-from="580" data-to="589">Weeks 6–7</td>
+        <td data-from="592" data-to="636">Hardware (nodes, valves, gateways) delivered</td>
+        <td data-from="639" data-to="652">Elena Vasquez</td>
+      </tr>
+      <tr data-from="655" data-to="738">
+        <td data-from="657" data-to="667">Deployment</td>
+        <td data-from="670" data-to="680">Weeks 8–10</td>
+        <td data-from="683" data-to="722">50 field nodes installed and calibrated</td>
+        <td data-from="725" data-to="736">Tomás Reyes</td>
+      </tr>
+      <tr data-from="739" data-to="825">
+        <td data-from="741" data-to="752">Integration</td>
+        <td data-from="755" data-to="766">Weeks 11–12</td>
+        <td data-from="769" data-to="808">Dashboard live with real-time telemetry</td>
+        <td data-from="811" data-to="823">Priya Kapoor</td>
+      </tr>
+      <tr data-from="826" data-to="913">
+        <td data-from="828" data-to="838">Validation</td>
+        <td data-from="841" data-to="852">Weeks 13–14</td>
+        <td data-from="855" data-to="896">Yield and water-savings report signed off</td>
+        <td data-from="899" data-to="911">Marcus Oduya</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="technical-notes" data-from="915" data-to="933">Technical Notes</h2>
+<p data-from="934" data-to="1034">Node placement density <span class="mdr-math" data-tex="n" data-from="957" data-to="960">n</span> is derived from field area <span class="mdr-math" data-tex="A" data-from="988" data-to="991">A</span> (hectares) and desired sensor spacing <span class="mdr-math" data-tex="s" data-from="1030" data-to="1033">s</span>:</p>
+<div class="mdr-math-block" data-tex="n = \left\lceil \frac{A \times 10^4}{s^2} \right\rceil" data-from="1036" data-to="1096">
+  n = \left\lceil \frac{A \times 10^4}{s^2} \right\rceil
+</div>
+<p data-from="1098" data-to="1150">Configuration for each gateway is stored as follows:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="1152" data-to="1293"><code class="language-yaml" data-verbatim data-from="1160" data-to="1289">gateway:
+  id: NMB-GW-07
+  region: calder-valley-east
+  reporting_interval_s: 300
+  moisture_threshold: 0.42
+  battery_min_v: 3.3</code></pre>
+<h2 id="risks" data-from="1295" data-to="1303">Risks</h2>
+<div class="mdr-table-wrap" data-from="1305" data-to="1688">
+  <table data-from="1305" data-to="1688">
+    <thead data-from="1305" data-to="1348">
+      <tr data-from="1305" data-to="1348">
+        <th data-from="1307" data-to="1311">Risk</th>
+        <th data-from="1314" data-to="1324">Likelihood</th>
+        <th data-from="1327" data-to="1333">Impact</th>
+        <th data-from="1336" data-to="1346">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody data-from="1367" data-to="1688">
+      <tr data-from="1367" data-to="1443">
+        <td data-from="1369" data-to="1390">Gateway firmware bugs</td>
+        <td data-from="1393" data-to="1399">Medium</td>
+        <td data-from="1402" data-to="1406">High</td>
+        <td data-from="1409" data-to="1441">Staged rollout, rollback scripts</td>
+      </tr>
+      <tr data-from="1444" data-to="1513">
+        <td data-from="1446" data-to="1463">Soil sensor drift</td>
+        <td data-from="1466" data-to="1472">Medium</td>
+        <td data-from="1475" data-to="1481">Medium</td>
+        <td data-from="1484" data-to="1511">Monthly recalibration cycle</td>
+      </tr>
+      <tr data-from="1514" data-to="1600">
+        <td data-from="1516" data-to="1541">Cooperative funding delay</td>
+        <td data-from="1544" data-to="1547">Low</td>
+        <td data-from="1550" data-to="1554">High</td>
+        <td data-from="1557" data-to="1598">Secure bridge financing from Calder Trust</td>
+      </tr>
+      <tr data-from="1601" data-to="1688">
+        <td data-from="1603" data-to="1633">Weather-related install delays</td>
+        <td data-from="1636" data-to="1640">High</td>
+        <td data-from="1643" data-to="1649">Medium</td>
+        <td data-from="1652" data-to="1686">Buffer 1 week per deployment phase</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="success-metric" data-from="1690" data-to="1707">Success Metric</h2>
+<p data-from="1708" data-to="1879">Overall efficiency score <span class="mdr-math" data-tex="\eta" data-from="1733" data-to="1739">\eta</span> combines water savings and yield stability, targeting <span class="mdr-math" data-tex="\eta \geq 0.78" data-from="1794" data-to="1810">\eta \geq 0.78</span> by project close, reviewed jointly by Elena Vasquez and Tomás Reyes.</p>

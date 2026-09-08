@@ -2,6 +2,8 @@ import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import App from './App.svelte';
+// The real stylesheet: layout, and the scrolling the read pane depends on.
+import './app.css';
 import { createShell, type Shell } from './lib/shell.svelte.ts';
 
 let target: HTMLDivElement;
@@ -86,14 +88,19 @@ describe('the window', () => {
     expect(tabs()).toEqual([]);
   });
 
-  it('opens files through the OS panel and mounts an editor', async () => {
+  it('opens files through the OS panel, in Read mode', async () => {
     start({ '/a/one.md': '# One\n', '/a/two.md': 'two\n' });
     picked = ['/a/one.md', '/a/two.md'];
     await press('KeyO');
     expect(labels()).toEqual(['one.md •', 'two.md •']);
     expect(activeLabel()).toBe('two.md •');
+    // A file opens rendered (design 4.2), and Edit is one shortcut away.
+    expect(target.querySelector('.read p')?.textContent).toBe('two');
+    expect(target.querySelector('.cm-editor')).toBeNull();
+
+    await press('KeyE', { alt: true });
     expect(target.querySelector('.cm-editor')).not.toBeNull();
-    expect(target.textContent).toContain('two');
+    expect(target.querySelector('.read')).toBeNull();
   });
 
   it('opens a file dropped on the window', async () => {
@@ -156,6 +163,7 @@ describe('tab interactions', () => {
   });
 
   it('shows the dirty dot until the document is saved', async () => {
+    await press('KeyE', { alt: true });
     shell.workspace.view?.dispatch({ changes: { from: 0, insert: 'more ' } });
     await settle();
     expect(target.querySelector('.tab.active .dot.dirty')).not.toBeNull();
@@ -199,7 +207,9 @@ describe('the palette', () => {
     const rowFor = (title: string) =>
       rows().find((row) => row.querySelector('.row-label')?.textContent?.trim() === title);
     expect(rowFor('Save')?.querySelector('kbd')?.textContent).toBe('⌘S');
-    expect(rowFor('Read Mode')?.getAttribute('disabled')).not.toBeNull();
+    expect(rowFor('Read Mode')?.querySelector('kbd')?.textContent).toBe('⌥⌘R');
+    // Nothing here is in a foreign encoding, so there is nothing to convert.
+    expect(rowFor('Convert to UTF-8')?.getAttribute('disabled')).not.toBeNull();
     expect(rowFor('Tab 1')).toBeUndefined();
 
     (rowFor('Source Mode') as HTMLButtonElement | undefined)?.click();
@@ -219,6 +229,59 @@ describe('the palette', () => {
   });
 });
 
+describe('read mode', () => {
+  const DOC = '# Title\n\nA paragraph.\n\n## Second\n\nMore words here.\n';
+
+  beforeEach(async () => {
+    start({ '/a.md': DOC });
+    picked = ['/a.md'];
+    await press('KeyO');
+  });
+
+  it('switches between the three modes from the toolbar and the keyboard', async () => {
+    const pressed = () =>
+      target.querySelector('.modes button[aria-pressed="true"]')?.textContent?.trim();
+    expect(pressed()).toBe('Read');
+
+    await press('KeyE', { alt: true });
+    expect(pressed()).toBe('Edit');
+    expect(target.querySelector('.cm-editor')).not.toBeNull();
+
+    await press('KeyR', { alt: true });
+    expect(pressed()).toBe('Read');
+    expect(target.querySelector('.read h1')?.textContent).toContain('Title');
+
+    click('.modes button:last-child');
+    await settle();
+    expect(pressed()).toBe('Source');
+  });
+
+  it('opens the sidebar on the outline and scrolls to a heading', async () => {
+    expect(target.querySelector('.sidebar')).toBeNull();
+    await press('KeyB', { shift: true });
+    expect(
+      [...target.querySelectorAll('.outline-entry')].map((el) => el.textContent?.trim()),
+    ).toEqual(['Title', 'Second']);
+
+    const pane = target.querySelector('.page-read') as HTMLElement;
+    pane.style.height = '40px';
+    target.style.height = '200px';
+    const entries = [...target.querySelectorAll<HTMLButtonElement>('.outline-entry')];
+    entries[1]?.click();
+    await settle();
+    expect(pane.scrollTop).toBeGreaterThan(0);
+  });
+
+  it('keeps the outline in the sidebar when the mode changes', async () => {
+    await press('KeyB', { shift: true });
+    await press('KeyE', { alt: true });
+    await settle();
+    expect(
+      [...target.querySelectorAll('.outline-entry')].map((el) => el.textContent?.trim()),
+    ).toEqual(['Title', 'Second']);
+  });
+});
+
 describe('the status bar', () => {
   it('counts words, names the format, and shows the cursor in Source mode', async () => {
     start({ '/a.md': '# One two three\n' });
@@ -227,8 +290,9 @@ describe('the status bar', () => {
     const cells = () => [...target.querySelectorAll('.status .cell')].map((c) => c.textContent);
     expect(cells()).toEqual(['3 words', 'UTF-8 · LF', 'Saved']);
 
-    shell.workspace.view?.dispatch({ selection: { anchor: 4 } });
     await press('KeyS', { alt: true });
+    shell.workspace.view?.dispatch({ selection: { anchor: 4 } });
+    await settle();
     expect(cells()).toEqual(['3 words', 'Ln 1, Col 5', 'UTF-8 · LF', 'Saved']);
   });
 });

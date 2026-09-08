@@ -1,0 +1,78 @@
+<h1 id="research-notes-data-serialization-approaches-for-real-time-systems" data-from="0" data-to="69">Research Notes: Data Serialization Approaches for Real-Time Systems</h1>
+<h2 id="overview" data-from="71" data-to="82">Overview</h2>
+<p data-from="84" data-to="382">This document compares three methodologies for optimizing data serialization in high-frequency trading systems. The primary metric is throughput, measured in megabytes per second, with inline math showing the calculation: <span class="mdr-math" data-tex="\text{throughput} = \frac{\text{bytes processed}}{\text{time in seconds}}" data-from="306" data-to="381">\text{throughput} = \frac{\text{bytes processed}}{\text{time in seconds}}</span>.</p>
+<h2 id="comparison-matrix" data-from="384" data-to="404">Comparison Matrix</h2>
+<div class="mdr-table-wrap" data-from="406" data-to="727">
+  <table data-from="406" data-to="727">
+    <thead data-from="406" data-to="484">
+      <tr data-from="406" data-to="484">
+        <th data-from="408" data-to="416">Approach</th>
+        <th data-from="419" data-to="431">Latency (μs)</th>
+        <th data-from="434" data-to="451">Throughput (MB/s)</th>
+        <th data-from="454" data-to="469">Memory Overhead</th>
+        <th data-from="472" data-to="482">Complexity</th>
+      </tr>
+    </thead>
+    <tbody data-from="562" data-to="727">
+      <tr data-from="562" data-to="616">
+        <td data-from="564" data-to="591">Binary Stream Protocol v2.1</td>
+        <td data-from="594" data-to="596">45</td>
+        <td data-from="599" data-to="603">1240</td>
+        <td data-from="606" data-to="608">8%</td>
+        <td data-from="611" data-to="614">Low</td>
+      </tr>
+      <tr data-from="617" data-to="673">
+        <td data-from="619" data-to="644">Adaptive JSON Compression</td>
+        <td data-from="647" data-to="650">120</td>
+        <td data-from="653" data-to="656">580</td>
+        <td data-from="659" data-to="662">15%</td>
+        <td data-from="665" data-to="671">Medium</td>
+      </tr>
+      <tr data-from="674" data-to="727">
+        <td data-from="676" data-to="701">Protocol Buffers Extended</td>
+        <td data-from="704" data-to="706">65</td>
+        <td data-from="709" data-to="712">920</td>
+        <td data-from="715" data-to="718">12%</td>
+        <td data-from="721" data-to="725">High</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="performance-formula" data-from="729" data-to="751">Performance Formula</h2>
+<p data-from="753" data-to="825">The efficiency rating is calculated using the following display formula:</p>
+<div class="mdr-math-block" data-tex="E = \frac{T}{L \times M} \times 100" data-from="827" data-to="866">
+  E = \frac{T}{L \times M} \times 100
+</div>
+<p data-from="868" data-to="966">where <span class="mdr-math" data-tex="E" data-from="874" data-to="877">E</span> is efficiency, <span class="mdr-math" data-tex="T" data-from="893" data-to="896">T</span> is throughput, <span class="mdr-math" data-tex="L" data-from="912" data-to="915">L</span> is latency, and <span class="mdr-math" data-tex="M" data-from="932" data-to="935">M</span> is memory overhead percentage.</p>
+<h2 id="implementation-notes" data-from="968" data-to="991">Implementation Notes</h2>
+<h3 id="task-progress" data-from="993" data-to="1010">Task Progress</h3>
+<ul data-from="1011" data-to="1196">
+  <li class="mdr-task" data-from="1011" data-to="1052"><input type="checkbox" disabled checked data-from="1013" data-to="1016">Benchmark BSP v2.1 against baseline</li>
+  <li class="mdr-task" data-from="1053" data-to="1087"><input type="checkbox" disabled checked data-from="1055" data-to="1058">Test JSON compression ratios</li>
+  <li class="mdr-task" data-from="1088" data-to="1128"><input type="checkbox" disabled data-from="1090" data-to="1093">Deploy Protocol Buffers to staging</li>
+  <li class="mdr-task" data-from="1129" data-to="1165"><input type="checkbox" disabled data-from="1131" data-to="1134">Conduct production A/B testing</li>
+  <li class="mdr-task" data-from="1166" data-to="1196"><input type="checkbox" disabled data-from="1168" data-to="1171">Document migration guide</li>
+</ul>
+<h3 id="key-findings" data-from="1198" data-to="1214">Key Findings</h3>
+<ol data-from="1216" data-to="1394">
+  <li data-from="1216" data-to="1291">Binary Stream Protocol achieved highest throughput with minimal overhead</li>
+  <li data-from="1292" data-to="1342">JSON approach provides better human readability</li>
+  <li data-from="1343" data-to="1394">Protocol Buffers offer superior schema evolution</li>
+</ol>
+<h2 id="code-example" data-from="1396" data-to="1411">Code Example</h2>
+<pre class="mdr-code" data-lang="python" data-from="1413" data-to="1796"><code class="language-python" data-verbatim data-from="1423" data-to="1792">class SerializationBenchmark:
+    def measure_throughput(self, data_stream, duration_seconds):
+        start_time = time.time()
+        bytes_processed = 0
+        
+        for packet in data_stream:
+            bytes_processed += len(self.serialize(packet))
+            
+        elapsed = time.time() - start_time
+        return bytes_processed / (elapsed * 1_000_000)</code></pre>
+<h2 id="expert-observation" data-from="1798" data-to="1819">Expert Observation</h2>
+<blockquote data-from="1821" data-to="2106">
+  <p data-from="1823" data-to="2106">"The choice between these approaches depends critically on your infrastructure constraints. Binary protocols dominate in latency-sensitive environments, while text-based formats provide operational advantages in heterogeneous systems." — Dr. Marcus Chen, Performance Engineering Lead</p>
+</blockquote>
+<h2 id="recommendations" data-from="2108" data-to="2126">Recommendations</h2>
+<p data-from="2128" data-to="2314">For our trading platform, the Binary Stream Protocol v2.1 emerges as the optimal solution, delivering superior performance metrics while maintaining reasonable implementation complexity.</p>

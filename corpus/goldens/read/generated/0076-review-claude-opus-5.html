@@ -1,0 +1,51 @@
+<h1 id="review-summary-kestrel-ingest-pipeline-design-specification-v04" data-from="0" data-to="71">Review Summary: <em data-from="18" data-to="71">Kestrel Ingest Pipeline — Design Specification v0.4</em></h1>
+<p data-from="73" data-to="159"><strong data-from="73" data-to="86">Reviewer:</strong> M. Adeyemi-Vosk
+<strong data-from="103" data-to="112">Date:</strong> 14 March 2031
+<strong data-from="127" data-to="139">Verdict:</strong> Revise and resubmit</p>
+<hr data-from="161" data-to="164">
+<h2 id="findings" data-from="166" data-to="177">Findings</h2>
+<ul data-from="179" data-to="968">
+  <li data-from="179" data-to="583"><strong data-from="181" data-to="197">Architecture</strong><ul data-from="200" data-to="583">
+      <li data-from="200" data-to="323">The three-stage split (collect → normalize → fan-out) is sound and matches the throughput target of 42,000 events/second.</li>
+      <li data-from="326" data-to="583">Backpressure handling is underspecified.<ul data-from="373" data-to="583">
+          <li data-from="373" data-to="583">Section 4.2 names a bounded queue but never states its depth.<ul data-from="443" data-to="583">
+              <li data-from="443" data-to="516">Suggested default: 8,192 records, with a documented spill-to-disk path.</li>
+              <li data-from="523" data-to="583">Failure semantics on spill exhaustion are absent entirely.</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="584" data-to="790"><strong data-from="586" data-to="600">Data model</strong><ul data-from="603" data-to="790">
+      <li data-from="603" data-to="710">Field <code data-from="611" data-to="625">origin_shard</code> is typed as a 16-bit integer, but the shard table in Appendix C lists 94,000 shards.</li>
+      <li data-from="713" data-to="790">Timestamps mix epoch milliseconds and ISO-8601 strings across three tables.</li>
+    </ul></li>
+  <li data-from="791" data-to="968"><strong data-from="793" data-to="807">Operations</strong><ul data-from="810" data-to="968">
+      <li data-from="810" data-to="864">No rollback procedure for a failed schema migration.</li>
+      <li data-from="867" data-to="968">Alert thresholds (page at 3% error rate) seem high given the stated 99.95% availability commitment.</li>
+    </ul></li>
+</ul>
+<h2 id="questions" data-from="970" data-to="982">Questions</h2>
+<ol data-from="984" data-to="1307">
+  <li data-from="984" data-to="1089">Is the normalizer expected to be idempotent across retries, or is deduplication delegated to the sink?</li>
+  <li data-from="1090" data-to="1205">What is the retention window for the dead-letter store — the text implies 30 days, but the cost model assumes 7?</li>
+  <li data-from="1206" data-to="1307">Who owns key rotation for the transport credentials: the platform team or each publishing service?</li>
+</ol>
+<h2 id="recommended-changes" data-from="1309" data-to="1331">Recommended Changes</h2>
+<p data-from="1333" data-to="1406">Replace the ambiguous retry stanza in §5.1 with an explicit policy, e.g.:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="1408" data-to="1590"><code class="language-yaml" data-verbatim data-from="1416" data-to="1586">retry:
+  strategy: exponential
+  base_delay_ms: 250
+  max_delay_ms: 30000
+  max_attempts: 6
+  jitter: full
+  dead_letter:
+    topic: kestrel.dlq.v1
+    retention_days: 30</code></pre>
+<p data-from="1592" data-to="1609">Additional items:</p>
+<ul data-from="1611" data-to="2018">
+  <li data-from="1611" data-to="1689">Widen <code data-from="1619" data-to="1633">origin_shard</code> to a 32-bit unsigned integer and regenerate Appendix C.</li>
+  <li data-from="1690" data-to="1787">Standardize on epoch microseconds (UTC) throughout; add a conversion note for legacy consumers.</li>
+  <li data-from="1788" data-to="1871">Add a section 9 covering migration rollback, including a tested downgrade script.</li>
+  <li data-from="1872" data-to="1940">Lower the paging threshold to 0.8% and add a warning tier at 0.3%.</li>
+  <li data-from="1941" data-to="2018">Include a load-test appendix with results at 1×, 2×, and 5× projected peak.</li>
+</ul>
+<p data-from="2020" data-to="2089"><strong data-from="2020" data-to="2041">Estimated rework:</strong> 9–12 engineer-days before a second review pass.</p>

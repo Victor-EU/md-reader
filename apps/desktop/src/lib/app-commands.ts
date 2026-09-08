@@ -59,9 +59,8 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Read Mode',
       group: 'View',
       key: 'Mod+Alt+R',
-      // The Read renderer is WP 1.4; the switch shows the mode, disabled.
-      enabled: () => false,
-      run: () => {},
+      enabled: hasTab,
+      run: () => workspace.setMode('read'),
     },
     {
       id: 'view.edit',
@@ -78,6 +77,13 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       key: 'Mod+Alt+S',
       enabled: hasTab,
       run: () => workspace.setMode('source'),
+    },
+    {
+      id: 'view.sidebar',
+      title: 'Toggle Sidebar',
+      group: 'View',
+      key: 'Mod+Shift+B',
+      run: () => workspace.toggleSidebar(),
     },
     {
       id: 'view.duplicate',

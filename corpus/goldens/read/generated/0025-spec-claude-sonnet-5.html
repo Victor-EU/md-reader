@@ -1,0 +1,142 @@
+<h1 id="technical-specification-vortex-rate-limiter-v23" data-from="0" data-to="51">Technical Specification: Vortex Rate Limiter v2.3</h1>
+<h2 id="1-overview" data-from="53" data-to="67">1. Overview</h2>
+<p data-from="69" data-to="350"><strong data-from="69" data-to="79">Vortex</strong> is a distributed rate-limiting service designed to throttle API requests across a fleet of <em data-from="171" data-to="182">stateless</em> edge nodes. This document defines the requirements, algorithmic model, and public API for the Vortex Core Library, developed internally by the Quillhaven Systems team.</p>
+<p data-from="352" data-to="474">The system replaces the legacy <em data-from="383" data-to="402">Sentinel Throttle</em> module, which suffered from clock-drift inconsistencies across regions.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="476" data-to="591">
+  <div class="mdr-callout-title" data-from="478" data-to="485">
+    Note
+  </div>
+  <p data-from="488" data-to="591">This specification targets Vortex Core v2.3 and is <strong data-from="539" data-to="546">not</strong> backward compatible with v1.x token formats.</p>
+</blockquote>
+<h2 id="2-goals-and-non-goals" data-from="593" data-to="618">2. Goals and Non-Goals</h2>
+<h3 id="21-goals" data-from="620" data-to="633">2.1 Goals</h3>
+<ul data-from="634" data-to="826">
+  <li data-from="634" data-to="703">Provide <mark data-from="644" data-to="663">sub-millisecond</mark> decision latency for rate-limit checks.</li>
+  <li data-from="704" data-to="765">Support both <strong data-from="719" data-to="735">fixed-window</strong> and <em data-from="740" data-to="753">sliding-log</em> strategies.</li>
+  <li data-from="766" data-to="826">Guarantee eventual consistency across nodes within 250 ms.</li>
+</ul>
+<h3 id="22-non-goals" data-from="828" data-to="845">2.2 Non-Goals</h3>
+<ul data-from="846" data-to="1048">
+  <li data-from="846" data-to="912">Vortex does <strong data-from="860" data-to="867">not</strong> provide request queuing or retry scheduling.</li>
+  <li data-from="913" data-to="1048">Persistent long-term analytics storage is out of scope; that responsibility belongs to the downstream <code data-from="1017" data-to="1030">Harborlight</code> metrics pipeline.</li>
+</ul>
+<h2 id="3-algorithmic-model" data-from="1050" data-to="1073">3. Algorithmic Model</h2>
+<p data-from="1075" data-to="1259">Vortex uses a decayed token-bucket model. For a client <span class="mdr-math" data-tex="c" data-from="1130" data-to="1133">c</span> with bucket capacity <span class="mdr-math" data-tex="B_c" data-from="1155" data-to="1160">B_c</span> and refill rate <span class="mdr-math" data-tex="r_c" data-from="1177" data-to="1182">r_c</span> (tokens per second), the number of available tokens at time <span class="mdr-math" data-tex="t" data-from="1243" data-to="1246">t</span> is given by:</p>
+<div class="mdr-math-block" data-tex="T_c(t) = \min\left(B_c,\; T_c(t_0) + r_c \cdot (t - t_0)\right)" data-from="1261" data-to="1330">
+  T_c(t) = \min\left(B_c,\; T_c(t_0) + r_c \cdot (t - t_0)\right)
+</div>
+<p data-from="1332" data-to="1510">where <span class="mdr-math" data-tex="t_0" data-from="1338" data-to="1343">t_0</span> is the timestamp of the last recorded update. A request consuming <span class="mdr-math" data-tex="k" data-from="1410" data-to="1413">k</span> tokens is admitted if and only if <span class="mdr-math" data-tex="T_c(t) \geq k" data-from="1448" data-to="1463">T_c(t) \geq k</span>, after which the bucket is decremented by <span class="mdr-math" data-tex="k" data-from="1506" data-to="1509">k</span>.</p>
+<p data-from="1512" data-to="1660">The <em data-from="1516" data-to="1527">effective</em> burst tolerance <span class="mdr-math" data-tex="\beta" data-from="1544" data-to="1551">\beta</span> is derived from the ratio <span class="mdr-math" data-tex="\beta = B_c / r_c" data-from="1578" data-to="1597">\beta = B_c / r_c</span>, representing the maximum sustained burst duration in seconds.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1662" data-to="1891">
+  <div class="mdr-callout-title" data-from="1664" data-to="1674">
+    Warning
+  </div>
+  <p data-from="1677" data-to="1891">If <span class="mdr-math" data-tex="r_c = 0" data-from="1680" data-to="1689">r_c = 0</span>, the bucket becomes a hard cap with no replenishment. Clients must never configure a zero refill rate for production traffic — doing so will silently freeze all future requests once <span class="mdr-math" data-tex="B_c" data-from="1872" data-to="1877">B_c</span> is exhausted.</p>
+</blockquote>
+<h2 id="4-functional-requirements" data-from="1893" data-to="1922">4. Functional Requirements</h2>
+<div class="mdr-table-wrap" data-from="1924" data-to="2481">
+  <table data-from="1924" data-to="2481">
+    <thead data-from="1924" data-to="1955">
+      <tr data-from="1924" data-to="1955">
+        <th data-from="1926" data-to="1928">ID</th>
+        <th data-from="1931" data-to="1942">Requirement</th>
+        <th data-from="1945" data-to="1953">Priority</th>
+      </tr>
+    </thead>
+    <tbody data-from="1988" data-to="2481">
+      <tr data-from="1988" data-to="2090">
+        <td data-from="1990" data-to="1994">FR-1</td>
+        <td data-from="1997" data-to="2081">The system <strong data-from="2008" data-to="2016">must</strong> support per-client bucket configuration via a control-plane API.</td>
+        <td data-from="2084" data-to="2088">High</td>
+      </tr>
+      <tr data-from="2091" data-to="2184">
+        <td data-from="2093" data-to="2097">FR-2</td>
+        <td data-from="2100" data-to="2175">The system <strong data-from="2111" data-to="2119">must</strong> replicate bucket state across at least 3 replica nodes.</td>
+        <td data-from="2178" data-to="2182">High</td>
+      </tr>
+      <tr data-from="2185" data-to="2292">
+        <td data-from="2187" data-to="2191">FR-3</td>
+        <td data-from="2194" data-to="2281">The system <em data-from="2205" data-to="2213">should</em> support a "soft-limit" mode that logs but does not reject requests.</td>
+        <td data-from="2284" data-to="2290">Medium</td>
+      </tr>
+      <tr data-from="2293" data-to="2383">
+        <td data-from="2295" data-to="2299">FR-4</td>
+        <td data-from="2302" data-to="2374">The system <strong data-from="2313" data-to="2321">must</strong> expose Prometheus-compatible metrics on port <code data-from="2367" data-to="2373">9412</code>.</td>
+        <td data-from="2377" data-to="2381">High</td>
+      </tr>
+      <tr data-from="2384" data-to="2481">
+        <td data-from="2386" data-to="2390">FR-5</td>
+        <td data-from="2393" data-to="2473">The system <em data-from="2404" data-to="2409">may</em> support custom cost functions where <span class="mdr-math" data-tex="k" data-from="2446" data-to="2449">k</span> varies by request type.</td>
+        <td data-from="2476" data-to="2479">Low</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="5-non-functional-requirements" data-from="2483" data-to="2516">5. Non-Functional Requirements</h2>
+<ul data-from="2518" data-to="2766">
+  <li data-from="2518" data-to="2596"><strong data-from="2520" data-to="2531">Latency</strong>: p99 decision time under 1.2 ms at 50,000 requests/sec per node.</li>
+  <li data-from="2597" data-to="2660"><strong data-from="2599" data-to="2615">Availability</strong>: 99.95% uptime per region, measured monthly.</li>
+  <li data-from="2661" data-to="2766"><strong data-from="2663" data-to="2677">Durability</strong>: Bucket state snapshots persisted every 30 seconds to the <code data-from="2736" data-to="2747">Cinderlog</code> write-ahead store.</li>
+</ul>
+<h2 id="6-api-sketch" data-from="2768" data-to="2784">6. API Sketch</h2>
+<p data-from="2786" data-to="2880">The core library is implemented in Rust, with bindings exposed via a lightweight gRPC gateway.</p>
+<pre class="mdr-code" data-lang="rust" data-from="2882" data-to="3633"><code class="language-rust" data-verbatim data-from="2890" data-to="3629">/// Represents a single rate-limit decision request.
+pub struct LimitRequest {
+    pub client_id: String,
+    pub cost: u32,
+    pub timestamp_ms: u64,
+}
+
+/// Result of evaluating a LimitRequest against a bucket.
+pub struct LimitDecision {
+    pub allowed: bool,
+    pub remaining_tokens: f64,
+    pub retry_after_ms: Option&lt;u64&gt;,
+}
+
+pub trait RateLimiter {
+    /// Evaluates whether the given request should be admitted.
+    fn check(&amp;self, req: &amp;LimitRequest) -&gt; LimitDecision;
+
+    /// Registers or updates bucket configuration for a client.
+    fn configure(&amp;mut self, client_id: &amp;str, capacity: f64, refill_rate: f64);
+
+    /// Removes a client's bucket entirely, freeing associated memory.
+    fn evict(&amp;mut self, client_id: &amp;str);
+}</code></pre>
+<h3 id="61-configuration-endpoint" data-from="3635" data-to="3665">6.1 Configuration Endpoint</h3>
+<pre class="mdr-code" data-lang="json" data-from="3667" data-to="3812"><code class="language-json" data-verbatim data-from="3675" data-to="3808">POST /v2/buckets/configure
+{
+  "client_id": "partner-arclight-04",
+  "capacity": 500,
+  "refill_rate": 12.5,
+  "mode": "soft-limit"
+}</code></pre>
+<h3 id="62-decision-endpoint" data-from="3814" data-to="3839">6.2 Decision Endpoint</h3>
+<p data-from="3841" data-to="3879">A typical decision response resembles:</p>
+<pre class="mdr-code" data-lang="json" data-from="3881" data-to="3969"><code class="language-json" data-verbatim data-from="3889" data-to="3965">{
+  "allowed": true,
+  "remaining_tokens": 483.2,
+  "retry_after_ms": null
+}</code></pre>
+<h2 id="7-error-handling" data-from="3971" data-to="3991">7. Error Handling</h2>
+<p data-from="3993" data-to="4228">All errors follow the <code data-from="4015" data-to="4028">VortexError</code> enum, with variants such as <code data-from="4057" data-to="4073">BucketNotFound</code>, <code data-from="4075" data-to="4095">ReplicationTimeout</code>, and <code data-from="4101" data-to="4122">InvalidCostFunction</code>. Clients <strong data-from="4132" data-to="4140">must</strong> treat <code data-from="4147" data-to="4167">ReplicationTimeout</code> as a transient condition and retry with exponential backoff.</p>
+<h2 id="8-security-considerations" data-from="4230" data-to="4259">8. Security Considerations</h2>
+<p data-from="4261" data-to="4503">Access to the configuration endpoint requires a signed JWT issued by the <code data-from="4334" data-to="4358">Quillhaven Auth Broker</code>. Tokens <strong data-from="4367" data-to="4375">must</strong> be rotated every 24 hours. Requests lacking a valid signature <em data-from="4438" data-to="4444">must</em> be rejected with HTTP 401, regardless of payload contents.</p>
+<h2 id="9-rollout-plan" data-from="4505" data-to="4523">9. Rollout Plan</h2>
+<ol data-from="4525" data-to="4800">
+  <li data-from="4525" data-to="4629"><strong data-from="4528" data-to="4539">Phase 1</strong> — Shadow deployment alongside Sentinel Throttle, comparing decisions without enforcement.</li>
+  <li data-from="4630" data-to="4705"><strong data-from="4633" data-to="4644">Phase 2</strong> — Canary rollout to 5% of traffic in the <code data-from="4686" data-to="4697">eu-west-3</code> region.</li>
+  <li data-from="4706" data-to="4800"><strong data-from="4709" data-to="4720">Phase 3</strong> — Full production cutover, with Sentinel Throttle decommissioned 60 days later.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="note" data-from="4802" data-to="4908">
+  <div class="mdr-callout-title" data-from="4804" data-to="4811">
+    Note
+  </div>
+  <p data-from="4814" data-to="4908">Rollback procedures are documented separately in the <em data-from="4867" data-to="4894">Vortex Operations Runbook</em>, section 4.2.</p>
+</blockquote>
+<h2 id="10-open-questions" data-from="4910" data-to="4931">10. Open Questions</h2>
+<ul data-from="4933" data-to="5141">
+  <li data-from="4933" data-to="5022">Should burst tolerance <span class="mdr-math" data-tex="\beta" data-from="4958" data-to="4965">\beta</span> be configurable per request type rather than per client?</li>
+  <li data-from="5023" data-to="5141">Is a 250 ms consistency window acceptable for financial-tier clients, or does it require tightening to under 100 ms?</li>
+</ul>

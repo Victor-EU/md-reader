@@ -1,0 +1,128 @@
+<h1 id="research-notes-comparing-approaches-to-online-change-point-detection-in-streaming-sensor-data" data-from="0" data-to="96">Research Notes: Comparing Approaches to Online Change-Point Detection in Streaming Sensor Data</h1>
+<h2 id="1-background-and-motivation" data-from="98" data-to="129">1. Background and Motivation</h2>
+<p data-from="131" data-to="511">Change-point detection in streaming data is a recurring problem in industrial monitoring, where a sequence of sensor readings <span class="mdr-math" data-tex="x_1, x_2, \dots, x_t" data-from="257" data-to="279">x_1, x_2, \dots, x_t</span> is assumed to be generated from a stationary distribution until some unknown time <span class="mdr-math" data-tex="\tau" data-from="362" data-to="368">\tau</span>, after which the generating distribution shifts. The task is to detect <span class="mdr-math" data-tex="\tau" data-from="440" data-to="446">\tau</span> as quickly as possible while controlling the <em data-from="492" data-to="510">false alarm rate</em>.</p>
+<p data-from="513" data-to="774">These notes summarize an internal comparison of three candidate algorithms evaluated on a synthetic benchmark of vibration-sensor traces collected from a fictitious turbine testbed at the <strong data-from="701" data-to="727">Halvorsen Dynamics Lab</strong>. The three approaches under consideration are:</p>
+<ol data-from="776" data-to="1131">
+  <li data-from="776" data-to="875"><strong data-from="779" data-to="795">Kestrel-EWMA</strong> — an exponentially weighted moving average detector with adaptive thresholding.</li>
+  <li data-from="876" data-to="1000"><strong data-from="879" data-to="890">T-BOCPD</strong> — a Bayesian online change-point detector inspired by the Thornbury group's run-length posterior formulation.</li>
+  <li data-from="1001" data-to="1131"><strong data-from="1004" data-to="1014">VL-SWC</strong> — the Vasquez–Liu Sliding-Window CUSUM method, which combines a fixed-length window with a cumulative sum statistic.</li>
+</ol>
+<p data-from="1133" data-to="1385">The goal of this comparison was to determine which method offers the best trade-off between <em data-from="1225" data-to="1244">detection latency</em>, <em data-from="1246" data-to="1267">robustness to noise</em>, and <em data-from="1273" data-to="1293">computational cost</em> for a deployment budget of roughly 4 milliseconds per sample on an embedded ARM controller.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="1387" data-to="1687">
+  <div class="mdr-callout-title" data-from="1389" data-to="1396">
+    Note
+  </div>
+  <p data-from="1399" data-to="1687">All numerical results below come from a simulated dataset (<code data-from="1458" data-to="1476">turbine_synth_v3</code>) generated internally; no real turbine data was used. Sample rate was fixed at 500 Hz, with an injected mean-shift of magnitude <span class="mdr-math" data-tex="\delta = 1.2\sigma" data-from="1605" data-to="1625">\delta = 1.2\sigma</span> at a randomly chosen point in each of 400 independent trials.</p>
+</blockquote>
+<hr data-from="1689" data-to="1692">
+<h2 id="2-method-1-kestrel-ewma" data-from="1694" data-to="1722">2. Method 1: Kestrel-EWMA</h2>
+<p data-from="1724" data-to="1779">The Kestrel-EWMA detector maintains a running statistic</p>
+<div class="mdr-math-block" data-tex="z_t = \lambda x_t + (1 - \lambda) z_{t-1}, \qquad z_0 = \mu_0" data-from="1781" data-to="1848">
+  z_t = \lambda x_t + (1 - \lambda) z_{t-1}, \qquad z_0 = \mu_0
+</div>
+<p data-from="1850" data-to="2071">where <span class="mdr-math" data-tex="\lambda \in (0,1]" data-from="1856" data-to="1875">\lambda \in (0,1]</span> controls the memory of the filter. An alarm is raised when <span class="mdr-math" data-tex="|z_t - \mu_0| &gt; L \cdot \sigma_z" data-from="1935" data-to="1969">|z_t - \mu_0| &gt; L \cdot \sigma_z</span>, where <span class="mdr-math" data-tex="\sigma_z" data-from="1977" data-to="1987">\sigma_z</span> is the steady-state standard deviation of <span class="mdr-math" data-tex="z_t" data-from="2030" data-to="2035">z_t</span> under the null hypothesis, given by</p>
+<div class="mdr-math-block" data-tex="\sigma_z = \sigma_0 \sqrt{\frac{\lambda}{2-\lambda}}." data-from="2073" data-to="2132">
+  \sigma_z = \sigma_0 \sqrt{\frac{\lambda}{2-\lambda}}.
+</div>
+<p data-from="2134" data-to="2299">In practice, the Kestrel variant adapts <span class="mdr-math" data-tex="\lambda" data-from="2174" data-to="2183">\lambda</span> online based on a short-term estimate of local variance, which is what distinguishes it from a textbook EWMA chart.</p>
+<p data-from="2301" data-to="2598"><strong data-from="2301" data-to="2315">Strengths.</strong> The algorithm is extremely lightweight — a single multiply-add per sample — and its behavior is well understood analytically. It handled <em data-from="2453" data-to="2472">smoothly drifting</em> baselines gracefully during our stress tests, rarely triggering spurious alarms when the sensor exhibited slow thermal drift.</p>
+<p data-from="2600" data-to="2988"><strong data-from="2600" data-to="2615">Weaknesses.</strong> Kestrel-EWMA struggled with <em data-from="2644" data-to="2652">abrupt</em> shifts of small magnitude (<span class="mdr-math" data-tex="\delta &lt; 0.8\sigma" data-from="2680" data-to="2700">\delta &lt; 0.8\sigma</span>). Because the exponential smoothing itself introduces lag, small shifts get absorbed into the filter's memory before crossing the threshold. In our trials, average detection delay for <span class="mdr-math" data-tex="\delta = 0.8\sigma" data-from="2885" data-to="2905">\delta = 0.8\sigma</span> was 142 samples (≈284 ms), which exceeded the lab's latency budget of 100 samples.</p>
+<pre class="mdr-code" data-lang="python" data-from="2990" data-to="3259"><code class="language-python" data-verbatim data-from="3000" data-to="3255">def kestrel_ewma_update(x, z_prev, lam, mu0, sigma0, L=3.0):
+    """One step of the Kestrel-EWMA detector."""
+    z = lam * x + (1 - lam) * z_prev
+    sigma_z = sigma0 * ((lam / (2 - lam)) ** 0.5)
+    alarm = abs(z - mu0) &gt; L * sigma_z
+    return z, alarm</code></pre>
+<blockquote class="mdr-callout" data-callout="warning" data-from="3261" data-to="3535">
+  <div class="mdr-callout-title" data-from="3263" data-to="3273">
+    Warning
+  </div>
+  <p data-from="3276" data-to="3535">The adaptive <span class="mdr-math" data-tex="\lambda" data-from="3289" data-to="3298">\lambda</span> update in Kestrel-EWMA can become unstable if the local variance estimate is computed over too short a window (fewer than ~15 samples in our tests). This caused a burst of false alarms during the "spike noise" scenario of trial batch 7.</p>
+</blockquote>
+<hr data-from="3537" data-to="3540">
+<h2 id="3-method-2-t-bocpd" data-from="3542" data-to="3565">3. Method 2: T-BOCPD</h2>
+<p data-from="3567" data-to="3767">The Bayesian online change-point detector maintains a posterior distribution over the <em data-from="3653" data-to="3665">run length</em> <span class="mdr-math" data-tex="r_t" data-from="3666" data-to="3671">r_t</span>, defined as the number of observations since the last change point. The key recursive update is</p>
+<div class="mdr-math-block" data-tex="P(r_t \mid x_{1:t}) \propto \sum_{r_{t-1}} P(r_t \mid r_{t-1}) \, P(x_t \mid r_{t-1}, x_{1:t-1}) \, P(r_{t-1} \mid x_{1:t-1})." data-from="3769" data-to="3901">
+  P(r_t \mid x_{1:t}) \propto \sum_{r_{t-1}} P(r_t \mid r_{t-1}) \, P(x_t \mid r_{t-1}, x_{1:t-1}) \, P(r_{t-1} \mid x_{1:t-1}).
+</div>
+<p data-from="3903" data-to="4185">The hazard function <span class="mdr-math" data-tex="H(r)" data-from="3923" data-to="3929">H(r)</span> specifies the prior probability of a change point occurring after a run of length <span class="mdr-math" data-tex="r" data-from="4012" data-to="4015">r</span>; in the <em data-from="4024" data-to="4035">Thornbury</em> formulation this is taken to be constant, <span class="mdr-math" data-tex="H(r) = 1/\theta" data-from="4078" data-to="4095">H(r) = 1/\theta</span>, corresponding to a geometric prior on the time between change points with mean <span class="mdr-math" data-tex="\theta" data-from="4176" data-to="4184">\theta</span>.</p>
+<p data-from="4187" data-to="4566">For Gaussian observations with unknown mean and known variance, the predictive distribution <span class="mdr-math" data-tex="P(x_t \mid r_{t-1}, x_{1:t-1})" data-from="4279" data-to="4311">P(x_t \mid r_{t-1}, x_{1:t-1})</span> is itself Gaussian, and the sufficient statistics (mean and count) can be updated incrementally for each active run length. This gives an elegant, <em data-from="4459" data-to="4466">exact</em> algorithm — no particle filtering or MCMC required, provided the observation model stays conjugate.</p>
+<p data-from="4568" data-to="4922"><strong data-from="4568" data-to="4582">Strengths.</strong> T-BOCPD produced the <em data-from="4604" data-to="4636">lowest average detection delay</em> across all tested shift magnitudes: 61 samples at <span class="mdr-math" data-tex="\delta = 0.8\sigma" data-from="4687" data-to="4707">\delta = 0.8\sigma</span> and only 24 samples at <span class="mdr-math" data-tex="\delta = 1.2\sigma" data-from="4731" data-to="4751">\delta = 1.2\sigma</span>. It also naturally provides a full posterior over "how long ago" the change happened, which downstream diagnostic tools at Halvorsen found useful for root-cause analysis.</p>
+<p data-from="4924" data-to="5307"><strong data-from="4924" data-to="4939">Weaknesses.</strong> The computational cost grows linearly with the number of tracked run-length hypotheses unless pruning is applied. In our implementation, we truncated the run-length distribution to the top 200 most probable values per step, which kept per-sample cost around 0.9 ms on the target hardware — comfortably within budget, but noticeably higher than Kestrel-EWMA's 0.03 ms.</p>
+<p data-from="5309" data-to="5674">A secondary concern is <em data-from="5332" data-to="5348">model mismatch</em>: the turbine vibration data exhibited heavier tails than a Gaussian, and naive application of T-BOCPD with a Gaussian observation model led to a measurable increase in false alarms during heavy-tailed noise bursts. Switching to a Student-<em data-from="5587" data-to="5590">t</em> predictive distribution alleviated this but increased per-step cost by roughly 35%.</p>
+<blockquote data-from="5676" data-to="5878">
+  <p data-from="5678" data-to="5878">A colleague on the Halvorsen team remarked during a design review: <em data-from="5745" data-to="5878">"The elegance of exact Bayesian updating is seductive, but the moment your noise model is wrong, the elegance becomes a liability."</em></p>
+</blockquote>
+<p data-from="5880" data-to="6028">This observation matches our experimental findings closely and is worth keeping in mind when selecting an observation likelihood for any deployment.</p>
+<hr data-from="6030" data-to="6033">
+<h2 id="4-method-3-vl-swc-sliding-window-cusum" data-from="6035" data-to="6080">4. Method 3: VL-SWC (Sliding-Window CUSUM)</h2>
+<p data-from="6082" data-to="6185">The Vasquez–Liu approach computes a cumulative sum statistic over a sliding window of fixed length <span class="mdr-math" data-tex="W" data-from="6181" data-to="6184">W</span>:</p>
+<div class="mdr-math-block" data-tex="S_t = \max\!\left(0,\; S_{t-1} + (x_t - \mu_0) - k\right), \qquad S_0 = 0," data-from="6187" data-to="6267">
+  S_t = \max\!\left(0,\; S_{t-1} + (x_t - \mu_0) - k\right), \qquad S_0 = 0,
+</div>
+<p data-from="6269" data-to="6624">where <span class="mdr-math" data-tex="k" data-from="6275" data-to="6278">k</span> is a slack parameter typically set to half the anticipated shift magnitude, <span class="mdr-math" data-tex="k = \delta/2" data-from="6355" data-to="6369">k = \delta/2</span>. Unlike a standard (unbounded) CUSUM, the VL variant resets the accumulator whenever the window slides past <span class="mdr-math" data-tex="W" data-from="6478" data-to="6481">W</span> samples without an alarm, which bounds memory usage and improves robustness against slow non-stationarities that are <em data-from="6599" data-to="6604">not</em> true change points.</p>
+<p data-from="6626" data-to="6964">An alarm is triggered when <span class="mdr-math" data-tex="S_t &gt; h" data-from="6653" data-to="6662">S_t &gt; h</span>, where the threshold <span class="mdr-math" data-tex="h" data-from="6684" data-to="6687">h</span> is chosen via a simulation-based calibration to achieve a target <em data-from="6753" data-to="6773">average run length</em> (ARL) under the null hypothesis, denoted <span class="mdr-math" data-tex="\text{ARL}_0" data-from="6815" data-to="6829">\text{ARL}_0</span>. In our experiments we targeted <span class="mdr-math" data-tex="\text{ARL}_0 = 5000" data-from="6862" data-to="6883">\text{ARL}_0 = 5000</span> samples, meaning we tolerate roughly one false alarm every 10 seconds at 500 Hz.</p>
+<p data-from="6966" data-to="7483"><strong data-from="6966" data-to="6980">Strengths.</strong> VL-SWC struck the best balance of the three methods on our composite benchmark. It achieved a detection delay of 78 samples at <span class="mdr-math" data-tex="\delta = 0.8\sigma" data-from="7108" data-to="7128">\delta = 0.8\sigma</span> (better than Kestrel-EWMA, though not as fast as T-BOCPD) while requiring only about 0.15 ms per sample — five to six times cheaper than the Bayesian approach. It was also the <em data-from="7305" data-to="7318">most robust</em> to the heavy-tailed noise scenario, since the CUSUM statistic depends only on the sign and magnitude of deviations from <span class="mdr-math" data-tex="\mu_0" data-from="7439" data-to="7446">\mu_0</span> rather than a full likelihood ratio.</p>
+<p data-from="7485" data-to="7836"><strong data-from="7485" data-to="7500">Weaknesses.</strong> Choosing <span class="mdr-math" data-tex="k" data-from="7510" data-to="7513">k</span> and <span class="mdr-math" data-tex="W" data-from="7518" data-to="7521">W</span> requires knowledge of the expected shift magnitude in advance; performance degraded noticeably when the true shift (<span class="mdr-math" data-tex="\delta = 0.5\sigma" data-from="7638" data-to="7658">\delta = 0.5\sigma</span>) was far smaller than the value assumed during calibration (<span class="mdr-math" data-tex="\delta = 1.0\sigma" data-from="7719" data-to="7739">\delta = 1.0\sigma</span>). In that mismatched setting, detection delay rose to 210 samples, worse than either competitor.</p>
+<pre class="mdr-code" data-lang="python" data-from="7838" data-to="7971"><code class="language-python" data-verbatim data-from="7848" data-to="7967">def vl_swc_update(x, s_prev, mu0, k, h):
+    s = max(0.0, s_prev + (x - mu0) - k)
+    alarm = s &gt; h
+    return s, alarm</code></pre>
+<hr data-from="7973" data-to="7976">
+<h2 id="5-comparative-summary" data-from="7978" data-to="8003">5. Comparative Summary</h2>
+<div class="mdr-table-wrap" data-from="8005" data-to="8406">
+  <table data-from="8005" data-to="8406">
+    <thead data-from="8005" data-to="8080">
+      <tr data-from="8005" data-to="8080">
+        <th data-from="8007" data-to="8044">Metric (target: <span class="mdr-math" data-tex="\delta = 1.0\sigma" data-from="8023" data-to="8043">\delta = 1.0\sigma</span>)</th>
+        <th data-from="8047" data-to="8059">Kestrel-EWMA</th>
+        <th data-from="8062" data-to="8069">T-BOCPD</th>
+        <th data-from="8072" data-to="8078">VL-SWC</th>
+      </tr>
+    </thead>
+    <tbody data-from="8099" data-to="8406">
+      <tr data-from="8099" data-to="8153">
+        <td data-from="8101" data-to="8131">Mean detection delay (samples)</td>
+        <td data-from="8134" data-to="8137">118</td>
+        <td data-from="8140" data-to="8146"><strong data-from="8140" data-to="8146">34</strong></td>
+        <td data-from="8149" data-to="8151">55</td>
+      </tr>
+      <tr data-from="8154" data-to="8206">
+        <td data-from="8156" data-to="8182">False alarms / 10k samples</td>
+        <td data-from="8185" data-to="8188">2.1</td>
+        <td data-from="8191" data-to="8194">3.4</td>
+        <td data-from="8197" data-to="8204"><strong data-from="8197" data-to="8204">1.6</strong></td>
+      </tr>
+      <tr data-from="8207" data-to="8256">
+        <td data-from="8209" data-to="8229">Per-sample cost (ms)</td>
+        <td data-from="8232" data-to="8240"><strong data-from="8232" data-to="8240">0.03</strong></td>
+        <td data-from="8243" data-to="8247">0.90</td>
+        <td data-from="8250" data-to="8254">0.15</td>
+      </tr>
+      <tr data-from="8257" data-to="8351">
+        <td data-from="8259" data-to="8284">Robustness to heavy tails</td>
+        <td data-from="8287" data-to="8295">Moderate</td>
+        <td data-from="8298" data-to="8338">Weak (Gaussian) / Moderate (Student-<em data-from="8334" data-to="8337">t</em>)</td>
+        <td data-from="8341" data-to="8349"><strong data-from="8341" data-to="8349">Good</strong></td>
+      </tr>
+      <tr data-from="8352" data-to="8406">
+        <td data-from="8354" data-to="8371">Tuning complexity</td>
+        <td data-from="8374" data-to="8377">Low</td>
+        <td data-from="8380" data-to="8388">Moderate</td>
+        <td data-from="8391" data-to="8404">Moderate–High</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="8408" data-to="9073">The table makes clear that no single method dominates across all axes. If <em data-from="8482" data-to="8503">raw detection speed</em> is the overriding requirement — for instance, in a safety-critical shutdown trigger — <strong data-from="8590" data-to="8601">T-BOCPD</strong> is the clear winner, provided the extra compute budget and a well-matched observation model are available. If <em data-from="8712" data-to="8734">computational thrift</em> is paramount, as in a battery-powered edge sensor node, <strong data-from="8791" data-to="8807">Kestrel-EWMA</strong> remains attractive despite its latency penalty on small shifts. For a <em data-from="8878" data-to="8895">general-purpose</em> deployment where the shift magnitude is only approximately known in advance and heavy-tailed noise is a realistic concern, <strong data-from="9019" data-to="9029">VL-SWC</strong> appears to offer the most balanced profile.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="9075" data-to="9401">
+  <div class="mdr-callout-title" data-from="9077" data-to="9084">
+    Note
+  </div>
+  <p data-from="9087" data-to="9401">A hybrid strategy discussed informally during the Halvorsen review — running Kestrel-EWMA as a cheap first-pass filter and only invoking T-BOCPD when the EWMA statistic crosses a <em data-from="9266" data-to="9272">soft</em> threshold — was not evaluated quantitatively in this round but is flagged as a promising direction for the next benchmark cycle.</p>
+</blockquote>
+<h2 id="6-open-questions" data-from="9403" data-to="9423">6. Open Questions</h2>
+<p data-from="9425" data-to="9507">Several issues remain unresolved and are worth investigating in a follow-up study:</p>
+<ul data-from="9509" data-to="9545">
+  <li data-from="9509" data-to="9545">**Sensitivity to hazard-rate missp</li>
+</ul>

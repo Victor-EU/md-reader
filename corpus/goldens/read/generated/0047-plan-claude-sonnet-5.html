@@ -1,0 +1,355 @@
+<h1 id="project-aurora-predictive-maintenance-platform" data-from="0" data-to="49">Project Aurora: Predictive Maintenance Platform</h1>
+<h2 id="executive-summary" data-from="51" data-to="71">Executive Summary</h2>
+<p data-from="73" data-to="475"><strong data-from="73" data-to="91">Project Aurora</strong> is a 9-month initiative to design, build, and deploy a predictive maintenance platform for the industrial sensor network operated by <strong data-from="225" data-to="254">Meridian Fabrication Corp</strong>. The platform will ingest telemetry from over 4,200 edge devices, apply machine learning models to forecast equipment failure, and reduce unplanned downtime by an estimated <em data-from="428" data-to="433">35%</em> within the first year of full deployment.</p>
+<p data-from="477" data-to="690">This document outlines the phases, milestones, ownership structure, and risk register for the project. All names, figures, and organizational details are fictional and constructed solely for planning illustration.</p>
+<hr data-from="692" data-to="695">
+<h2 id="1-project-goals" data-from="697" data-to="716">1. Project Goals</h2>
+<ul data-from="718" data-to="1014">
+  <li data-from="718" data-to="790">Reduce unplanned equipment downtime across <strong data-from="763" data-to="790">12 manufacturing plants</strong></li>
+  <li data-from="791" data-to="861">Build a real-time anomaly detection pipeline with sub-second latency</li>
+  <li data-from="862" data-to="939">Establish a unified data lake for sensor telemetry (~18 TB/month ingestion)</li>
+  <li data-from="940" data-to="1014">Deliver an executive dashboard with <em data-from="978" data-to="1002">predictive risk scores</em> per machine</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="note" data-from="1016" data-to="1219">
+  <div class="mdr-callout-title" data-from="1018" data-to="1025">
+    Note
+  </div>
+  <p data-from="1028" data-to="1219">Success criteria will be reviewed quarterly by the Steering Committee, chaired by <strong data-from="1110" data-to="1128">Dana Whitfield</strong> (VP of Operations). Metrics not meeting threshold by Q3 will trigger a scope reassessment.</p>
+</blockquote>
+<hr data-from="1221" data-to="1224">
+<h2 id="2-team-ownership" data-from="1226" data-to="1248">2. Team &amp; Ownership</h2>
+<div class="mdr-table-wrap" data-from="1250" data-to="1797">
+  <table data-from="1250" data-to="1797">
+    <thead data-from="1250" data-to="1283">
+      <tr data-from="1250" data-to="1283">
+        <th data-from="1252" data-to="1256">Role</th>
+        <th data-from="1259" data-to="1264">Owner</th>
+        <th data-from="1267" data-to="1281">Responsibility</th>
+      </tr>
+    </thead>
+    <tbody data-from="1298" data-to="1797">
+      <tr data-from="1298" data-to="1375">
+        <td data-from="1300" data-to="1317">Executive Sponsor</td>
+        <td data-from="1320" data-to="1334">Dana Whitfield</td>
+        <td data-from="1337" data-to="1373">Budget approval, strategic alignment</td>
+      </tr>
+      <tr data-from="1376" data-to="1447">
+        <td data-from="1378" data-to="1393">Program Manager</td>
+        <td data-from="1396" data-to="1409">Rafael Ocampo</td>
+        <td data-from="1412" data-to="1445">Timeline, cross-team coordination</td>
+      </tr>
+      <tr data-from="1448" data-to="1519">
+        <td data-from="1450" data-to="1471">Data Engineering Lead</td>
+        <td data-from="1474" data-to="1485">Priya Anand</td>
+        <td data-from="1488" data-to="1517">Ingestion pipeline, data lake</td>
+      </tr>
+      <tr data-from="1520" data-to="1582">
+        <td data-from="1522" data-to="1529">ML Lead</td>
+        <td data-from="1532" data-to="1548">Tomasz Wieczorek</td>
+        <td data-from="1551" data-to="1580">Model development, validation</td>
+      </tr>
+      <tr data-from="1583" data-to="1656">
+        <td data-from="1585" data-to="1605">Platform/DevOps Lead</td>
+        <td data-from="1608" data-to="1618">Keiko Sato</td>
+        <td data-from="1621" data-to="1654">Infrastructure, CI/CD, deployment</td>
+      </tr>
+      <tr data-from="1657" data-to="1716">
+        <td data-from="1659" data-to="1666">QA Lead</td>
+        <td data-from="1669" data-to="1679">Marcus Ibe</td>
+        <td data-from="1682" data-to="1714">Test strategy, regression suites</td>
+      </tr>
+      <tr data-from="1717" data-to="1797">
+        <td data-from="1719" data-to="1741">Change Management Lead</td>
+        <td data-from="1744" data-to="1759">Sofia Lindqvist</td>
+        <td data-from="1762" data-to="1795">Training, adoption, documentation</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="1799" data-to="1802">
+<h2 id="3-phases-and-milestones" data-from="1804" data-to="1831">3. Phases and Milestones</h2>
+<h3 id="phase-0-discovery-scoping-weeks-14" data-from="1833" data-to="1878">Phase 0 — Discovery &amp; Scoping (Weeks 1–4)</h3>
+<p data-from="1880" data-to="1904"><strong data-from="1880" data-to="1890">Owner:</strong> Rafael Ocampo</p>
+<ul data-from="1906" data-to="2337">
+  <li data-from="1906" data-to="1951">Stakeholder interviews across all 12 plants</li>
+  <li data-from="1952" data-to="2279">Inventory of existing sensor hardware and firmware versions<ul data-from="2016" data-to="2279">
+      <li data-from="2016" data-to="2186">Legacy PLC controllers (Siemens S7-series)<ul data-from="2065" data-to="2186">
+          <li data-from="2065" data-to="2186">Firmware audit<ul data-from="2088" data-to="2186">
+              <li data-from="2088" data-to="2132">Identify units running versions below v4.2</li>
+              <li data-from="2139" data-to="2186">Flag for mandatory upgrade before integration</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="2189" data-to="2279">Modern IoT gateways (Aurora-Edge v2)<ul data-from="2232" data-to="2279">
+          <li data-from="2232" data-to="2279">Compatibility check with new telemetry schema</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="2280" data-to="2337">Finalize data governance policy with Legal &amp; Compliance</li>
+</ul>
+<p data-from="2339" data-to="2396"><strong data-from="2339" data-to="2357">Milestone 0.1:</strong> Discovery report signed off — <em data-from="2388" data-to="2396">Week 4</em></p>
+<hr data-from="2398" data-to="2401">
+<h3 id="phase-1-data-infrastructure-build-weeks-512" data-from="2403" data-to="2455">Phase 1 — Data Infrastructure Build (Weeks 5–12)</h3>
+<p data-from="2457" data-to="2479"><strong data-from="2457" data-to="2467">Owner:</strong> Priya Anand</p>
+<ul data-from="2481" data-to="2645">
+  <li data-from="2481" data-to="2541">Deploy Kafka-based streaming backbone across regional hubs</li>
+  <li data-from="2542" data-to="2593">Build ingestion connectors for each device family</li>
+  <li data-from="2594" data-to="2645">Establish schema registry and data quality checks</li>
+</ul>
+<pre class="mdr-code" data-lang="yaml" data-from="2647" data-to="2933"><code class="language-yaml" data-verbatim data-from="2655" data-to="2929">pipeline:
+  name: aurora-ingest
+  sources:
+    - type: mqtt
+      topic: plant-floor/telemetry/#
+      qos: 1
+    - type: opc-ua
+      endpoint: opc.tcp://gateway-07.meridian.local:4840
+  sink:
+    type: kafka
+    topic: raw-telemetry
+    partitions: 24
+  retention_days: 90</code></pre>
+<p data-from="2935" data-to="3073"><strong data-from="2935" data-to="2953">Milestone 1.1:</strong> Streaming backbone live in 3 pilot plants — <em data-from="2998" data-to="3006">Week 9</em>
+<strong data-from="3007" data-to="3025">Milestone 1.2:</strong> Full 12-plant ingestion operational — <em data-from="3064" data-to="3073">Week 12</em></p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="3075" data-to="3274">
+  <div class="mdr-callout-title" data-from="3077" data-to="3087">
+    Warning
+  </div>
+  <p data-from="3090" data-to="3274">Plant 7 (Kolvara site) uses a non-standard voltage sensor calibration. Ingestion connectors must apply a correction factor <span class="mdr-math" data-tex="c = 1.084" data-from="3213" data-to="3224">c = 1.084</span> or telemetry values will be skewed by roughly 8%.</p>
+</blockquote>
+<hr data-from="3276" data-to="3279">
+<h3 id="phase-2-model-development-weeks-1020-overlapping-phase-1" data-from="3281" data-to="3347">Phase 2 — Model Development (Weeks 10–20, overlapping Phase 1)</h3>
+<p data-from="3349" data-to="3376"><strong data-from="3349" data-to="3359">Owner:</strong> Tomasz Wieczorek</p>
+<ul data-from="3378" data-to="3608">
+  <li data-from="3378" data-to="3453">Feature engineering from vibration, temperature, and current draw signals</li>
+  <li data-from="3454" data-to="3522">Baseline models: gradient-boosted trees for failure classification</li>
+  <li data-from="3523" data-to="3608">Advanced models: LSTM-based time-series forecasting for remaining useful life (RUL)</li>
+</ul>
+<p data-from="3610" data-to="3769">The failure probability for a given machine at time <span class="mdr-math" data-tex="t" data-from="3662" data-to="3665">t</span> is modeled as a function of accumulated stress <span class="mdr-math" data-tex="S(t)" data-from="3713" data-to="3719">S(t)</span> and a decay-adjusted baseline hazard <span class="mdr-math" data-tex="\lambda_0" data-from="3757" data-to="3768">\lambda_0</span>:</p>
+<div class="mdr-math-block" data-tex="P_{\text{fail}}(t) = 1 - \exp\left(-\int_0^t \lambda_0 \cdot e^{\beta S(\tau)} \, d\tau\right)" data-from="3771" data-to="3871">
+  P_{\text{fail}}(t) = 1 - \exp\left(-\int_0^t \lambda_0 \cdot e^{\beta S(\tau)} \, d\tau\right)
+</div>
+<p data-from="3873" data-to="4027">where <span class="mdr-math" data-tex="\beta" data-from="3879" data-to="3886">\beta</span> is a fitted sensitivity coefficient specific to each equipment class, and <span class="mdr-math" data-tex="S(\tau)" data-from="3961" data-to="3970">S(\tau)</span> is derived from normalized vibration amplitude readings.</p>
+<p data-from="4029" data-to="4248">Model evaluation will use <em data-from="4055" data-to="4073">precision-recall</em> curves rather than plain accuracy, since failure events are rare (~0.4% of all observations), and the team will track the <span class="mdr-math" data-tex="F_1" data-from="4196" data-to="4201">F_1</span> score alongside a custom cost-weighted metric.</p>
+<p data-from="4250" data-to="4436"><strong data-from="4250" data-to="4268">Milestone 2.1:</strong> Baseline model achieving <span class="mdr-math" data-tex="F_1 \geq 0.62" data-from="4294" data-to="4309">F_1 \geq 0.62</span> on holdout set — <em data-from="4327" data-to="4336">Week 15</em>
+<strong data-from="4337" data-to="4355">Milestone 2.2:</strong> LSTM RUL model validated against 6 months of historical failure logs — <em data-from="4427" data-to="4436">Week 20</em></p>
+<hr data-from="4438" data-to="4441">
+<h3 id="phase-3-platform-integration-dashboard-weeks-1826" data-from="4443" data-to="4503">Phase 3 — Platform Integration &amp; Dashboard (Weeks 18–26)</h3>
+<p data-from="4505" data-to="4526"><strong data-from="4505" data-to="4515">Owner:</strong> Keiko Sato</p>
+<ul data-from="4528" data-to="4710">
+  <li data-from="4528" data-to="4595">Build model-serving layer (containerized inference microservices)</li>
+  <li data-from="4596" data-to="4644">Integrate risk scores into executive dashboard</li>
+  <li data-from="4645" data-to="4710">Set up alerting thresholds tied to maintenance ticketing system</li>
+</ul>
+<p data-from="4712" data-to="4753">Nested breakdown of dashboard components:</p>
+<ul data-from="4755" data-to="5180">
+  <li data-from="4755" data-to="4977">Frontend<ul data-from="4768" data-to="4977">
+      <li data-from="4768" data-to="4886">Risk overview grid<ul data-from="4793" data-to="4886">
+          <li data-from="4793" data-to="4886">Color-coded severity (green/amber/red)<ul data-from="4840" data-to="4886">
+              <li data-from="4840" data-to="4886">Red threshold configurable per plant manager</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="4889" data-to="4977">Drill-down machine detail view<ul data-from="4926" data-to="4977">
+          <li data-from="4926" data-to="4947">Sensor trend charts</li>
+          <li data-from="4952" data-to="4977">Maintenance history log</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="4978" data-to="5093">Backend<ul data-from="4990" data-to="5093">
+      <li data-from="4990" data-to="5054">REST API gateway<ul data-from="5013" data-to="5054">
+          <li data-from="5013" data-to="5054">Rate limiting at 500 req/min per client</li>
+        </ul></li>
+      <li data-from="5057" data-to="5093">Authentication via SSO integration</li>
+    </ul></li>
+  <li data-from="5094" data-to="5180">Alerting<ul data-from="5107" data-to="5180">
+      <li data-from="5107" data-to="5129">Email digest (daily)</li>
+      <li data-from="5132" data-to="5180">SMS escalation for <em data-from="5153" data-to="5163">critical</em> risk scores only</li>
+    </ul></li>
+</ul>
+<p data-from="5182" data-to="5348"><strong data-from="5182" data-to="5200">Milestone 3.1:</strong> Internal alpha dashboard released to pilot plants — <em data-from="5253" data-to="5262">Week 22</em>
+<strong data-from="5263" data-to="5281">Milestone 3.2:</strong> Alerting system integrated with ticketing (ServiceNow) — <em data-from="5339" data-to="5348">Week 26</em></p>
+<hr data-from="5350" data-to="5353">
+<h3 id="phase-4-validation-rollout-weeks-2432" data-from="5355" data-to="5403">Phase 4 — Validation &amp; Rollout (Weeks 24–32)</h3>
+<p data-from="5405" data-to="5426"><strong data-from="5405" data-to="5415">Owner:</strong> Marcus Ibe</p>
+<ul data-from="5428" data-to="5655">
+  <li data-from="5428" data-to="5542">Shadow-mode testing: model predictions run alongside existing manual inspection process without acting on alerts</li>
+  <li data-from="5543" data-to="5609">Comparison of predicted vs. actual failures over a 6-week window</li>
+  <li data-from="5610" data-to="5655">Full rollout plan across remaining 9 plants</li>
+</ul>
+<p data-from="5657" data-to="5822"><strong data-from="5657" data-to="5675">Milestone 4.1:</strong> Shadow-mode report complete, false-positive rate below 12% — <em data-from="5737" data-to="5746">Week 30</em>
+<strong data-from="5747" data-to="5765">Milestone 4.2:</strong> Full production rollout across all 12 plants — <em data-from="5813" data-to="5822">Week 32</em></p>
+<blockquote class="mdr-callout" data-callout="note" data-from="5824" data-to="5984">
+  <div class="mdr-callout-title" data-from="5826" data-to="5833">
+    Note
+  </div>
+  <p data-from="5836" data-to="5984">Rollout order will prioritize plants with the highest historical downtime cost, starting with <strong data-from="5930" data-to="5952">Plant 3 (Renfield)</strong> and <strong data-from="5957" data-to="5983">Plant 9 (Calder Ridge)</strong>.</p>
+</blockquote>
+<hr data-from="5986" data-to="5989">
+<h3 id="phase-5-change-management-handoff-weeks-2836" data-from="5991" data-to="6046">Phase 5 — Change Management &amp; Handoff (Weeks 28–36)</h3>
+<p data-from="6048" data-to="6074"><strong data-from="6048" data-to="6058">Owner:</strong> Sofia Lindqvist</p>
+<ul data-from="6076" data-to="6238">
+  <li data-from="6076" data-to="6123">Training sessions for plant maintenance teams</li>
+  <li data-from="6124" data-to="6177">Documentation of runbooks and escalation procedures</li>
+  <li data-from="6178" data-to="6238">Transition support tickets to steady-state operations team</li>
+</ul>
+<p data-from="6240" data-to="6395"><strong data-from="6240" data-to="6258">Milestone 5.1:</strong> Training completed for all plant supervisors — <em data-from="6306" data-to="6315">Week 34</em>
+<strong data-from="6316" data-to="6334">Milestone 5.2:</strong> Project formally closed and handed to Operations — <em data-from="6386" data-to="6395">Week 36</em></p>
+<hr data-from="6397" data-to="6400">
+<h2 id="4-timeline-summary" data-from="6402" data-to="6424">4. Timeline Summary</h2>
+<div class="mdr-table-wrap" data-from="6426" data-to="6903">
+  <table data-from="6426" data-to="6903">
+    <thead data-from="6426" data-to="6469">
+      <tr data-from="6426" data-to="6469">
+        <th data-from="6428" data-to="6433">Phase</th>
+        <th data-from="6436" data-to="6441">Weeks</th>
+        <th data-from="6444" data-to="6449">Owner</th>
+        <th data-from="6452" data-to="6467">Key Deliverable</th>
+      </tr>
+    </thead>
+    <tbody data-from="6488" data-to="6903">
+      <tr data-from="6488" data-to="6545">
+        <td data-from="6490" data-to="6502">0. Discovery</td>
+        <td data-from="6505" data-to="6508">1–4</td>
+        <td data-from="6511" data-to="6524">Rafael Ocampo</td>
+        <td data-from="6527" data-to="6543">Discovery report</td>
+      </tr>
+      <tr data-from="6546" data-to="6614">
+        <td data-from="6548" data-to="6570">1. Data Infrastructure</td>
+        <td data-from="6573" data-to="6577">5–12</td>
+        <td data-from="6580" data-to="6591">Priya Anand</td>
+        <td data-from="6594" data-to="6612">Streaming backbone</td>
+      </tr>
+      <tr data-from="6615" data-to="6688">
+        <td data-from="6617" data-to="6637">2. Model Development</td>
+        <td data-from="6640" data-to="6645">10–20</td>
+        <td data-from="6648" data-to="6664">Tomasz Wieczorek</td>
+        <td data-from="6667" data-to="6686">Validated RUL model</td>
+      </tr>
+      <tr data-from="6689" data-to="6759">
+        <td data-from="6691" data-to="6714">3. Platform Integration</td>
+        <td data-from="6717" data-to="6722">18–26</td>
+        <td data-from="6725" data-to="6735">Keiko Sato</td>
+        <td data-from="6738" data-to="6757">Executive dashboard</td>
+      </tr>
+      <tr data-from="6760" data-to="6834">
+        <td data-from="6762" data-to="6785">4. Validation &amp; Rollout</td>
+        <td data-from="6788" data-to="6793">24–32</td>
+        <td data-from="6796" data-to="6806">Marcus Ibe</td>
+        <td data-from="6809" data-to="6832">Full production rollout</td>
+      </tr>
+      <tr data-from="6835" data-to="6903">
+        <td data-from="6837" data-to="6857">5. Change Management</td>
+        <td data-from="6860" data-to="6865">28–36</td>
+        <td data-from="6868" data-to="6883">Sofia Lindqvist</td>
+        <td data-from="6886" data-to="6901">Project closure</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="6905" data-to="6908">
+<h2 id="5-budget-overview-illustrative" data-from="6910" data-to="6946">5. Budget Overview (Illustrative)</h2>
+<ul data-from="6948" data-to="7199">
+  <li data-from="6948" data-to="7003">Infrastructure (cloud + on-prem hybrid): <strong data-from="6991" data-to="7003">$412,000</strong></li>
+  <li data-from="7004" data-to="7072">Personnel (9-month allocation across 7 core roles): <strong data-from="7058" data-to="7072">$1,860,000</strong></li>
+  <li data-from="7073" data-to="7146">Hardware upgrades (sensor firmware, gateway replacements): <strong data-from="7134" data-to="7146">$275,000</strong></li>
+  <li data-from="7147" data-to="7199">Contingency reserve (<em data-from="7170" data-to="7184">15% of total</em>): <strong data-from="7187" data-to="7199">$378,750</strong></li>
+</ul>
+<p data-from="7201" data-to="7257"><strong data-from="7201" data-to="7228">Total estimated budget:</strong> approximately <strong data-from="7243" data-to="7257">$2,925,750</strong></p>
+<hr data-from="7259" data-to="7262">
+<h2 id="6-risk-register" data-from="7264" data-to="7283">6. Risk Register</h2>
+<div class="mdr-table-wrap" data-from="7285" data-to="8372">
+  <table data-from="7285" data-to="8372">
+    <thead data-from="7285" data-to="7341">
+      <tr data-from="7285" data-to="7341">
+        <th data-from="7287" data-to="7289">ID</th>
+        <th data-from="7292" data-to="7296">Risk</th>
+        <th data-from="7299" data-to="7309">Likelihood</th>
+        <th data-from="7312" data-to="7318">Impact</th>
+        <th data-from="7321" data-to="7326">Owner</th>
+        <th data-from="7329" data-to="7339">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody data-from="7368" data-to="8372">
+      <tr data-from="7368" data-to="7508">
+        <td data-from="7370" data-to="7372">R1</td>
+        <td data-from="7375" data-to="7423">Legacy PLC firmware incompatible with new schema</td>
+        <td data-from="7426" data-to="7430">High</td>
+        <td data-from="7433" data-to="7437">High</td>
+        <td data-from="7440" data-to="7451">Priya Anand</td>
+        <td data-from="7454" data-to="7506">Early audit in Phase 0; budget for firmware upgrades</td>
+      </tr>
+      <tr data-from="7509" data-to="7655">
+        <td data-from="7511" data-to="7513">R2</td>
+        <td data-from="7516" data-to="7573">Model false-positive rate too high, causing alert fatigue</td>
+        <td data-from="7576" data-to="7582">Medium</td>
+        <td data-from="7585" data-to="7589">High</td>
+        <td data-from="7592" data-to="7608">Tomasz Wieczorek</td>
+        <td data-from="7611" data-to="7653">Tune thresholds during shadow-mode testing</td>
+      </tr>
+      <tr data-from="7656" data-to="7784">
+        <td data-from="7658" data-to="7660">R3</td>
+        <td data-from="7663" data-to="7710">Network bandwidth insufficient at remote plants</td>
+        <td data-from="7713" data-to="7719">Medium</td>
+        <td data-from="7722" data-to="7728">Medium</td>
+        <td data-from="7731" data-to="7741">Keiko Sato</td>
+        <td data-from="7744" data-to="7782">Local edge buffering with delayed sync</td>
+      </tr>
+      <tr data-from="7785" data-to="7932">
+        <td data-from="7787" data-to="7789">R4</td>
+        <td data-from="7792" data-to="7835">Staff resistance to new dashboard workflows</td>
+        <td data-from="7838" data-to="7844">Medium</td>
+        <td data-from="7847" data-to="7853">Medium</td>
+        <td data-from="7856" data-to="7871">Sofia Lindqvist</td>
+        <td data-from="7874" data-to="7930">Early involvement of plant supervisors in design reviews</td>
+      </tr>
+      <tr data-from="7933" data-to="8082">
+        <td data-from="7935" data-to="7937">R5</td>
+        <td data-from="7940" data-to="7992">Kolvara site calibration error propagates undetected</td>
+        <td data-from="7995" data-to="7998">Low</td>
+        <td data-from="8001" data-to="8005">High</td>
+        <td data-from="8008" data-to="8019">Priya Anand</td>
+        <td data-from="8022" data-to="8080">Automated calibration validation checks in ingestion layer</td>
+      </tr>
+      <tr data-from="8083" data-to="8236">
+        <td data-from="8085" data-to="8087">R6</td>
+        <td data-from="8090" data-to="8144">Budget overrun due to hardware replacement scope creep</td>
+        <td data-from="8147" data-to="8153">Medium</td>
+        <td data-from="8156" data-to="8160">High</td>
+        <td data-from="8163" data-to="8176">Rafael Ocampo</td>
+        <td data-from="8179" data-to="8234">Fixed hardware budget with change-control approval gate</td>
+      </tr>
+      <tr data-from="8237" data-to="8372">
+        <td data-from="8239" data-to="8241">R7</td>
+        <td data-from="8244" data-to="8281">Key ML engineer departure mid-project</td>
+        <td data-from="8284" data-to="8287">Low</td>
+        <td data-from="8290" data-to="8294">High</td>
+        <td data-from="8297" data-to="8313">Tomasz Wieczorek</td>
+        <td data-from="8316" data-to="8370">Cross-training and documented model handoff procedures</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<blockquote class="mdr-callout" data-callout="warning" data-from="8374" data-to="8620">
+  <div class="mdr-callout-title" data-from="8376" data-to="8386">
+    Warning
+  </div>
+  <p data-from="8389" data-to="8620">Risk <strong data-from="8394" data-to="8400">R2</strong> is considered the most likely to derail the Phase 4 timeline. If the false-positive rate exceeds 20% during shadow-mode testing, the Steering Committee will convene an emergency review before proceeding to full rollout.</p>
+</blockquote>
+<hr data-from="8622" data-to="8625">
+<h2 id="7-communication-plan" data-from="8627" data-to="8651">7. Communication Plan</h2>
+<ul data-from="8653" data-to="8893">
+  <li data-from="8653" data-to="8723"><strong data-from="8655" data-to="8665">Weekly</strong> stand-ups within each workstream (Data, ML, Platform, QA)</li>
+  <li data-from="8724" data-to="8776"><strong data-from="8726" data-to="8739">Bi-weekly</strong> cross-team sync led by Rafael Ocampo</li>
+  <li data-from="8777" data-to="8836"><strong data-from="8779" data-to="8790">Monthly</strong> Steering Committee review with Dana Whitfield</li>
+  <li data-from="8837" data-to="8893"><strong data-from="8839" data-to="8852">Quarterly</strong> all-hands presentation to plant managers</li>
+</ul>
+<p data-from="8895" data-to="9086">All meeting notes and decisions will be logged in the shared Aurora project wiki, with action items tracked in the <mark data-from="9010" data-to="9035">central issue tracker</mark> to ensure accountability across distributed teams.</p>
+<hr data-from="9088" data-to="9091">
+<h2 id="8-success-metrics" data-from="9093" data-to="9114">8. Success Metrics</h2>
+<p data-from="9116" data-to="9183">By project closure (Week 36), the following targets define success:</p>
+<ol data-from="9185" data-to="9526">
+  <li data-from="9185" data-to="9272">Unplanned downtime reduced by <em data-from="9218" data-to="9232">at least 30%</em> compared to the prior 12-month baseline</li>
+  <li data-from="9273" data-to="9348">Model precision at or above <span class="mdr-math" data-tex="0.75" data-from="9304" data-to="9310">0.75</span> for high-severity failure predictions</li>
+  <li data-from="9349" data-to="9434">Dashboard adoption rate of <em data-from="9379" data-to="9384">90%</em> among plant supervisors within 60 days of rollout</li>
+  <li data-from="9435" data-to="9526">Mean time to detect (MTTD) equipment anomalies reduced from ~48 hours to under <span class="mdr-math" data-tex="6" data-from="9517" data-to="9520">6</span> hours</li>
+</ol>
+<p data-from="9528" data-to="9798">These metrics will be formally reviewed in a post-project retrospective, led jointly by Rafael Ocampo and Dana Whitfield, with findings archived for future platform initiatives such as the tentatively planned <strong data-from="9737" data-to="9757">Project Solstice</strong> expansion into supply-chain forecasting.</p>
+<hr data-from="9800" data-to="9803">
+<h2 id="section" data-from="9805" data-to="9808"></h2>

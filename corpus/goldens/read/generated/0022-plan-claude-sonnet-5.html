@@ -1,0 +1,78 @@
+<h1 id="project-nightingale-predictive-maintenance-platform" data-from="0" data-to="54">Project Nightingale: Predictive Maintenance Platform</h1>
+<p data-from="56" data-to="129"><strong data-from="56" data-to="74">Project Owner:</strong> Elena Vasquez | <em data-from="91" data-to="101">Sponsor:</em> Marcus Chen, VP Engineering</p>
+<p data-from="131" data-to="303">This plan outlines the rollout of an ML-based predictive maintenance system for industrial sensors. The goal is to reduce unplanned downtime by <mark data-from="275" data-to="302">35% within two quarters</mark>.</p>
+<hr data-from="305" data-to="308">
+<h2 id="phases-milestones" data-from="310" data-to="332">Phases &amp; Milestones</h2>
+<ol data-from="334" data-to="778">
+  <li data-from="334" data-to="447"><strong data-from="337" data-to="363">Discovery &amp; Data Audit</strong> (Weeks 1–3)<ul data-from="379" data-to="447">
+      <li data-from="379" data-to="400">Owner: Priya Nandan</li>
+      <li data-from="404" data-to="447">Milestone: Data quality report signed off</li>
+    </ul></li>
+  <li data-from="448" data-to="566"><strong data-from="451" data-to="472">Model Prototyping</strong> (Weeks 4–8)<ul data-from="488" data-to="566">
+      <li data-from="488" data-to="512">Owner: Tomasz Building</li>
+      <li data-from="516" data-to="566">Milestone: Baseline model achieves recall ≥ 0.82</li>
+    </ul></li>
+  <li data-from="567" data-to="678"><strong data-from="570" data-to="590">Pilot Deployment</strong> (Weeks 9–12)<ul data-from="607" data-to="678">
+      <li data-from="607" data-to="629">Owner: Elena Vasquez</li>
+      <li data-from="633" data-to="678">Milestone: Pilot running on 3 factory lines</li>
+    </ul></li>
+  <li data-from="679" data-to="778"><strong data-from="682" data-to="698">Full Rollout</strong> (Weeks 13–20)<ul data-from="716" data-to="778">
+      <li data-from="716" data-to="736">Owner: Marcus Chen</li>
+      <li data-from="740" data-to="778">Milestone: All 12 lines instrumented</li>
+    </ul></li>
+</ol>
+<h3 id="team-structure" data-from="780" data-to="798">Team Structure</h3>
+<ul data-from="800" data-to="1049">
+  <li data-from="800" data-to="999">Engineering<ul data-from="816" data-to="999">
+      <li data-from="816" data-to="907">Data Team<ul data-from="832" data-to="907">
+          <li data-from="832" data-to="867">Ingestion pipeline (owner: Priya)</li>
+          <li data-from="872" data-to="907">Feature store (owner: Sam Okafor)</li>
+        </ul></li>
+      <li data-from="910" data-to="999">ML Team<ul data-from="924" data-to="999">
+          <li data-from="924" data-to="956">Model training (owner: Tomasz)</li>
+          <li data-from="961" data-to="999">Model evaluation (owner: Lina Rossi)</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="1000" data-to="1049">Operations<ul data-from="1015" data-to="1049">
+      <li data-from="1015" data-to="1049">Field deployment (owner: Marcus)</li>
+    </ul></li>
+</ul>
+<hr data-from="1051" data-to="1054">
+<h2 id="model-notes" data-from="1056" data-to="1070">Model Notes</h2>
+<p data-from="1072" data-to="1171">The failure probability for a component is estimated using a logistic function of sensor drift <span class="mdr-math" data-tex="x" data-from="1167" data-to="1170">x</span>:</p>
+<div class="mdr-math-block" data-tex="P(\text{failure}) = \frac{1}{1 + e^{-(\beta_0 + \beta_1 x)}}" data-from="1173" data-to="1239">
+  P(\text{failure}) = \frac{1}{1 + e^{-(\beta_0 + \beta_1 x)}}
+</div>
+<p data-from="1241" data-to="1328">We monitor <em data-from="1252" data-to="1270">daily drift rate</em> and <strong data-from="1275" data-to="1305">cumulative vibration index</strong> as leading indicators.</p>
+<pre class="mdr-code" data-lang="python" data-from="1330" data-to="1451"><code class="language-python" data-verbatim data-from="1340" data-to="1447">def failure_probability(x, b0=-4.2, b1=0.87):
+    import math
+    return 1 / (1 + math.exp(-(b0 + b1 * x)))</code></pre>
+<blockquote class="mdr-callout" data-callout="note" data-from="1453" data-to="1536">
+  <div class="mdr-callout-title" data-from="1455" data-to="1462">
+    Note
+  </div>
+  <p data-from="1465" data-to="1536">All models are retrained weekly using the latest 90-day rolling window.</p>
+</blockquote>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1538" data-to="1623">
+  <div class="mdr-callout-title" data-from="1540" data-to="1550">
+    Warning
+  </div>
+  <p data-from="1553" data-to="1623">Sensor firmware v2.3 has a known clock-drift bug affecting timestamps.</p>
+</blockquote>
+<blockquote data-from="1625" data-to="1724">
+  <p data-from="1627" data-to="1724">"Reliability is not an accident; it is engineered one iteration at a time." — internal team motto</p>
+</blockquote>
+<hr data-from="1726" data-to="1729">
+<h2 id="task-checklist" data-from="1731" data-to="1748">Task Checklist</h2>
+<ul data-from="1750" data-to="1888">
+  <li class="mdr-task" data-from="1750" data-to="1787"><input type="checkbox" disabled checked data-from="1752" data-to="1755">Finalize data governance policy</li>
+  <li class="mdr-task" data-from="1788" data-to="1819"><input type="checkbox" disabled checked data-from="1790" data-to="1793">Secure GPU cluster access</li>
+  <li class="mdr-task" data-from="1820" data-to="1857"><input type="checkbox" disabled data-from="1822" data-to="1825">Complete pilot line calibration</li>
+  <li class="mdr-task" data-from="1858" data-to="1888"><input type="checkbox" disabled data-from="1860" data-to="1863">Draft rollback procedure</li>
+</ul>
+<h2 id="risks" data-from="1890" data-to="1898">Risks</h2>
+<ol data-from="1900" data-to="2104">
+  <li data-from="1900" data-to="1962"><strong data-from="1903" data-to="1917">Data drift</strong> — sensors may degrade in accuracy over time.</li>
+  <li data-from="1963" data-to="2037"><strong data-from="1966" data-to="1982">Vendor delay</strong> — hardware upgrades dependent on third-party supplier.</li>
+  <li data-from="2038" data-to="2104"><strong data-from="2041" data-to="2062">Model overfitting</strong> — small pilot dataset may not generalize.</li>
+</ol>

@@ -1,0 +1,234 @@
+<h1 id="kestrel-ledger-sync-technical-specification-v04" data-from="0" data-to="52">Kestrel Ledger Sync — Technical Specification v0.4</h1>
+<p data-from="54" data-to="151"><strong data-from="54" data-to="65">Status:</strong> Draft for internal review
+<strong data-from="92" data-to="102">Owner:</strong> Platform Data Group
+<strong data-from="123" data-to="140">Last revised:</strong> 2031-03-14</p>
+<hr data-from="153" data-to="156">
+<h2 id="1-overview" data-from="158" data-to="172">1. Overview</h2>
+<p data-from="174" data-to="502">Kestrel Ledger Sync (KLS) is a replication service that keeps append-only transaction ledgers consistent across geographically separated regions. Each region maintains an authoritative <em data-from="359" data-to="370">shard set</em>, and KLS propagates committed segments between shards using a pull-based reconciliation protocol with bounded staleness guarantees.</p>
+<p data-from="504" data-to="750">The service replaces the legacy <code data-from="536" data-to="547">driftpipe</code> batch exporter, which required a nightly maintenance window and could not express partial-segment recovery. KLS targets <strong data-from="668" data-to="697">sub-90-second convergence</strong> for 99% of segments under normal network conditions.</p>
+<blockquote data-from="752" data-to="957">
+  <p data-from="754" data-to="957">Design principle: a replica that cannot prove it is current must announce that it is stale. Silent divergence is treated as a data-loss event and is escalated immediately, not repaired in the background.</p>
+</blockquote>
+<h2 id="2-scope" data-from="959" data-to="970">2. Scope</h2>
+<p data-from="972" data-to="981">In scope:</p>
+<ul data-from="983" data-to="1178">
+  <li data-from="983" data-to="1033">Segment-level replication between named regions.</li>
+  <li data-from="1034" data-to="1084">Conflict detection via monotonic segment fences.</li>
+  <li data-from="1085" data-to="1131">Operator-facing status and repair endpoints.</li>
+  <li data-from="1132" data-to="1178">Backpressure signalling to upstream writers.</li>
+</ul>
+<p data-from="1180" data-to="1193">Out of scope:</p>
+<ul data-from="1195" data-to="1370">
+  <li data-from="1195" data-to="1257">Schema migration of ledger payloads (handled by Loomwright).</li>
+  <li data-from="1258" data-to="1335">Cross-region authorization policy (delegated to the Halyard token service).</li>
+  <li data-from="1336" data-to="1370">Cold archival to object storage.</li>
+</ul>
+<h2 id="3-definitions" data-from="1372" data-to="1389">3. Definitions</h2>
+<div class="mdr-table-wrap" data-from="1391" data-to="1922">
+  <table data-from="1391" data-to="1922">
+    <thead data-from="1391" data-to="1409">
+      <tr data-from="1391" data-to="1409">
+        <th data-from="1393" data-to="1397">Term</th>
+        <th data-from="1400" data-to="1407">Meaning</th>
+      </tr>
+    </thead>
+    <tbody data-from="1420" data-to="1922">
+      <tr data-from="1420" data-to="1501">
+        <td data-from="1422" data-to="1433"><strong data-from="1422" data-to="1433">Segment</strong></td>
+        <td data-from="1436" data-to="1499">An immutable batch of 1–4096 ledger entries sealed by a writer.</td>
+      </tr>
+      <tr data-from="1502" data-to="1592">
+        <td data-from="1504" data-to="1513"><strong data-from="1504" data-to="1513">Fence</strong></td>
+        <td data-from="1516" data-to="1590">A monotonically increasing 64-bit integer assigned per shard at seal time.</td>
+      </tr>
+      <tr data-from="1593" data-to="1720">
+        <td data-from="1595" data-to="1614"><strong data-from="1595" data-to="1614">Convergence lag</strong></td>
+        <td data-from="1617" data-to="1718">Wall-clock delta between a segment's seal time and its durable acceptance at all subscribed replicas.</td>
+      </tr>
+      <tr data-from="1721" data-to="1817">
+        <td data-from="1723" data-to="1735"><em data-from="1723" data-to="1735">Quarantine</em></td>
+        <td data-from="1738" data-to="1815">State applied to a segment whose checksum or fence ordering fails validation.</td>
+      </tr>
+      <tr data-from="1818" data-to="1922">
+        <td data-from="1820" data-to="1830"><strong data-from="1820" data-to="1830">Cohort</strong></td>
+        <td data-from="1833" data-to="1920">A named group of replicas that must converge together before a segment is acknowledged.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="4-functional-requirements" data-from="1924" data-to="1953">4. Functional Requirements</h2>
+<h3 id="41-replication" data-from="1955" data-to="1974">4.1 Replication</h3>
+<ul data-from="1976" data-to="2601">
+  <li data-from="1976" data-to="2094"><strong data-from="1978" data-to="1987">R-101</strong> — The service SHALL replicate sealed segments from a source shard to every replica in the declared cohort.</li>
+  <li data-from="2095" data-to="2208"><strong data-from="2097" data-to="2106">R-102</strong> — The service SHALL NOT replicate unsealed segments under any condition, including operator override.</li>
+  <li data-from="2209" data-to="2329"><strong data-from="2211" data-to="2220">R-103</strong> — Each replica SHALL validate the segment checksum (BLAKE3-256, truncated to 128 bits) before durable write.</li>
+  <li data-from="2330" data-to="2462"><strong data-from="2332" data-to="2341">R-104</strong> — On checksum failure, the replica SHALL quarantine the segment and emit a <code data-from="2417" data-to="2438">segment.quarantined</code> event within 2 seconds.</li>
+  <li data-from="2463" data-to="2601"><strong data-from="2465" data-to="2474">R-105</strong> — The service SHALL support at most 12 replicas per cohort. Requests declaring more SHALL be rejected with <code data-from="2582" data-to="2600">COHORT_TOO_LARGE</code>.</li>
+</ul>
+<h3 id="42-ordering-and-fences" data-from="2603" data-to="2630">4.2 Ordering and Fences</h3>
+<ul data-from="2632" data-to="3016">
+  <li data-from="2632" data-to="2812"><strong data-from="2634" data-to="2643">R-201</strong> — Fences SHALL be strictly increasing per shard. A segment arriving with a fence lower than or equal to the replica's high-water mark SHALL be discarded as a duplicate.</li>
+  <li data-from="2813" data-to="2927"><strong data-from="2815" data-to="2824">R-202</strong> — A gap in fence numbering SHALL trigger a <em data-from="2868" data-to="2886">backfill request</em> to the source shard rather than a stall.</li>
+  <li data-from="2928" data-to="3016"><strong data-from="2930" data-to="2939">R-203</strong> — Backfill requests SHALL be rate-limited to 40 per minute per replica pair.</li>
+</ul>
+<h3 id="43-staleness-and-health" data-from="3018" data-to="3046">4.3 Staleness and Health</h3>
+<ul data-from="3048" data-to="3432">
+  <li data-from="3048" data-to="3135"><strong data-from="3050" data-to="3059">R-301</strong> — Each replica SHALL publish a staleness estimate at least every 5 seconds.</li>
+  <li data-from="3136" data-to="3289"><strong data-from="3138" data-to="3147">R-302</strong> — A replica whose convergence lag exceeds <mark data-from="3190" data-to="3205">180 seconds</mark> SHALL transition to <code data-from="3226" data-to="3236">DEGRADED</code> and refuse read traffic tagged <code data-from="3268" data-to="3288">consistency=strict</code>.</li>
+  <li data-from="3290" data-to="3432"><strong data-from="3292" data-to="3301">R-303</strong> — A replica in <code data-from="3317" data-to="3327">DEGRADED</code> for more than 15 minutes SHALL be automatically evicted from its cohort and flagged for operator review.</li>
+</ul>
+<h3 id="44-backpressure" data-from="3434" data-to="3454">4.4 Backpressure</h3>
+<ul data-from="3456" data-to="3706">
+  <li data-from="3456" data-to="3598"><strong data-from="3458" data-to="3467">R-401</strong> — When any cohort member reports a lag above 120 seconds, the coordinator SHALL emit a <code data-from="3555" data-to="3568">slow_cohort</code> advisory to upstream writers.</li>
+  <li data-from="3599" data-to="3706"><strong data-from="3601" data-to="3610">R-402</strong> — Writers receiving <code data-from="3631" data-to="3644">slow_cohort</code> SHOULD reduce seal frequency but SHALL NOT be blocked by KLS.</li>
+</ul>
+<h2 id="5-non-functional-requirements" data-from="3708" data-to="3741">5. Non-Functional Requirements</h2>
+<ul data-from="3743" data-to="4161">
+  <li data-from="3743" data-to="3818"><strong data-from="3745" data-to="3753">N-01</strong> — p99 convergence lag ≤ 90 s at 3,200 segments/minute aggregate.</li>
+  <li data-from="3819" data-to="3899"><strong data-from="3821" data-to="3829">N-02</strong> — Coordinator memory footprint ≤ 1.5 GiB per 10,000 tracked segments.</li>
+  <li data-from="3900" data-to="3963"><strong data-from="3902" data-to="3910">N-03</strong> — Cold start to first successful replication ≤ 25 s.</li>
+  <li data-from="3964" data-to="4066"><strong data-from="3966" data-to="3974">N-04</strong> — All inter-region traffic encrypted; plaintext transport is a hard failure, not a warning.</li>
+  <li data-from="4067" data-to="4161"><strong data-from="4069" data-to="4077">N-05</strong> — Availability target of 99.95% measured monthly against the <code data-from="4139" data-to="4151">/v1/health</code> endpoint.</li>
+</ul>
+<hr data-from="4163" data-to="4166">
+<h2 id="6-architecture-sketch" data-from="4168" data-to="4193">6. Architecture Sketch</h2>
+<p data-from="4195" data-to="4212">Three components:</p>
+<ol data-from="4214" data-to="4613">
+  <li data-from="4214" data-to="4376"><strong data-from="4217" data-to="4232">Coordinator</strong> — maintains cohort membership, fence high-water marks, and staleness estimates. Stateless across restarts except for a compacted fence journal.</li>
+  <li data-from="4377" data-to="4494"><strong data-from="4380" data-to="4390">Puller</strong> — one per replica; opens a long-lived stream to each source shard and requests segments by fence range.</li>
+  <li data-from="4495" data-to="4613"><strong data-from="4498" data-to="4508">Warden</strong> — validation and quarantine handling; runs in-process with the Puller but with a separate thread budget.</li>
+</ol>
+<p data-from="4615" data-to="4852">The coordinator never touches segment payloads. This is deliberate: <em data-from="4683" data-to="4711">payload-blind coordination</em> keeps the control plane small enough to reason about and avoids a second copy of ledger data in a component that is not durability-hardened.</p>
+<pre class="mdr-code" data-lang="python" data-from="4854" data-to="6156"><code class="language-python" data-verbatim data-from="4864" data-to="6152">from dataclasses import dataclass
+from typing import Iterator
+
+@dataclass(frozen=True)
+class SegmentRef:
+    shard_id: str
+    fence: int
+    entry_count: int
+    checksum: bytes  # 16 bytes, truncated BLAKE3
+
+class Puller:
+    MAX_RANGE = 256
+
+    def __init__(self, replica_id: str, hwm: int) -&gt; None:
+        self.replica_id = replica_id
+        self.high_water_mark = hwm
+
+    def plan(self, available: list[SegmentRef]) -&gt; Iterator[tuple[int, int]]:
+        """Yield (start_fence, end_fence) ranges to request, in order."""
+        pending = sorted(
+            s.fence for s in available if s.fence &gt; self.high_water_mark
+        )
+        if not pending:
+            return
+        start = prev = pending[0]
+        for fence in pending[1:]:
+            contiguous = fence == prev + 1
+            room = fence - start &lt; self.MAX_RANGE
+            if contiguous and room:
+                prev = fence
+                continue
+            yield (start, prev)
+            start = prev = fence
+        yield (start, prev)
+
+    def accept(self, ref: SegmentRef, verified: bool) -&gt; str:
+        if not verified:
+            return "QUARANTINE"
+        if ref.fence &lt;= self.high_water_mark:
+            return "DUPLICATE"
+        self.high_water_mark = ref.fence
+        return "ACCEPTED"</code></pre>
+<hr data-from="6158" data-to="6161">
+<h2 id="7-api-sketch" data-from="6163" data-to="6179">7. API Sketch</h2>
+<p data-from="6181" data-to="6321">All endpoints are rooted at <code data-from="6209" data-to="6234">https://kls.internal/v1</code>. Authentication uses Halyard bearer tokens with the <code data-from="6287" data-to="6300">kls.operate</code> or <code data-from="6304" data-to="6314">kls.read</code> scope.</p>
+<h3 id="71-get-cohortscohort_id" data-from="6323" data-to="6357">7.1 <code data-from="6331" data-to="6357">GET /cohorts/{cohort_id}</code></h3>
+<p data-from="6359" data-to="6399">Returns membership and aggregate health.</p>
+<p data-from="6401" data-to="6417"><strong data-from="6401" data-to="6417">Response 200</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="6419" data-to="6716"><code class="language-json" data-verbatim data-from="6427" data-to="6712">{
+  "cohort_id": "atlas-north",
+  "members": [
+    {"replica_id": "rp-4471", "state": "HEALTHY", "lag_seconds": 6.2, "hwm": 918442},
+    {"replica_id": "rp-4472", "state": "DEGRADED", "lag_seconds": 214.9, "hwm": 916003}
+  ],
+  "worst_lag_seconds": 214.9,
+  "advisory": "slow_cohort"
+}</code></pre>
+<h3 id="72-post-cohortscohort_idmembers" data-from="6718" data-to="6761">7.2 <code data-from="6726" data-to="6761">POST /cohorts/{cohort_id}/members</code></h3>
+<p data-from="6763" data-to="6806">Adds a replica. Idempotent on <code data-from="6793" data-to="6805">replica_id</code>.</p>
+<div class="mdr-table-wrap" data-from="6808" data-to="7045">
+  <table data-from="6808" data-to="7045">
+    <thead data-from="6808" data-to="6843">
+      <tr data-from="6808" data-to="6843">
+        <th data-from="6810" data-to="6815">Field</th>
+        <th data-from="6818" data-to="6822">Type</th>
+        <th data-from="6825" data-to="6833">Required</th>
+        <th data-from="6836" data-to="6841">Notes</th>
+      </tr>
+    </thead>
+    <tbody data-from="6862" data-to="7045">
+      <tr data-from="6862" data-to="6924">
+        <td data-from="6864" data-to="6876"><code data-from="6864" data-to="6876">replica_id</code></td>
+        <td data-from="6879" data-to="6885">string</td>
+        <td data-from="6888" data-to="6891">yes</td>
+        <td data-from="6894" data-to="6922">Must match <code data-from="6905" data-to="6922">^rp-[0-9]{4,6}$</code></td>
+      </tr>
+      <tr data-from="6925" data-to="6991">
+        <td data-from="6927" data-to="6940"><code data-from="6927" data-to="6940">initial_hwm</code></td>
+        <td data-from="6943" data-to="6950">integer</td>
+        <td data-from="6953" data-to="6955">no</td>
+        <td data-from="6958" data-to="6989">Defaults to <code data-from="6970" data-to="6973">0</code> (full backfill)</td>
+      </tr>
+      <tr data-from="6992" data-to="7045">
+        <td data-from="6994" data-to="7004"><code data-from="6994" data-to="7004">priority</code></td>
+        <td data-from="7007" data-to="7013">string</td>
+        <td data-from="7016" data-to="7018">no</td>
+        <td data-from="7021" data-to="7043"><code data-from="7021" data-to="7029">normal</code> | <code data-from="7033" data-to="7043">deferred</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="7047" data-to="7134"><strong data-from="7047" data-to="7058">Errors:</strong> <code data-from="7059" data-to="7077">COHORT_TOO_LARGE</code> (409), <code data-from="7085" data-to="7106">REPLICA_UNREACHABLE</code> (424), <code data-from="7114" data-to="7127">INVALID_HWM</code> (400).</p>
+<h3 id="73-get-replicasreplica_idsegments" data-from="7136" data-to="7181">7.3 <code data-from="7144" data-to="7181">GET /replicas/{replica_id}/segments</code></h3>
+<p data-from="7183" data-to="7292">Query parameters: <code data-from="7201" data-to="7213">from_fence</code> (int), <code data-from="7221" data-to="7228">limit</code> (int, ≤ 256), <code data-from="7243" data-to="7250">state</code> (<code data-from="7252" data-to="7262">accepted</code> | <code data-from="7265" data-to="7278">quarantined</code> | <code data-from="7281" data-to="7290">pending</code>).</p>
+<p data-from="7294" data-to="7352">Returns a fence-ordered page with an opaque <code data-from="7338" data-to="7351">next_cursor</code>.</p>
+<h3 id="74-post-replicasreplica_idbackfill" data-from="7354" data-to="7400">7.4 <code data-from="7362" data-to="7400">POST /replicas/{replica_id}/backfill</code></h3>
+<p data-from="7402" data-to="7523">Requests a fence range explicitly. Subject to <strong data-from="7448" data-to="7457">R-203</strong> rate limits; exceeding returns <code data-from="7489" data-to="7494">429</code> with a <code data-from="7502" data-to="7515">Retry-After</code> header.</p>
+<pre class="mdr-code" data-lang="json" data-from="7525" data-to="7612"><code class="language-json" data-verbatim data-from="7533" data-to="7608">{ "start_fence": 916004, "end_fence": 916260, "reason": "operator_repair" }</code></pre>
+<h3 id="75-post-segmentsshard_idfencerelease" data-from="7614" data-to="7665">7.5 <code data-from="7622" data-to="7665">POST /segments/{shard_id}/{fence}/release</code></h3>
+<p data-from="7667" data-to="7889">Releases a quarantined segment after manual verification. Requires <code data-from="7734" data-to="7747">kls.operate</code> and an <code data-from="7755" data-to="7772">X-Justification</code> header of at least 20 characters. <strong data-from="7807" data-to="7889">Every release is audit-logged with the caller identity and justification text.</strong></p>
+<h3 id="76-get-health" data-from="7891" data-to="7912">7.6 <code data-from="7899" data-to="7912">GET /health</code></h3>
+<p data-from="7914" data-to="7999">Returns <code data-from="7922" data-to="7967">{"ok": true, "coordinator_uptime_s": 41822}</code> or a 503 with a failure reason.</p>
+<hr data-from="8001" data-to="8004">
+<h2 id="8-error-model" data-from="8006" data-to="8023">8. Error Model</h2>
+<p data-from="8025" data-to="8055">All errors share one envelope:</p>
+<pre class="mdr-code" data-lang="json" data-from="8057" data-to="8240"><code class="language-json" data-verbatim data-from="8065" data-to="8236">{
+  "error": {
+    "code": "INVALID_HWM",
+    "message": "initial_hwm exceeds source shard high-water mark",
+    "retryable": false,
+    "trace_id": "9c1f-4d20-bb73"
+  }
+}</code></pre>
+<p data-from="8242" data-to="8380">Clients SHOULD retry only when <code data-from="8273" data-to="8284">retryable</code> is <code data-from="8288" data-to="8294">true</code>, using exponential backoff starting at 400 ms with full jitter and a ceiling of 30 s.</p>
+<hr data-from="8382" data-to="8385">
+<h2 id="9-delivery-checklist" data-from="8387" data-to="8411">9. Delivery Checklist</h2>
+<ul data-from="8413" data-to="8794">
+  <li class="mdr-task" data-from="8413" data-to="8446"><input type="checkbox" disabled checked data-from="8415" data-to="8418">Fence journal format frozen</li>
+  <li class="mdr-task" data-from="8447" data-to="8491"><input type="checkbox" disabled checked data-from="8449" data-to="8452">Coordinator membership API implemented</li>
+  <li class="mdr-task" data-from="8492" data-to="8527"><input type="checkbox" disabled checked data-from="8494" data-to="8497">Checksum validation in Warden</li>
+  <li class="mdr-task" data-from="8528" data-to="8568"><input type="checkbox" disabled checked data-from="8530" data-to="8533">Load test at 3,200 segments/minute</li>
+  <li class="mdr-task" data-from="8569" data-to="8612"><input type="checkbox" disabled data-from="8571" data-to="8574">Automatic cohort eviction (<strong data-from="8602" data-to="8611">R-303</strong>)</li>
+  <li class="mdr-task" data-from="8613" data-to="8664"><input type="checkbox" disabled data-from="8615" data-to="8618"><code data-from="8619" data-to="8632">slow_cohort</code> advisory propagation to writers</li>
+  <li class="mdr-task" data-from="8665" data-to="8700"><input type="checkbox" disabled data-from="8667" data-to="8670">Quarantine release audit sink</li>
+  <li class="mdr-task" data-from="8701" data-to="8746"><input type="checkbox" disabled data-from="8703" data-to="8706">Chaos suite: partial-segment truncation</li>
+  <li class="mdr-task" data-from="8747" data-to="8794"><input type="checkbox" disabled data-from="8749" data-to="8752">Runbook for cross-region fence divergence</li>
+</ul>
+<h2 id="10-open-questions" data-from="8796" data-to="8817">10. Open Questions</h2>
+<ol data-from="8819" data-to="9197">
+  <li data-from="8819" data-to="8927">Should <code data-from="8829" data-to="8839">deferred</code> priority replicas count toward the 12-member cohort limit? Current assumption: <strong data-from="8919" data-to="8926">yes</strong>.</li>
+  <li data-from="8928" data-to="9075">Is a 128-bit truncated checksum sufficient for shards exceeding 40 million segments, or should we widen to 192 bits before general availability?</li>
+  <li data-from="9076" data-to="9197">Do we need a distinct state between <code data-from="9115" data-to="9124">HEALTHY</code> and <code data-from="9129" data-to="9139">DEGRADED</code> for replicas that are catching up but trending correctly?</li>
+</ol>

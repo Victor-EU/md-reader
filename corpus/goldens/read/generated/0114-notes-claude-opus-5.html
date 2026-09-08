@@ -1,0 +1,23 @@
+<h1 id="research-notes-deduplicating-event-ids-in-the-halvard-ingest-pipeline" data-from="0" data-to="73">Research Notes — Deduplicating Event IDs in the Halvard Ingest Pipeline</h1>
+<p data-from="75" data-to="148"><strong data-from="75" data-to="86">Author:</strong> R. Okonjo-Vance · <strong data-from="105" data-to="116">Sprint:</strong> 2024-W31 · <strong data-from="128" data-to="139">Ticket:</strong> HAL-4412</p>
+<h2 id="problem" data-from="150" data-to="160">Problem</h2>
+<p data-from="162" data-to="458">The ingest tier receives ~180k events/sec with an observed duplicate rate of 4.2%, caused by at-least-once delivery from the upstream <code data-from="296" data-to="306">Grellick</code> broker. We need to suppress duplicates within a 90-second window while keeping p99 lookup latency under 400 µs and resident memory under 6 GB per node.</p>
+<h2 id="candidate-approaches" data-from="460" data-to="483">Candidate Approaches</h2>
+<ol data-from="485" data-to="1234">
+  <li data-from="485" data-to="722"><strong data-from="488" data-to="523">Exact TTL hash map (<code data-from="510" data-to="520">ShardMap</code>)</strong> — 64 shards, each an open-addressing table with per-key expiry. Zero false positives; measured 5.9 GB at peak and a p99 of 310 µs. Rehash storms pushed p99.9 to 11 ms during the Tuesday replay test.</li>
+  <li data-from="723" data-to="1012"><strong data-from="726" data-to="766">Rotating Bloom cascade (<code data-from="752" data-to="763">Driftwood</code>)</strong> — six 15-second generations, each sized for 2.8M inserts at a 0.5% target error. Memory dropped to 480 MB and p99 fell to 62 µs, but the aggregate false-positive rate across generations reached 2.9%, silently dropping ~600 legitimate events/sec.</li>
+  <li data-from="1013" data-to="1234"><strong data-from="1016" data-to="1056">Segmented cuckoo filter (<code data-from="1043" data-to="1053">Marlow-7</code>)</strong> — 12-bit fingerprints, 4-way buckets, one segment retired per 15 seconds. Supports deletion, so segment retirement is cheap. Memory 810 MB, p99 88 µs, false-positive rate 0.11%.</li>
+</ol>
+<pre class="mdr-code" data-lang="rust" data-from="1236" data-to="1513"><code class="language-rust" data-verbatim data-from="1244" data-to="1509">fn admit(&amp;mut self, key: u64, now_ms: u64) -&gt; Admission {
+    let seg = self.segment_for(now_ms);
+    if self.segments.iter().any(|s| s.contains(key)) {
+        return Admission::Duplicate;
+    }
+    seg.insert(key).map_or(Admission::Overflow, |_| Admission::New)
+}</code></pre>
+<h2 id="assessment" data-from="1515" data-to="1528">Assessment</h2>
+<blockquote data-from="1530" data-to="1753">
+  <p data-from="1532" data-to="1753">Driftwood is the cheapest option on paper, but a 2.9% silent-drop rate is not a caching tradeoff — it is data loss wearing a costume. We should treat any approach without a bounded, auditable error budget as disqualified.</p>
+</blockquote>
+<h2 id="recommendation" data-from="1755" data-to="1772">Recommendation</h2>
+<p data-from="1774" data-to="2033">Adopt <strong data-from="1780" data-to="1792">Marlow-7</strong>, with <code data-from="1799" data-to="1809">ShardMap</code> retained behind a feature flag for the billing topic, where exactness is contractually required. Next step: run a 72-hour shadow comparison and instrument <code data-from="1965" data-to="1986">Admission::Overflow</code> counts, which we expect to stay below 40/hour.</p>

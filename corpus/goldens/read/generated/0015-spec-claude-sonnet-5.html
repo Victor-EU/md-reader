@@ -1,0 +1,62 @@
+<h1 id="technical-specification-vortex-rate-limiter-module" data-from="0" data-to="53">Technical Specification: Vortex Rate Limiter Module</h1>
+<h2 id="overview" data-from="55" data-to="66">Overview</h2>
+<p data-from="68" data-to="289">The <strong data-from="72" data-to="95">Vortex Rate Limiter</strong> (VRL) is a lightweight middleware component designed to throttle API requests using a sliding-window algorithm. It is intended for integration into the <em data-from="248" data-to="265">Halcyon Gateway</em> microservice framework.</p>
+<h2 id="requirements" data-from="291" data-to="306">Requirements</h2>
+<ul data-from="308" data-to="746">
+  <li data-from="308" data-to="392">The module <strong data-from="321" data-to="329">must</strong> support configurable request windows, defined in milliseconds.</li>
+  <li data-from="393" data-to="472">The module <em data-from="406" data-to="414">should</em> expose metrics via a <code data-from="436" data-to="444">/stats</code> endpoint for observability.</li>
+  <li data-from="473" data-to="553">Rate limits must be enforced per client token, identified by a hashed API key.</li>
+  <li data-from="554" data-to="654">The system must degrade gracefully under Redis unavailability, falling back to an in-memory store.</li>
+  <li data-from="655" data-to="746">Configuration values must be <mark data-from="686" data-to="710">validated at startup</mark> to prevent silent misconfiguration.</li>
+</ul>
+<h3 id="nested-configuration-structure" data-from="748" data-to="782">Nested Configuration Structure</h3>
+<ul data-from="784" data-to="1066">
+  <li data-from="784" data-to="987"><strong data-from="786" data-to="805">Global Settings</strong><ul data-from="808" data-to="987">
+      <li data-from="808" data-to="912">Window size<ul data-from="826" data-to="912">
+          <li data-from="826" data-to="843">Default: 1000ms</li>
+          <li data-from="848" data-to="912">Minimum: 100ms<ul data-from="871" data-to="912">
+              <li data-from="871" data-to="912">Values below this throw a <code data-from="899" data-to="912">ConfigError</code></li>
+            </ul></li>
+        </ul></li>
+      <li data-from="915" data-to="987">Burst allowance<ul data-from="937" data-to="987">
+          <li data-from="937" data-to="959">Default: 20 requests</li>
+          <li data-from="964" data-to="987">Maximum: 500 requests</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="988" data-to="1066"><strong data-from="990" data-to="1014">Per-Client Overrides</strong><ul data-from="1017" data-to="1066">
+      <li data-from="1017" data-to="1037">Token-based limits</li>
+      <li data-from="1040" data-to="1066">IP-based fallback limits</li>
+    </ul></li>
+</ul>
+<blockquote class="mdr-callout" data-callout="note" data-from="1068" data-to="1212">
+  <div class="mdr-callout-title" data-from="1070" data-to="1077">
+    Note
+  </div>
+  <p data-from="1080" data-to="1212">Burst allowance and window size interact multiplicatively — always test overrides against production-like traffic before deployment.</p>
+</blockquote>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1214" data-to="1364">
+  <div class="mdr-callout-title" data-from="1216" data-to="1226">
+    Warning
+  </div>
+  <p data-from="1229" data-to="1364">Disabling the Redis fallback in single-instance mode will cause request counters to reset on every restart, potentially allowing abuse.</p>
+</blockquote>
+<h2 id="algorithm" data-from="1366" data-to="1378">Algorithm</h2>
+<p data-from="1380" data-to="1462">The request admission probability is computed using an exponential decay function:</p>
+<div class="mdr-math-block" data-tex="P(t) = 1 - e^{-\lambda t}, \quad \lambda = \frac{1}{\tau}" data-from="1464" data-to="1527">
+  P(t) = 1 - e^{-\lambda t}, \quad \lambda = \frac{1}{\tau}
+</div>
+<p data-from="1529" data-to="1632">where <span class="mdr-math" data-tex="\tau" data-from="1535" data-to="1541">\tau</span> represents the configured window size and <span class="mdr-math" data-tex="\lambda" data-from="1584" data-to="1593">\lambda</span> is the decay constant derived from it.</p>
+<h2 id="api-sketch" data-from="1634" data-to="1647">API Sketch</h2>
+<pre class="mdr-code" data-lang="typescript" data-from="1649" data-to="1942"><code class="language-typescript" data-verbatim data-from="1663" data-to="1938">interface VortexLimiter {
+  checkLimit(token: string): Promise&lt;boolean&gt;;
+  getStats(token: string): Promise&lt;UsageStats&gt;;
+  configure(options: VortexConfig): void;
+}
+
+interface VortexConfig {
+  windowMs: number;
+  burstAllowance: number;
+  fallbackStore: "memory" | "redis";
+}</code></pre>
+<hr data-from="1944" data-to="1947">
+<p data-from="1949" data-to="2078">Future revisions may introduce adaptive throttling based on server load, using a feedback loop similar to TCP congestion control.</p>

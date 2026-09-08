@@ -1,0 +1,151 @@
+<h1 id="project-aurora-weekly-status-report" data-from="0" data-to="38">Project Aurora: Weekly Status Report</h1>
+<p data-from="39" data-to="138"><strong data-from="39" data-to="55">Report Date:</strong> March 14, 2025
+<strong data-from="71" data-to="87">Prepared by:</strong> Elena Vasquez, Technical Lead
+<strong data-from="118" data-to="129">Sprint:</strong> 14 of 20</p>
+<hr data-from="140" data-to="143">
+<h2 id="executive-summary" data-from="145" data-to="165">Executive Summary</h2>
+<p data-from="167" data-to="514">The <strong data-from="171" data-to="199">Aurora Distributed Cache</strong> project continues to progress ahead of schedule. This week's primary focus was optimizing the <em data-from="294" data-to="324">consistent hashing algorithm</em> and resolving latency spikes observed in the staging environment. Overall system throughput has improved by <mark data-from="433" data-to="458">34% since last sprint</mark>, bringing us closer to our target SLA of 99.95% uptime.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="516" data-to="681">
+  <div class="mdr-callout-title" data-from="518" data-to="525">
+    Note
+  </div>
+  <p data-from="528" data-to="681">The team successfully migrated the primary data store from PostgreSQL 14 to PostgreSQL 16 with zero downtime during the maintenance window on March 11th.</p>
+</blockquote>
+<hr data-from="683" data-to="686">
+<h2 id="key-metrics" data-from="688" data-to="702">Key Metrics</h2>
+<div class="mdr-table-wrap" data-from="704" data-to="1019">
+  <table data-from="704" data-to="1019">
+    <thead data-from="704" data-to="757">
+      <tr data-from="704" data-to="757">
+        <th data-from="706" data-to="712">Metric</th>
+        <th data-from="715" data-to="730">Previous Sprint</th>
+        <th data-from="733" data-to="747">Current Sprint</th>
+        <th data-from="750" data-to="755">Delta</th>
+      </tr>
+    </thead>
+    <tbody data-from="813" data-to="1019">
+      <tr data-from="813" data-to="854">
+        <td data-from="815" data-to="832">Avg. Latency (ms)</td>
+        <td data-from="835" data-to="838">142</td>
+        <td data-from="841" data-to="843">94</td>
+        <td data-from="846" data-to="852">-33.8%</td>
+      </tr>
+      <tr data-from="855" data-to="897">
+        <td data-from="857" data-to="869">Requests/sec</td>
+        <td data-from="872" data-to="877">8,200</td>
+        <td data-from="880" data-to="886">11,050</td>
+        <td data-from="889" data-to="895">+34.7%</td>
+      </tr>
+      <tr data-from="898" data-to="937">
+        <td data-from="900" data-to="910">Error Rate</td>
+        <td data-from="913" data-to="918">0.83%</td>
+        <td data-from="921" data-to="926">0.21%</td>
+        <td data-from="929" data-to="935">-74.7%</td>
+      </tr>
+      <tr data-from="938" data-to="982">
+        <td data-from="940" data-to="957">Memory Usage (GB)</td>
+        <td data-from="960" data-to="964">12.4</td>
+        <td data-from="967" data-to="971">10.1</td>
+        <td data-from="974" data-to="980">-18.5%</td>
+      </tr>
+      <tr data-from="983" data-to="1019">
+        <td data-from="985" data-to="998">Test Coverage</td>
+        <td data-from="1001" data-to="1004">78%</td>
+        <td data-from="1007" data-to="1010">86%</td>
+        <td data-from="1013" data-to="1017">+8pp</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="1021" data-to="1206">The latency improvement can be partially explained by our updated load-balancing formula. Given a request rate <span class="mdr-math" data-tex="\lambda" data-from="1132" data-to="1141">\lambda</span> and service rate <span class="mdr-math" data-tex="\mu" data-from="1159" data-to="1164">\mu</span>, the expected wait time in queue follows:</p>
+<div class="mdr-math-block" data-tex="W_q = \frac{\rho}{\mu(1-\rho)}, \quad \text{where } \rho = \frac{\lambda}{\mu}" data-from="1208" data-to="1292">
+  W_q = \frac{\rho}{\mu(1-\rho)}, \quad \text{where } \rho = \frac{\lambda}{\mu}
+</div>
+<p data-from="1294" data-to="1454">By reducing <span class="mdr-math" data-tex="\rho" data-from="1306" data-to="1312">\rho</span> from approximately <span class="mdr-math" data-tex="0.91" data-from="1332" data-to="1338">0.91</span> to <span class="mdr-math" data-tex="0.76" data-from="1342" data-to="1348">0.76</span> through horizontal scaling, we achieved a significant reduction in queueing delay across all shard nodes.</p>
+<hr data-from="1456" data-to="1459">
+<h2 id="technical-deep-dive-hashing-optimization" data-from="1461" data-to="1505">Technical Deep Dive: Hashing Optimization</h2>
+<p data-from="1507" data-to="1786">The core change this sprint involved replacing our legacy modulo-based sharding with a <strong data-from="1594" data-to="1616">rendezvous hashing</strong> scheme. This reduces cache invalidation churn when nodes are added or removed, since only <span class="mdr-math" data-tex="1/n" data-from="1707" data-to="1712">1/n</span> of keys need to be remapped on average, where <span class="mdr-math" data-tex="n" data-from="1759" data-to="1762">n</span> is the number of nodes.</p>
+<pre class="mdr-code" data-lang="python" data-from="1788" data-to="2236"><code class="language-python" data-verbatim data-from="1798" data-to="2232">import hashlib
+
+def rendezvous_hash(key: str, nodes: list[str]) -&gt; str:
+    """Select the node with the highest weighted hash for a given key."""
+    best_node = None
+    best_score = -1
+    for node in nodes:
+        combined = f"{key}:{node}".encode("utf-8")
+        score = int(hashlib.sha256(combined).hexdigest(), 16)
+        if score &gt; best_score:
+            best_score = score
+            best_node = node
+    return best_node</code></pre>
+<p data-from="2238" data-to="2469">Initial benchmarks show a <strong data-from="2264" data-to="2281">41% reduction</strong> in key remapping events during simulated node churn tests. The <code data-from="2345" data-to="2362">rendezvous_hash</code> function is currently deployed to <em data-from="2397" data-to="2406">staging</em> and will be promoted to production pending final load testing.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="2471" data-to="2720">
+  <div class="mdr-callout-title" data-from="2473" data-to="2483">
+    Warning
+  </div>
+  <p data-from="2486" data-to="2720">During chaos testing on March 12th, we observed a rare race condition when two nodes were removed simultaneously within a 200ms window. This has been logged as <strong data-from="2646" data-to="2658">BUG-2291</strong> and is currently under investigation by the reliability team.</p>
+</blockquote>
+<hr data-from="2722" data-to="2725">
+<h2 id="task-list-sprint-14-deliverables" data-from="2727" data-to="2764">Task List — Sprint 14 Deliverables</h2>
+<ul data-from="2766" data-to="3150">
+  <li class="mdr-task" data-from="2766" data-to="2804"><input type="checkbox" disabled checked data-from="2768" data-to="2771">Migrate PostgreSQL to version 16</li>
+  <li class="mdr-task" data-from="2805" data-to="2849"><input type="checkbox" disabled checked data-from="2807" data-to="2810">Implement rendezvous hashing prototype</li>
+  <li class="mdr-task" data-from="2850" data-to="2901"><input type="checkbox" disabled checked data-from="2852" data-to="2855">Deploy hashing changes to staging environment</li>
+  <li class="mdr-task" data-from="2902" data-to="2940"><input type="checkbox" disabled checked data-from="2904" data-to="2907">Run chaos engineering test suite</li>
+  <li class="mdr-task" data-from="2941" data-to="2996"><input type="checkbox" disabled data-from="2943" data-to="2946">Resolve BUG-2291 (race condition in node removal)</li>
+  <li class="mdr-task" data-from="2997" data-to="3040"><input type="checkbox" disabled data-from="2999" data-to="3002">Promote hashing changes to production</li>
+  <li class="mdr-task" data-from="3041" data-to="3098"><input type="checkbox" disabled data-from="3043" data-to="3046">Update internal documentation for on-call engineers</li>
+  <li class="mdr-task" data-from="3099" data-to="3150"><input type="checkbox" disabled data-from="3101" data-to="3104">Conduct load test at 2x expected peak traffic</li>
+</ul>
+<hr data-from="3152" data-to="3155">
+<h2 id="team-workstream-breakdown" data-from="3157" data-to="3187">Team &amp; Workstream Breakdown</h2>
+<ul data-from="3189" data-to="3929">
+  <li data-from="3189" data-to="3520"><strong data-from="3191" data-to="3214">Infrastructure Team</strong><ul data-from="3217" data-to="3520">
+      <li data-from="3217" data-to="3420">Database migration<ul data-from="3242" data-to="3420">
+          <li data-from="3242" data-to="3271">Schema validation completed</li>
+          <li data-from="3276" data-to="3302">Rollback plan documented</li>
+          <li data-from="3307" data-to="3420">Post-migration performance audit<ul data-from="3348" data-to="3420">
+              <li data-from="3348" data-to="3388">CPU utilization within expected bounds</li>
+              <li data-from="3395" data-to="3420">Disk I/O reduced by 12%</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="3423" data-to="3520">Node provisioning automation<ul data-from="3458" data-to="3520">
+          <li data-from="3458" data-to="3485">Terraform modules updated</li>
+          <li data-from="3490" data-to="3520">Ansible playbooks refactored</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="3521" data-to="3856"><strong data-from="3523" data-to="3548">Core Engineering Team</strong><ul data-from="3551" data-to="3856">
+      <li data-from="3551" data-to="3762">Hashing algorithm redesign<ul data-from="3584" data-to="3762">
+          <li data-from="3584" data-to="3610">Prototype implementation</li>
+          <li data-from="3615" data-to="3762">Unit test coverage expansion<ul data-from="3652" data-to="3762">
+              <li data-from="3652" data-to="3680">Edge case: empty node list</li>
+              <li data-from="3687" data-to="3762">Edge case: single-node cluster<ul data-from="3728" data-to="3762">
+                  <li data-from="3728" data-to="3762">Confirmed deterministic behavior</li>
+                </ul></li>
+            </ul></li>
+        </ul></li>
+      <li data-from="3765" data-to="3856">API gateway improvements<ul data-from="3796" data-to="3856">
+          <li data-from="3796" data-to="3822">Rate limiting middleware</li>
+          <li data-from="3827" data-to="3856">Request tracing integration</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="3857" data-to="3929"><strong data-from="3859" data-to="3870">QA Team</strong><ul data-from="3873" data-to="3929">
+      <li data-from="3873" data-to="3898">Chaos testing framework</li>
+      <li data-from="3901" data-to="3929">Regression suite expansion</li>
+    </ul></li>
+</ul>
+<hr data-from="3931" data-to="3934">
+<h2 id="risks-blockers" data-from="3936" data-to="3955">Risks &amp; Blockers</h2>
+<p data-from="3957" data-to="4222">The most pressing risk remains <strong data-from="3988" data-to="4000">BUG-2291</strong>, which could cause transient cache misses under specific failure conditions. We estimate this affects fewer than <em data-from="4114" data-to="4121">0.05%</em> of requests, but given our strict SLA commitments, resolution is a <strong data-from="4189" data-to="4205">top priority</strong> for next sprint.</p>
+<p data-from="4224" data-to="4374">Additionally, the team has flagged concerns about upcoming holiday staffing, which may slow the production rollout timeline by approximately one week.</p>
+<hr data-from="4376" data-to="4379">
+<h2 id="next-steps" data-from="4381" data-to="4394">Next Steps</h2>
+<ol data-from="4396" data-to="4817">
+  <li data-from="4396" data-to="4464">Finalize root-cause analysis for the node-removal race condition.</li>
+  <li data-from="4465" data-to="4534">Complete the 2x peak load test using synthetic traffic generation.</li>
+  <li data-from="4535" data-to="4624">Draft updated runbooks for the on-call rotation, incorporating the new hashing scheme.</li>
+  <li data-from="4625" data-to="4724">Schedule a design review for the proposed <strong data-from="4670" data-to="4698">multi-region replication</strong> feature, targeted for Q3.</li>
+  <li data-from="4725" data-to="4817">Begin capacity planning for anticipated traffic growth of 22% over the next two quarters.</li>
+</ol>
+<hr data-from="4819" data-to="4822">
+<p data-from="4824" data-to="4972"><em data-from="4824" data-to="4972">Prepared with input from the Infrastructure, Core Engineering, and QA teams. For questions, please reach out in the #project-aurora Slack channel.</em></p>

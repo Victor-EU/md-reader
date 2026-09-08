@@ -1,0 +1,106 @@
+<h1 id="research-notes-ingest-side-deduplication-for-the-cormorant-telemetry-pipeline" data-from="0" data-to="81">Research Notes — Ingest-Side Deduplication for the Cormorant Telemetry Pipeline</h1>
+<p data-from="83" data-to="244"><strong data-from="83" data-to="96">Notebook:</strong> HALYARD-7
+<strong data-from="107" data-to="118">Author:</strong> R. Ossley-Vance, Platform Reliability
+<strong data-from="157" data-to="176">Window covered:</strong> sprints 41–44
+<strong data-from="191" data-to="202">Status:</strong> draft, pending review by the Ingest guild</p>
+<h2 id="problem-statement" data-from="246" data-to="266">Problem statement</h2>
+<p data-from="268" data-to="820">Cormorant currently accepts ~1.9 M events/sec at peak from 34 000 edge agents. Agents retry aggressively on any 5xx or socket timeout, so between 0.4 % and 3.1 % of accepted events are duplicates of something we already stored. Downstream, the rollup service double-counts these, and the billing extract inherits the error. Our correctness target for the next release train is <strong data-from="645" data-to="685">≤ 1 duplicate per 10^7 stored events</strong>, measured over a rolling 24 h window, without adding more than 6 ms to the p99 ingest latency budget (currently 41 ms, ceiling 55 ms).</p>
+<p data-from="822" data-to="1222">Every event carries an <code data-from="845" data-to="854">emit_id</code>: a 128-bit value the agent derives from <code data-from="895" data-to="936">(agent_uuid, monotonic_seq, boot_epoch)</code>. It is stable across retries and unique per logical emission. Deduplication therefore reduces to membership testing over a very large, but time-bounded, key set — agents are contractually forbidden from retrying beyond 900 s, so a key older than the retention horizon can be forgotten.</p>
+<p data-from="1224" data-to="1403">Three candidate designs were prototyped. Numbers below come from the <code data-from="1293" data-to="1302">sable-3</code> staging cluster (12 ingest nodes, 48 vCPU each) replaying the <code data-from="1365" data-to="1375">oct-peak</code> capture at 1.4× real speed.</p>
+<hr data-from="1405" data-to="1408">
+<h2 id="approach-a-centralised-exact-set-in-tidepool" data-from="1410" data-to="1459">Approach A — Centralised exact set in Tidepool</h2>
+<p data-from="1461" data-to="1663">A single logical Tidepool cluster (our in-house sharded key-value store) holds <code data-from="1540" data-to="1554">emit_id → ()</code> with a 900 s TTL. Each ingest worker issues a conditional insert; a rejected insert means "duplicate, drop".</p>
+<p data-from="1665" data-to="1687"><strong data-from="1665" data-to="1687">Observed behaviour</strong></p>
+<ul data-from="1689" data-to="2112">
+  <li data-from="1689" data-to="1766">Duplicate escape rate: 0 in 4.1 × 10^9 replayed events. Exact, as expected.</li>
+  <li data-from="1767" data-to="1845">Added p99 latency: 11.3 ms (one extra network round trip plus tail queuing).</li>
+  <li data-from="1846" data-to="1928">Tidepool CPU at peak: 71 % of a 9-node cluster dedicated to this workload alone.</li>
+  <li data-from="1929" data-to="2112">Failure mode is ugly: when the Tidepool leader for a shard flaps, ingest workers either block (latency spike to 380 ms) or fail open (duplicates flood through in a burst of ~2.2 M).</li>
+</ul>
+<p data-from="2114" data-to="2177">The fail-open/fail-closed choice is the crux. We modelled both:</p>
+<ul data-from="2179" data-to="2730">
+  <li data-from="2179" data-to="2376"><strong data-from="2181" data-to="2196">Fail closed</strong><ul data-from="2199" data-to="2376">
+      <li data-from="2199" data-to="2284">availability becomes the product of ingest availability and Tidepool availability</li>
+      <li data-from="2287" data-to="2376">measured composite over 30 days of staging chaos runs: 99.87 %, below our 99.95 % SLO</li>
+    </ul></li>
+  <li data-from="2377" data-to="2730"><strong data-from="2379" data-to="2392">Fail open</strong><ul data-from="2395" data-to="2730">
+      <li data-from="2395" data-to="2421">availability preserved</li>
+      <li data-from="2424" data-to="2730">but a 40 s partition produced 1.8 × 10^6 duplicates — four orders of magnitude over budget<ul data-from="2525" data-to="2730">
+          <li data-from="2525" data-to="2730">a compensating batch job could remove them post hoc<ul data-from="2591" data-to="2730">
+              <li data-from="2591" data-to="2730">requires the rollup service to support retractions<ul data-from="2660" data-to="2730">
+                  <li data-from="2660" data-to="2730">which it does not, and the retrofit was scoped at 7 engineer-weeks</li>
+                </ul></li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+</ul>
+<p data-from="2732" data-to="2807">Approach A is the correctness gold standard and the operational worst case.</p>
+<hr data-from="2809" data-to="2812">
+<h2 id="approach-b-partition-local-cuckoo-filters" data-from="2814" data-to="2860">Approach B — Partition-local cuckoo filters</h2>
+<p data-from="2862" data-to="3046">Route by <code data-from="2871" data-to="2892">hash(emit_id) mod P</code> so that all retries of a given emission land on the same partition, then keep an in-process cuckoo filter per partition. No network hop, no shared state.</p>
+<p data-from="3048" data-to="3392">Sizing: at 1.9 M/s and a 900 s horizon, a partition of 1/256 of the stream holds ~6.7 M live keys. A 4-way cuckoo filter with 14-bit fingerprints at 92 % load gives a false-positive rate near 1.0 × 10^-3 — far too coarse. Pushing fingerprints to 24 bits lands at ~4 × 10^-6 and costs 22 MB per partition, or 5.6 GB across the fleet. Acceptable.</p>
+<p data-from="3394" data-to="3537">A false positive here means we <em data-from="3425" data-to="3450">drop a legitimate event</em>, which is worse than emitting a duplicate. That asymmetry drove the fingerprint width.</p>
+<pre class="mdr-code" data-lang="python" data-from="3539" data-to="4465"><code class="language-python" data-verbatim data-from="3549" data-to="4461"># halyard/router.py — partition assignment must survive rebalance
+# so that a retry reaches the same filter as the original.
+
+RING_SLOTS = 4096
+
+def partition_for(emit_id: bytes, ring: "Ring") -&gt; int:
+    """Rendezvous-hash emit_id onto the current ring.
+
+    Stability property: adding or removing one node moves at most
+    1/len(ring.nodes) of the keyspace, and never remaps a key
+    between two nodes that both remain present.
+    """
+    slot = int.from_bytes(emit_id[:4], "big") % RING_SLOTS
+    best_node, best_score = None, -1
+    for node in ring.live_nodes():
+        score = ring.mixer(node.id, slot)
+        if score &gt; best_score:
+            best_node, best_score = node, score
+    return best_node.partitions[slot % best_node.width]
+
+
+def admit(event, filters) -&gt; bool:
+    pid = partition_for(event.emit_id, filters.ring)
+    return filters[pid].insert_unique(event.emit_id)  # False =&gt; duplicate</code></pre>
+<p data-from="4467" data-to="4489"><strong data-from="4467" data-to="4489">Observed behaviour</strong></p>
+<ul data-from="4491" data-to="4848">
+  <li data-from="4491" data-to="4572">Duplicate escape rate: 3 in 4.1 × 10^9 (all during a deliberate node eviction).</li>
+  <li data-from="4573" data-to="4661">Legitimate-event drop rate: 2.7 × 10^-6, consistent with the filter's theoretical FPR.</li>
+  <li data-from="4662" data-to="4690">Added p99 latency: 0.9 ms.</li>
+  <li data-from="4691" data-to="4848">Rebalance is the weak point. When a node leaves, its partitions' filters are lost; the replacement starts empty and duplicates flow freely for up to 900 s.</li>
+</ul>
+<p data-from="4850" data-to="5203">Mitigation prototyped: checkpoint filter bitmaps to object storage every 20 s and have the successor hydrate from the last checkpoint. Hydration took 14 s for a 22 MB filter, leaving a 20–34 s duplicate window per eviction. With our observed eviction rate (~2.1/day) that is roughly 90 000 duplicates/day against a budget of ~16 000. Close, but failing.</p>
+<hr data-from="5205" data-to="5208">
+<h2 id="approach-c-two-tier-coarse-filter-then-bounded-exact-check" data-from="5210" data-to="5275">Approach C — Two-tier: coarse filter, then bounded exact check</h2>
+<p data-from="5277" data-to="5482">Keep the partition-local filter from B, but treat a <em data-from="5329" data-to="5334">hit</em> as "probably duplicate, verify" rather than "duplicate, drop". Verification consults a small Tidepool lookup restricted to keys the filter flagged.</p>
+<p data-from="5484" data-to="5693">Because genuine duplicates are 0.4–3.1 % of traffic and the FPR adds ~4 × 10^-6, the verification path sees roughly 3 % of events. That is ~57 K lookups/sec instead of 1.9 M — a 33× reduction in Tidepool load.</p>
+<ul data-from="5695" data-to="6240">
+  <li data-from="5695" data-to="5882">Duplicate escape rate: 0 in 4.1 × 10^9 (steady state); 1 in 10^8 amortised across evictions, since a cold filter simply forwards more traffic to the exact tier rather than failing open.</li>
+  <li data-from="5883" data-to="5972">Legitimate-event drop rate: 0. Filter false positives are corrected by the exact check.</li>
+  <li data-from="5973" data-to="6041">Added p99 latency: 1.6 ms typical; 9.4 ms for the 3 % that verify.</li>
+  <li data-from="6042" data-to="6085">Tidepool footprint: 2 nodes instead of 9.</li>
+  <li data-from="6086" data-to="6240">Degradation under partition is <em data-from="6119" data-to="6129">graceful</em>: the filter alone still catches ~97 % of duplicates, so a Tidepool outage costs us accuracy, not availability.</li>
+</ul>
+<hr data-from="6242" data-to="6245">
+<h2 id="experiment-log" data-from="6247" data-to="6264">Experiment log</h2>
+<ul data-from="6266" data-to="6790">
+  <li class="mdr-task" data-from="6266" data-to="6313"><input type="checkbox" disabled checked data-from="6268" data-to="6271">Replay <code data-from="6279" data-to="6289">oct-peak</code> against A, B, C at 1.4×</li>
+  <li class="mdr-task" data-from="6314" data-to="6379"><input type="checkbox" disabled checked data-from="6316" data-to="6319">Measure filter FPR empirically at 14/18/24-bit fingerprints</li>
+  <li class="mdr-task" data-from="6380" data-to="6448"><input type="checkbox" disabled checked data-from="6382" data-to="6385">Chaos: single-node eviction under load, 20 trials per approach</li>
+  <li class="mdr-task" data-from="6449" data-to="6495"><input type="checkbox" disabled checked data-from="6451" data-to="6454">Cost model for Tidepool capacity under C</li>
+  <li class="mdr-task" data-from="6496" data-to="6592"><input type="checkbox" disabled data-from="6498" data-to="6501">Replay <code data-from="6509" data-to="6520">mar-burst</code> (the pathological retry storm capture) — blocked on capture restoration</li>
+  <li class="mdr-task" data-from="6593" data-to="6661"><input type="checkbox" disabled data-from="6595" data-to="6598">Verify checkpoint hydration under simultaneous double eviction</li>
+  <li class="mdr-task" data-from="6662" data-to="6733"><input type="checkbox" disabled data-from="6664" data-to="6667">Confirm 24-bit fingerprint memory ceiling on the 32 GB ingest SKU</li>
+  <li class="mdr-task" data-from="6734" data-to="6790"><input type="checkbox" disabled data-from="6736" data-to="6739">Sign-off from Billing on residual duplicate budget</li>
+</ul>
+<h2 id="recommendation" data-from="6792" data-to="6809">Recommendation</h2>
+<ol data-from="6811" data-to="7344">
+  <li data-from="6811" data-to="6878">Adopt <strong data-from="6820" data-to="6834">Approach C</strong> as the target architecture for release 9.2.</li>
+  <li data-from="6879" data-to="6974">Ship the partition-local filter first, behind flag <code data-from="6933" data-to="6957">halyard.filter.enabled</code>, defaulting off.</li>
+  <li data-from="6975" data-to="7085">Enable verification tier only after Tidepool capacity for 2 dedicated nodes is provisioned in both regions.</li>
+  <li data-from="7086" data-to="7210">Instrument <code data-from="7100" data-to="7120">dedup_verify_ratio</code>; alert if it exceeds 8 %, which would indicate either a retry storm or filter corruption.</li>
+  <li data-from="7211" data-to="7344">Revisit fingerprint width once <code data-from="7245" data-to="7256">mar-burst</code> results land — 20 bits may suffice given the exact backstop, saving ~1.9 GB fleet-wide.</li>
+</ol>
+<p data-from="7346" data-to="7650"><strong data-from="7346" data-to="7375">Open question for review:</strong> should the verification tier be regional or global? Regional is cheaper and simpler, but agents that fail over across regions mid-retry would escape deduplication. Estimated frequency of that scenario is unknown; needs a query against the edge routing logs before we commit.</p>

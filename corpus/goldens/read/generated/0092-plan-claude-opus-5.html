@@ -1,0 +1,244 @@
+<h1 id="project-plan-harbor-ledger-migration" data-from="0" data-to="39">Project Plan: Harbor Ledger Migration</h1>
+<p data-from="41" data-to="255"><strong data-from="41" data-to="58">Project Code:</strong> HLM-2291
+<strong data-from="68" data-to="80">Sponsor:</strong> Dalia Ferreiro, VP of Platform Operations
+<strong data-from="123" data-to="143">Program Manager:</strong> Tomas Elkjaer
+<strong data-from="158" data-to="179">Planning Horizon:</strong> March 3 – November 14
+<strong data-from="202" data-to="223">Document Version:</strong> 1.4 (draft for steering review)</p>
+<hr data-from="257" data-to="260">
+<h2 id="1-purpose-and-scope" data-from="262" data-to="285">1. Purpose and Scope</h2>
+<p data-from="287" data-to="730">Harbor Ledger is the internal settlement system that reconciles partner payouts across our seven regional entities. It currently runs on a single-tenant Kestrel 4 database with a batch window that has grown from 40 minutes to just under three hours. This project migrates Harbor Ledger to the Tidewater event-streaming platform, splits the monolithic reconciliation job into six bounded services, and retires the legacy nightly batch entirely.</p>
+<p data-from="732" data-to="873"><strong data-from="732" data-to="745">In scope:</strong> ledger ingestion, reconciliation engine, payout scheduling, partner-facing statement API, historical data backfill (36 months).</p>
+<p data-from="875" data-to="1038"><strong data-from="875" data-to="892">Out of scope:</strong> the tax withholding calculator (owned by Finance Systems), the partner onboarding portal, and any change to the general ledger chart of accounts.</p>
+<blockquote data-from="1040" data-to="1348">
+  <p data-from="1042" data-to="1348">The success criterion is not "we moved the data." It is that a regional controller in Lisbon can close their books on the second business day without filing a single manual adjustment ticket. Everything else in this plan is instrumentation toward that outcome.
+ — Dalia Ferreiro, kickoff memo, February 19</p>
+</blockquote>
+<hr data-from="1350" data-to="1353">
+<h2 id="2-phases" data-from="1355" data-to="1367">2. Phases</h2>
+<h3 id="phase-0-discovery-and-baseline-mar-3-apr-11" data-from="1369" data-to="1422">Phase 0 — Discovery and Baseline (Mar 3 – Apr 11)</h3>
+<ul data-from="1424" data-to="2052">
+  <li data-from="1424" data-to="1497">Instrument the existing batch job to produce per-stage timing telemetry</li>
+  <li data-from="1498" data-to="1968">Catalogue all 214 downstream consumers of the <code data-from="1546" data-to="1564">ledger_settle_v2</code> table<ul data-from="1573" data-to="1968">
+      <li data-from="1573" data-to="1968">Classify each consumer by:<ul data-from="1606" data-to="1968">
+          <li data-from="1606" data-to="1813"><strong data-from="1608" data-to="1623">Criticality</strong><ul data-from="1630" data-to="1813">
+              <li data-from="1630" data-to="1681">Tier 1 — payout blocking (expected: 11 consumers)</li>
+              <li data-from="1688" data-to="1747">Tier 2 — reporting, tolerant of 24h delay (expected: ~60)</li>
+              <li data-from="1754" data-to="1813">Tier 3 — ad hoc analyst queries, deprecate where possible</li>
+            </ul></li>
+          <li data-from="1818" data-to="1968"><strong data-from="1820" data-to="1838">Migration path</strong><ul data-from="1845" data-to="1968">
+              <li data-from="1845" data-to="1879">Direct rewire to Tidewater topic</li>
+              <li data-from="1886" data-to="1934">Compatibility view maintained for two quarters</li>
+              <li data-from="1941" data-to="1968">Sunset with 60-day notice</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="1969" data-to="2052">Produce the reconciliation invariant catalogue (target: 48 documented invariants)</li>
+</ul>
+<p data-from="2054" data-to="2224"><strong data-from="2054" data-to="2064">Owner:</strong> Priya Nandakumar (Staff Engineer, Ledger)
+<strong data-from="2107" data-to="2121">Exit gate:</strong> Baseline performance report signed off by Dalia Ferreiro and Marcus Ostroff (Head of Finance Systems).</p>
+<h3 id="phase-1-foundation-build-apr-14-jun-20" data-from="2226" data-to="2274">Phase 1 — Foundation Build (Apr 14 – Jun 20)</h3>
+<ul data-from="2276" data-to="2597">
+  <li data-from="2276" data-to="2366">Stand up Tidewater clusters in <code data-from="2309" data-to="2320">eu-west-2</code> and <code data-from="2325" data-to="2336">us-east-4</code> with cross-region replication</li>
+  <li data-from="2367" data-to="2426">Build the <code data-from="2379" data-to="2394">ledger-ingest</code> and <code data-from="2399" data-to="2417">ledger-normalize</code> services</li>
+  <li data-from="2427" data-to="2506">Implement the dual-write shim so legacy and new paths receive identical input</li>
+  <li data-from="2507" data-to="2597">Deliver the invariant test harness (runs all 48 invariants against both systems nightly)</li>
+</ul>
+<p data-from="2599" data-to="2659"><strong data-from="2599" data-to="2609">Owner:</strong> Reuben Achterberg (Engineering Manager, Platform)</p>
+<h3 id="phase-2-reconciliation-engine-jun-23-aug-29" data-from="2661" data-to="2714">Phase 2 — Reconciliation Engine (Jun 23 – Aug 29)</h3>
+<ul data-from="2716" data-to="3035">
+  <li data-from="2716" data-to="2824">Port matching logic for the four settlement types: standard, split-remit, chargeback reversal, FX-adjusted</li>
+  <li data-from="2825" data-to="2877">Build the exception queue and controller review UI</li>
+  <li data-from="2878" data-to="2953">Backfill 36 months of history into the new store (est. 1.9 TB compressed)</li>
+  <li data-from="2954" data-to="3035">Achieve 14 consecutive nights of zero-divergence between legacy and new outputs</li>
+</ul>
+<p data-from="3037" data-to="3064"><strong data-from="3037" data-to="3047">Owner:</strong> Priya Nandakumar</p>
+<h3 id="phase-3-cutover-and-stabilization-sep-1-oct-24" data-from="3066" data-to="3122">Phase 3 — Cutover and Stabilization (Sep 1 – Oct 24)</h3>
+<ul data-from="3124" data-to="3337">
+  <li data-from="3124" data-to="3192">Regional cutover in waves: Iberia → Nordics → North America → APAC</li>
+  <li data-from="3193" data-to="3255">Legacy batch runs in shadow mode for 21 days after each wave</li>
+  <li data-from="3256" data-to="3337">Decommission <code data-from="3271" data-to="3289">ledger_settle_v2</code> writes; convert to read-only compatibility view</li>
+</ul>
+<p data-from="3339" data-to="3382"><strong data-from="3339" data-to="3349">Owner:</strong> Ines Kovalenko (Release Manager)</p>
+<h3 id="phase-4-retirement-and-handover-oct-27-nov-14" data-from="3384" data-to="3439">Phase 4 — Retirement and Handover (Oct 27 – Nov 14)</h3>
+<ul data-from="3441" data-to="3620">
+  <li data-from="3441" data-to="3487">Decommission Kestrel 4 instance <code data-from="3475" data-to="3487">hl-prod-01</code></li>
+  <li data-from="3488" data-to="3548">Transfer on-call ownership to the Ledger Reliability squad</li>
+  <li data-from="3549" data-to="3620">Publish runbooks, post-implementation review, and cost reconciliation</li>
+</ul>
+<p data-from="3622" data-to="3646"><strong data-from="3622" data-to="3632">Owner:</strong> Tomas Elkjaer</p>
+<hr data-from="3648" data-to="3651">
+<h2 id="3-milestones" data-from="3653" data-to="3669">3. Milestones</h2>
+<div class="mdr-table-wrap" data-from="3671" data-to="4635">
+  <table data-from="3671" data-to="4635">
+    <thead data-from="3671" data-to="3727">
+      <tr data-from="3671" data-to="3727">
+        <th data-from="3673" data-to="3675">ID</th>
+        <th data-from="3678" data-to="3687">Milestone</th>
+        <th data-from="3690" data-to="3701">Target Date</th>
+        <th data-from="3704" data-to="3709">Owner</th>
+        <th data-from="3712" data-to="3725">Gate Criteria</th>
+      </tr>
+    </thead>
+    <tbody data-from="3785" data-to="4635">
+      <tr data-from="3785" data-to="3896">
+        <td data-from="3787" data-to="3789">M1</td>
+        <td data-from="3792" data-to="3816">Baseline report accepted</td>
+        <td data-from="3819" data-to="3825">Apr 11</td>
+        <td data-from="3828" data-to="3841">P. Nandakumar</td>
+        <td data-from="3844" data-to="3894">Telemetry live 14 days; consumer catalogue at 100%</td>
+      </tr>
+      <tr data-from="3897" data-to="3993">
+        <td data-from="3899" data-to="3901">M2</td>
+        <td data-from="3904" data-to="3933">Dual-write shim in production</td>
+        <td data-from="3936" data-to="3942">May 30</td>
+        <td data-from="3945" data-to="3958">R. Achterberg</td>
+        <td data-from="3961" data-to="3991">&lt;0.5% write latency regression</td>
+      </tr>
+      <tr data-from="3994" data-to="4087">
+        <td data-from="3996" data-to="3998">M3</td>
+        <td data-from="4001" data-to="4024">Invariant harness green</td>
+        <td data-from="4027" data-to="4033">Jun 20</td>
+        <td data-from="4036" data-to="4049">R. Achterberg</td>
+        <td data-from="4052" data-to="4085">48/48 invariants passing 7 nights</td>
+      </tr>
+      <tr data-from="4088" data-to="4183">
+        <td data-from="4090" data-to="4092">M4</td>
+        <td data-from="4095" data-to="4125">Backfill complete and verified</td>
+        <td data-from="4128" data-to="4133">Aug 8</td>
+        <td data-from="4136" data-to="4149">P. Nandakumar</td>
+        <td data-from="4152" data-to="4181">Row-count and checksum parity</td>
+      </tr>
+      <tr data-from="4184" data-to="4273">
+        <td data-from="4186" data-to="4188">M5</td>
+        <td data-from="4191" data-to="4222">Zero-divergence streak achieved</td>
+        <td data-from="4225" data-to="4231">Aug 29</td>
+        <td data-from="4234" data-to="4247">P. Nandakumar</td>
+        <td data-from="4250" data-to="4271">14 consecutive nights</td>
+      </tr>
+      <tr data-from="4274" data-to="4362">
+        <td data-from="4276" data-to="4278">M6</td>
+        <td data-from="4281" data-to="4297">Iberia wave live</td>
+        <td data-from="4300" data-to="4306">Sep 12</td>
+        <td data-from="4309" data-to="4321">I. Kovalenko</td>
+        <td data-from="4324" data-to="4360">Controller sign-off, Lisbon + Madrid</td>
+      </tr>
+      <tr data-from="4363" data-to="4455">
+        <td data-from="4365" data-to="4367">M7</td>
+        <td data-from="4370" data-to="4390">All regions cut over</td>
+        <td data-from="4393" data-to="4399">Oct 24</td>
+        <td data-from="4402" data-to="4414">I. Kovalenko</td>
+        <td data-from="4417" data-to="4453">Shadow mode clean for all four waves</td>
+      </tr>
+      <tr data-from="4456" data-to="4554">
+        <td data-from="4458" data-to="4460">M8</td>
+        <td data-from="4463" data-to="4487">Kestrel 4 decommissioned</td>
+        <td data-from="4490" data-to="4495">Nov 7</td>
+        <td data-from="4498" data-to="4508">T. Elkjaer</td>
+        <td data-from="4511" data-to="4552">Final snapshot archived, 7-year retention</td>
+      </tr>
+      <tr data-from="4555" data-to="4635">
+        <td data-from="4557" data-to="4559">M9</td>
+        <td data-from="4562" data-to="4576">Project closed</td>
+        <td data-from="4579" data-to="4585">Nov 14</td>
+        <td data-from="4588" data-to="4598">T. Elkjaer</td>
+        <td data-from="4601" data-to="4633">PIR published, budget reconciled</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="4637" data-to="4640">
+<h2 id="4-verification-approach" data-from="4642" data-to="4669">4. Verification Approach</h2>
+<p data-from="4671" data-to="4822">Each nightly comparison run emits a divergence record. The stabilization gate is defined programmatically so there is no argument about "close enough":</p>
+<pre class="mdr-code" data-lang="python" data-from="4824" data-to="5446"><code class="language-python" data-verbatim data-from="4834" data-to="5442">from datetime import date, timedelta
+
+ACCEPTED_STREAK = 14
+CENT_TOLERANCE = 0
+
+def divergence_free(run):
+    """A run passes only if every invariant holds and no cent is unexplained."""
+    return (
+        run.invariants_failed == 0
+        and abs(run.legacy_total_cents - run.tidewater_total_cents) &lt;= CENT_TOLERANCE
+        and run.unmatched_records == 0
+    )
+
+def cutover_ready(runs, as_of: date) -&gt; bool:
+    window = [r for r in runs if as_of - r.run_date &lt; timedelta(days=ACCEPTED_STREAK)]
+    if len(window) &lt; ACCEPTED_STREAK:
+        return False
+    return all(divergence_free(r) for r in window)</code></pre>
+<p data-from="5448" data-to="5596">Results post to the <code data-from="5468" data-to="5482">#hlm-nightly</code> channel at 06:15 UTC. Two consecutive failures automatically pause the cutover calendar and page the phase owner.</p>
+<hr data-from="5598" data-to="5601">
+<h2 id="5-risks" data-from="5603" data-to="5614">5. Risks</h2>
+<div class="mdr-table-wrap" data-from="5616" data-to="6812">
+  <table data-from="5616" data-to="6812">
+    <thead data-from="5616" data-to="5672">
+      <tr data-from="5616" data-to="5672">
+        <th data-from="5618" data-to="5620">ID</th>
+        <th data-from="5623" data-to="5627">Risk</th>
+        <th data-from="5630" data-to="5640">Likelihood</th>
+        <th data-from="5643" data-to="5649">Impact</th>
+        <th data-from="5652" data-to="5657">Owner</th>
+        <th data-from="5660" data-to="5670">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody data-from="5729" data-to="6812">
+      <tr data-from="5729" data-to="5940">
+        <td data-from="5731" data-to="5733">R1</td>
+        <td data-from="5736" data-to="5811">FX-adjusted settlements have undocumented rounding behaviour in legacy code</td>
+        <td data-from="5814" data-to="5818">High</td>
+        <td data-from="5821" data-to="5825">High</td>
+        <td data-from="5828" data-to="5841">P. Nandakumar</td>
+        <td data-from="5844" data-to="5938">Dedicate two engineers to a rounding archaeology spike in Phase 0; capture as invariants 31–39</td>
+      </tr>
+      <tr data-from="5941" data-to="6109">
+        <td data-from="5943" data-to="5945">R2</td>
+        <td data-from="5948" data-to="6013">Backfill exceeds the 1.9 TB estimate and blows the storage budget</td>
+        <td data-from="6016" data-to="6022">Medium</td>
+        <td data-from="6025" data-to="6031">Medium</td>
+        <td data-from="6034" data-to="6047">R. Achterberg</td>
+        <td data-from="6050" data-to="6107">Reserve 3.4 TB; compress Tier 3 history at lower fidelity</td>
+      </tr>
+      <tr data-from="6110" data-to="6279">
+        <td data-from="6112" data-to="6114">R3</td>
+        <td data-from="6117" data-to="6184">Regional controllers unavailable during APAC wave (fiscal year-end)</td>
+        <td data-from="6187" data-to="6193">Medium</td>
+        <td data-from="6196" data-to="6200">High</td>
+        <td data-from="6203" data-to="6215">I. Kovalenko</td>
+        <td data-from="6218" data-to="6277">Move APAC to the final wave; secure named deputies by Aug 1</td>
+      </tr>
+      <tr data-from="6280" data-to="6477">
+        <td data-from="6282" data-to="6284">R4</td>
+        <td data-from="6287" data-to="6360">Tidewater cross-region replication lag exceeds 90 seconds under peak load</td>
+        <td data-from="6363" data-to="6366">Low</td>
+        <td data-from="6369" data-to="6373">High</td>
+        <td data-from="6376" data-to="6389">R. Achterberg</td>
+        <td data-from="6392" data-to="6475">Load test at 3x peak in Phase 1; fallback to single-region writes with async mirror</td>
+      </tr>
+      <tr data-from="6478" data-to="6659">
+        <td data-from="6480" data-to="6482">R5</td>
+        <td data-from="6485" data-to="6551">Key-person dependency on Priya Nandakumar for reconciliation logic</td>
+        <td data-from="6554" data-to="6558">High</td>
+        <td data-from="6561" data-to="6567">Medium</td>
+        <td data-from="6570" data-to="6580">T. Elkjaer</td>
+        <td data-from="6583" data-to="6657">Pair rotation from Phase 1; mandatory design docs for each settlement type</td>
+      </tr>
+      <tr data-from="6660" data-to="6812">
+        <td data-from="6662" data-to="6664">R6</td>
+        <td data-from="6667" data-to="6710">Tier 3 consumers resist sunset and escalate</td>
+        <td data-from="6713" data-to="6719">Medium</td>
+        <td data-from="6722" data-to="6725">Low</td>
+        <td data-from="6728" data-to="6738">M. Ostroff</td>
+        <td data-from="6741" data-to="6810">60-day notice issued Apr 15; compatibility view offered as compromise</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="6814" data-to="6817">
+<h2 id="6-governance" data-from="6819" data-to="6835">6. Governance</h2>
+<ul data-from="6837" data-to="7277">
+  <li data-from="6837" data-to="6942"><strong data-from="6839" data-to="6862">Steering committee:</strong> meets fortnightly, Thursdays 14:00 UTC (Ferreiro, Ostroff, Elkjaer, Achterberg)</li>
+  <li data-from="6943" data-to="7023"><strong data-from="6945" data-to="6968">Phase gate reviews:</strong> held within three business days of each phase end date</li>
+  <li data-from="7024" data-to="7168"><strong data-from="7026" data-to="7046">Escalation path:</strong> phase owner → Elkjaer → Ferreiro; anything touching payout correctness escalates immediately and skips intermediate steps</li>
+  <li data-from="7169" data-to="7277"><strong data-from="7171" data-to="7182">Budget:</strong> 1,240 engineering days approved; 9% contingency held by Elkjaer, released only at gate reviews</li>
+</ul>

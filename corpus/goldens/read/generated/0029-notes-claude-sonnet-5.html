@@ -1,0 +1,143 @@
+<h1 id="research-notes-approaches-to-streaming-rank-estimation-for-the-halyard-telemetry-pipeline" data-from="0" data-to="92">Research Notes: Approaches to Streaming Rank Estimation for the Halyard Telemetry Pipeline</h1>
+<h2 id="1-problem-statement" data-from="94" data-to="117">1. Problem Statement</h2>
+<p data-from="119" data-to="450">The Halyard telemetry pipeline ingests approximately <span class="mdr-math" data-tex="4.2 \times 10^6" data-from="172" data-to="189">4.2 \times 10^6</span> events per minute from distributed sensor clusters and must maintain a running estimate of the effective rank of the covariance matrix <span class="mdr-math" data-tex="\Sigma \in \mathbb{R}^{n \times n}" data-from="325" data-to="361">\Sigma \in \mathbb{R}^{n \times n}</span> describing correlations across <span class="mdr-math" data-tex="n = 512" data-from="393" data-to="402">n = 512</span> channels. The effective rank is defined here as</p>
+<div class="mdr-math-block" data-tex="r_{\text{eff}}(\Sigma) = \exp\left(-\sum_{i=1}^{n} p_i \log p_i\right), \qquad p_i = \frac{\lambda_i}{\sum_{j=1}^n \lambda_j}" data-from="452" data-to="583">
+  r_{\text{eff}}(\Sigma) = \exp\left(-\sum_{i=1}^{n} p_i \log p_i\right), \qquad p_i = \frac{\lambda_i}{\sum_{j=1}^n \lambda_j}
+</div>
+<p data-from="585" data-to="1152">where <span class="mdr-math" data-tex="\lambda_i" data-from="591" data-to="602">\lambda_i</span> are the eigenvalues of <span class="mdr-math" data-tex="\Sigma" data-from="626" data-to="634">\Sigma</span>. Computing <span class="mdr-math" data-tex="r_{\text{eff}}" data-from="646" data-to="662">r_{\text{eff}}</span> exactly at every timestep would require an eigendecomposition costing <span class="mdr-math" data-tex="O(n^3)" data-from="733" data-to="741">O(n^3)</span> operations, which is intractable given the pipeline's latency budget of 8 milliseconds per batch. These notes compare three candidate approaches investigated during the Q3 evaluation cycle of Project Halyard: (A) incremental Oja-style subspace tracking, (B) randomized sketch-and-solve via Gaussian projections, and (C) a hybrid moment-matching estimator developed internally, tentatively named "Fenwick-Rank."</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="1154" data-to="1507">
+  <div class="mdr-callout-title" data-from="1156" data-to="1163">
+    Note
+  </div>
+  <p data-from="1166" data-to="1507">All benchmarks below were run on the Aldebaran-7 cluster (dual 32-core Kestrel processors, 256 GB RAM) using synthetic covariance streams generated from a mixture of six latent factors with additive noise variance <span class="mdr-math" data-tex="\sigma^2 = 0.015" data-from="1380" data-to="1398">\sigma^2 = 0.015</span>. Real telemetry traces were withheld for this round pending a data-governance review scheduled for November.</p>
+</blockquote>
+<h2 id="2-approach-a-incremental-oja-subspace-tracking" data-from="1509" data-to="1560">2. Approach A: Incremental Oja Subspace Tracking</h2>
+<p data-from="1562" data-to="1792">Oja's rule updates an estimate of the dominant eigenvectors using a stochastic gradient step. For a stream of centered observations <span class="mdr-math" data-tex="x_t \in \mathbb{R}^n" data-from="1694" data-to="1716">x_t \in \mathbb{R}^n</span>, the update for the estimated subspace <span class="mdr-math" data-tex="W_t \in \mathbb{R}^{n \times k}" data-from="1756" data-to="1789">W_t \in \mathbb{R}^{n \times k}</span> is</p>
+<div class="mdr-math-block" data-tex="W_{t+1} = \operatorname{orth}\big(W_t + \eta_t \, x_t x_t^\top W_t\big)" data-from="1794" data-to="1871">
+  W_{t+1} = \operatorname{orth}\big(W_t + \eta_t \, x_t x_t^\top W_t\big)
+</div>
+<p data-from="1873" data-to="2077">where <span class="mdr-math" data-tex="\eta_t" data-from="1879" data-to="1887">\eta_t</span> is a decaying learning rate, typically <span class="mdr-math" data-tex="\eta_t = \eta_0 / (1 + \gamma t)" data-from="1927" data-to="1961">\eta_t = \eta_0 / (1 + \gamma t)</span>, and <span class="mdr-math" data-tex="\operatorname{orth}(\cdot)" data-from="1967" data-to="1995">\operatorname{orth}(\cdot)</span> denotes a QR-based re-orthonormalization applied every 64 steps to control drift.</p>
+<h3 id="21-implementation-sketch" data-from="2079" data-to="2108">2.1 Implementation Sketch</h3>
+<pre class="mdr-code" data-lang="python" data-from="2110" data-to="2702"><code class="language-python" data-verbatim data-from="2120" data-to="2698">import numpy as np
+
+def oja_update(W, x, eta):
+    # W: (n, k) current subspace estimate
+    # x: (n,) centered observation
+    Wx = W.T @ x
+    grad = np.outer(x, Wx)
+    W_new = W + eta * grad
+    return W_new
+
+def orthonormalize(W):
+    Q, _ = np.linalg.qr(W)
+    return Q
+
+def run_oja(stream, n, k=12, eta0=0.05, gamma=1e-4, ortho_every=64):
+    W = np.linalg.qr(np.random.randn(n, k))[0]
+    for t, x in enumerate(stream):
+        eta = eta0 / (1 + gamma * t)
+        W = oja_update(W, x, eta)
+        if t % ortho_every == 0:
+            W = orthonormalize(W)
+    return W</code></pre>
+<h3 id="22-observations" data-from="2704" data-to="2724">2.2 Observations</h3>
+<p data-from="2726" data-to="3222">Oja tracking converges to the dominant <span class="mdr-math" data-tex="k" data-from="2765" data-to="2768">k</span>-dimensional subspace at a rate that empirically scaled as <span class="mdr-math" data-tex="O(1/\sqrt{t})" data-from="2827" data-to="2842">O(1/\sqrt{t})</span> in our trials, consistent with stochastic approximation theory for this class of update. With <span class="mdr-math" data-tex="k = 12" data-from="2937" data-to="2945">k = 12</span>, the estimator recovered <span class="mdr-math" data-tex="r_{\text{eff}}" data-from="2971" data-to="2987">r_{\text{eff}}</span> within an absolute error of 0.31 after roughly 18,000 samples on the synthetic six-factor stream, but exhibited persistent bias when the true rank exceeded <span class="mdr-math" data-tex="k" data-from="3144" data-to="3147">k</span>, since it structurally cannot represent mass outside the tracked subspace.</p>
+<p data-from="3224" data-to="3350">Latency per update averaged 0.9 ms for <span class="mdr-math" data-tex="n = 512" data-from="3263" data-to="3272">n = 512</span>, <span class="mdr-math" data-tex="k = 12" data-from="3274" data-to="3282">k = 12</span>, comfortably inside budget. Memory footprint was modest at <span class="mdr-math" data-tex="O(nk)" data-from="3342" data-to="3349">O(nk)</span>.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="3352" data-to="3729">
+  <div class="mdr-callout-title" data-from="3354" data-to="3364">
+    Warning
+  </div>
+  <p data-from="3367" data-to="3729">Oja tracking is sensitive to the choice of <span class="mdr-math" data-tex="k" data-from="3410" data-to="3413">k</span>. If the underlying data-generating process gains additional latent factors mid-stream (as observed in a controlled "factor injection" test at <span class="mdr-math" data-tex="t = 50{,}000" data-from="3556" data-to="3570">t = 50{,}000</span>), the estimator underestimates <span class="mdr-math" data-tex="r_{\text{eff}}" data-from="3602" data-to="3618">r_{\text{eff}}</span> for an extended recovery window of over 6,000 samples before the orthonormalization step reallocates capacity.</p>
+</blockquote>
+<h2 id="3-approach-b-randomized-sketch-and-solve" data-from="3731" data-to="3776">3. Approach B: Randomized Sketch-and-Solve</h2>
+<p data-from="3778" data-to="4184">The second approach maintains a compressed sketch <span class="mdr-math" data-tex="S_t = \Omega^\top X_t \in \mathbb{R}^{m \times n}" data-from="3828" data-to="3879">S_t = \Omega^\top X_t \in \mathbb{R}^{m \times n}</span> of the accumulated data matrix <span class="mdr-math" data-tex="X_t" data-from="3911" data-to="3916">X_t</span>, where <span class="mdr-math" data-tex="\Omega \in \mathbb{R}^{n \times m}" data-from="3924" data-to="3960">\Omega \in \mathbb{R}^{n \times m}</span> is a fixed Gaussian random projection with <span class="mdr-math" data-tex="m \ll n" data-from="4004" data-to="4013">m \ll n</span>. The sketch is updated additively as new rows arrive, and the eigenvalue distribution of <span class="mdr-math" data-tex="\Sigma" data-from="4103" data-to="4111">\Sigma</span> is estimated from the small <span class="mdr-math" data-tex="m \times m" data-from="4140" data-to="4152">m \times m</span> Gram matrix <span class="mdr-math" data-tex="S_t S_t^\top / t" data-from="4165" data-to="4183">S_t S_t^\top / t</span>.</p>
+<p data-from="4186" data-to="4367">The theoretical justification rests on the Johnson–Lindenstrauss-type guarantee that pairwise distances (and, by extension, spectral energy) are preserved with high probability when</p>
+<div class="mdr-math-block" data-tex="m \geq c \cdot \frac{\log(n/\delta)}{\epsilon^2}" data-from="4369" data-to="4423">
+  m \geq c \cdot \frac{\log(n/\delta)}{\epsilon^2}
+</div>
+<p data-from="4425" data-to="4593">for constants <span class="mdr-math" data-tex="c" data-from="4439" data-to="4442">c</span> and failure probability <span class="mdr-math" data-tex="\delta" data-from="4467" data-to="4475">\delta</span>. In practice we set <span class="mdr-math" data-tex="m = 96" data-from="4496" data-to="4504">m = 96</span> and <span class="mdr-math" data-tex="\epsilon = 0.08" data-from="4509" data-to="4526">\epsilon = 0.08</span>, which the derived bound suggested would hold for <span class="mdr-math" data-tex="\delta = 0.01" data-from="4577" data-to="4592">\delta = 0.01</span>.</p>
+<h3 id="31-numerical-behavior" data-from="4595" data-to="4621">3.1 Numerical Behavior</h3>
+<p data-from="4623" data-to="5000">The sketch approach handled rank changes far more gracefully than Oja tracking: the projection <span class="mdr-math" data-tex="\Omega" data-from="4718" data-to="4726">\Omega</span> has no notion of a fixed subspace to saturate, so an increase in true rank is reflected immediately in the spectrum of <span class="mdr-math" data-tex="S_t S_t^\top" data-from="4846" data-to="4860">S_t S_t^\top</span>. In the factor-injection test, the estimator's error spiked briefly (peak absolute error 0.44) but returned to baseline within 900 samples.</p>
+<p data-from="5002" data-to="5403">However, the approach paid a steep computational price. Recomputing the eigenvalues of the <span class="mdr-math" data-tex="96 \times 96" data-from="5093" data-to="5107">96 \times 96</span> Gram matrix every batch cost approximately 2.1 ms, and refreshing the projection <span class="mdr-math" data-tex="\Omega" data-from="5189" data-to="5197">\Omega</span> periodically (to avoid numerical staleness) added a further 1.4 ms amortized over a 2,000-step refresh cycle. Total latency of 3.5 ms left less headroom than Approach A but remained within the 8 ms budget.</p>
+<ol data-from="5405" data-to="5949">
+  <li data-from="5405" data-to="5509">Sketch update: append new rows to <span class="mdr-math" data-tex="S_t" data-from="5442" data-to="5447">S_t</span> via a running matrix-vector product, cost <span class="mdr-math" data-tex="O(nm)" data-from="5490" data-to="5497">O(nm)</span> per sample.</li>
+  <li data-from="5510" data-to="5666">Periodic re-basing: every 2,000 samples, recompute <span class="mdr-math" data-tex="\Omega" data-from="5564" data-to="5572">\Omega</span> and re-project a rolling buffer of the last 5,000 samples to avoid unbounded numerical drift.</li>
+  <li data-from="5667" data-to="5794">Spectral read-out: eigendecompose the <span class="mdr-math" data-tex="m \times m" data-from="5708" data-to="5720">m \times m</span> Gram matrix and compute <span class="mdr-math" data-tex="r_{\text{eff}}" data-from="5745" data-to="5761">r_{\text{eff}}</span> from its normalized eigenvalues.</li>
+  <li data-from="5795" data-to="5949">Bias correction: subtract an estimated noise floor derived from the known projection dimension <span class="mdr-math" data-tex="m" data-from="5893" data-to="5896">m</span>, since random projections inflate small eigenvalues.</li>
+</ol>
+<h2 id="4-approach-c-fenwick-rank-hybrid-estimator" data-from="5951" data-to="5998">4. Approach C: Fenwick-Rank Hybrid Estimator</h2>
+<p data-from="6000" data-to="6255">Fenwick-Rank combines a lightweight moment-matching scheme with a small set of tracked "anchor" directions borrowed from Approach A, updated only every 200 samples rather than every sample. The key idea is that the first four traces of powers of <span class="mdr-math" data-tex="\Sigma" data-from="6246" data-to="6254">\Sigma</span>,</p>
+<div class="mdr-math-block" data-tex="\tau_j = \operatorname{tr}(\Sigma^j), \qquad j = 1, 2, 3, 4," data-from="6257" data-to="6323">
+  \tau_j = \operatorname{tr}(\Sigma^j), \qquad j = 1, 2, 3, 4,
+</div>
+<p data-from="6325" data-to="6499">can be estimated cheaply via Hutchinson-style stochastic trace estimation using random probe vectors <span class="mdr-math" data-tex="z_t \sim \mathcal{N}(0, I_n)" data-from="6426" data-to="6456">z_t \sim \mathcal{N}(0, I_n)</span>, without ever forming <span class="mdr-math" data-tex="\Sigma" data-from="6479" data-to="6487">\Sigma</span> explicitly:</p>
+<pre class="mdr-code" data-lang="python" data-from="6501" data-to="6935"><code class="language-python" data-verbatim data-from="6511" data-to="6931">def hutchinson_trace_powers(x, z, running_moments, decay=0.999):
+    # x: new centered observation (n,)
+    # z: random probe vector (n,)
+    xz = np.dot(x, z)
+    proj = xz * x  # rank-1 action of x x^T on z, approximated
+    running_moments['m1'] = decay * running_moments['m1'] + (1 - decay) * np.dot(x, x)
+    running_moments['m2'] = decay * running_moments['m2'] + (1 - decay) * (xz ** 2)
+    return running_moments</code></pre>
+<p data-from="6937" data-to="7134">The four estimated moments <span class="mdr-math" data-tex="\hat\tau_1, \dots, \hat\tau_4" data-from="6964" data-to="6995">\hat\tau_1, \dots, \hat\tau_4</span> are then fed into a moment-matching solver that fits a five-point discrete spectral distribution <span class="mdr-math" data-tex="\{(\lambda_i, w_i)\}_{i=1}^5" data-from="7093" data-to="7123">\{(\lambda_i, w_i)\}_{i=1}^5</span> minimizing</p>
+<div class="mdr-math-block" data-tex="\min_{\{\lambda_i, w_i\}} \sum_{j=1}^4 \Big(\hat\tau_j - \sum_{i=1}^5 w_i \lambda_i^j \Big)^2 \quad \text{subject to } w_i \geq 0, \sum_i w_i = 1," data-from="7136" data-to="7288">
+  \min_{\{\lambda_i, w_i\}} \sum_{j=1}^4 \Big(\hat\tau_j - \sum_{i=1}^5 w_i \lambda_i^j \Big)^2 \quad \text{subject to } w_i \geq 0, \sum_i w_i = 1,
+</div>
+<p data-from="7290" data-to="7405">after which <span class="mdr-math" data-tex="r_{\text{eff}}" data-from="7302" data-to="7318">r_{\text{eff}}</span> is computed directly from the fitted <span class="mdr-math" data-tex="\{w_i\}" data-from="7356" data-to="7365">\{w_i\}</span> under the entropy formula in Section 1.</p>
+<h3 id="41-findings" data-from="7407" data-to="7423">4.1 Findings</h3>
+<p data-from="7425" data-to="7953">Fenwick-Rank achieved the lowest steady-state error of the three methods, at 0.19 absolute error against ground truth on the synthetic benchmark, and recovered from the factor-injection event within approximately 1,200 samples — slower than Approach B but considerably faster than Approach A. Its latency profile was the most favorable: 1.1 ms per update, since the moment updates are <span class="mdr-math" data-tex="O(n)" data-from="7810" data-to="7816">O(n)</span> per sample and the five-point spectral fit (solved via a small nonlinear least-squares routine) only needs to run once every 50 samples.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="7955" data-to="8293">
+  <div class="mdr-callout-title" data-from="7957" data-to="7964">
+    Note
+  </div>
+  <p data-from="7967" data-to="8293">The moment-matching solve occasionally failed to converge to a feasible weight vector when <span class="mdr-math" data-tex="\hat\tau_4" data-from="8058" data-to="8070">\hat\tau_4</span> was corrupted by probe-vector noise, producing negative weights that were clipped to zero. This occurred in about 2.3% of solve attempts during the 40,000-sample evaluation run and is flagged as an open robustness concern.</p>
+</blockquote>
+<h2 id="5-comparative-summary" data-from="8295" data-to="8320">5. Comparative Summary</h2>
+<div class="mdr-table-wrap" data-from="8322" data-to="8699">
+  <table data-from="8322" data-to="8699">
+    <thead data-from="8322" data-to="8393">
+      <tr data-from="8322" data-to="8393">
+        <th data-from="8324" data-to="8330">Metric</th>
+        <th data-from="8333" data-to="8349">Oja Tracking (A)</th>
+        <th data-from="8352" data-to="8372">Sketch-and-Solve (B)</th>
+        <th data-from="8375" data-to="8391">Fenwick-Rank (C)</th>
+      </tr>
+    </thead>
+    <tbody data-from="8412" data-to="8699">
+      <tr data-from="8412" data-to="8455">
+        <td data-from="8414" data-to="8432">Steady-state error</td>
+        <td data-from="8435" data-to="8439">0.31</td>
+        <td data-from="8442" data-to="8446">0.27</td>
+        <td data-from="8449" data-to="8453">0.19</td>
+      </tr>
+      <tr data-from="8456" data-to="8540">
+        <td data-from="8458" data-to="8489">Recovery time after rank change</td>
+        <td data-from="8492" data-to="8506">~6,000 samples</td>
+        <td data-from="8509" data-to="8521">~900 samples</td>
+        <td data-from="8524" data-to="8538">~1,200 samples</td>
+      </tr>
+      <tr data-from="8541" data-to="8590">
+        <td data-from="8543" data-to="8561">Per-sample latency</td>
+        <td data-from="8564" data-to="8570">0.9 ms</td>
+        <td data-from="8573" data-to="8579">3.5 ms</td>
+        <td data-from="8582" data-to="8588">1.1 ms</td>
+      </tr>
+      <tr data-from="8591" data-to="8640">
+        <td data-from="8593" data-to="8609">Memory footprint</td>
+        <td data-from="8612" data-to="8619"><span class="mdr-math" data-tex="O(nk)" data-from="8612" data-to="8619">O(nk)</span></td>
+        <td data-from="8622" data-to="8629"><span class="mdr-math" data-tex="O(nm)" data-from="8622" data-to="8629">O(nm)</span></td>
+        <td data-from="8632" data-to="8638"><span class="mdr-math" data-tex="O(n)" data-from="8632" data-to="8638">O(n)</span></td>
+      </tr>
+      <tr data-from="8641" data-to="8699">
+        <td data-from="8643" data-to="8668">Implementation complexity</td>
+        <td data-from="8671" data-to="8674">Low</td>
+        <td data-from="8677" data-to="8683">Medium</td>
+        <td data-from="8686" data-to="8697">Medium-High</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="8701" data-to="8810">As one reviewer on the internal design review, R. Okonkwo-Lindqvist, put it during the September walkthrough:</p>
+<blockquote data-from="8812" data-to="8920">
+  <p data-from="8814" data-to="8920">"The sketch method wins on responsiveness, but you're paying for every millisecond of that speed in cycles</p>
+</blockquote>

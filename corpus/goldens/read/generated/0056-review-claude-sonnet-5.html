@@ -1,0 +1,82 @@
+<h1 id="review-summary-adaptive-resonance-scheduling-for-distributed-compute-clusters-draft-v32" data-from="0" data-to="95">Review Summary: "Adaptive Resonance Scheduling for Distributed Compute Clusters" (Draft v3.2)</h1>
+<h2 id="overview" data-from="97" data-to="108">Overview</h2>
+<p data-from="110" data-to="693">This review covers the internal technical report submitted by the Halcyon Systems Group describing a new scheduling algorithm — referred to throughout as <strong data-from="264" data-to="273">ARS-7</strong> — intended for use in heterogeneous compute clusters. The document proposes a resonance-based priority function for job placement and claims a 23% improvement in average queue latency over the baseline Round-Robin-Weighted (RRW) scheduler. This summary consolidates findings from three independent reviewers (Nadia Ferro, Callum Osei, and Priya Venkat) into a single set of observations, questions, and recommendations.</p>
+<hr data-from="695" data-to="698">
+<h2 id="1-summary-of-findings" data-from="700" data-to="725">1. Summary of Findings</h2>
+<h3 id="11-strengths" data-from="727" data-to="744">1.1 Strengths</h3>
+<p data-from="746" data-to="951">The core contribution — a dynamically weighted priority score <span class="mdr-math" data-tex="\pi_i" data-from="808" data-to="815">\pi_i</span> for job <span class="mdr-math" data-tex="i" data-from="824" data-to="827">i</span> — is conceptually sound and builds naturally on prior queueing-theoretic work. The authors define the priority function as:</p>
+<div class="mdr-math-block" data-tex="\pi_i = \alpha \cdot \frac{1}{w_i + \epsilon} + \beta \cdot \frac{c_i}{C_{\max}} - \gamma \cdot \log(1 + d_i)" data-from="953" data-to="1068">
+  \pi_i = \alpha \cdot \frac{1}{w_i + \epsilon} + \beta \cdot \frac{c_i}{C_{\max}} - \gamma \cdot \log(1 + d_i)
+</div>
+<p data-from="1070" data-to="1321">where <span class="mdr-math" data-tex="w_i" data-from="1076" data-to="1081">w_i</span> is wait time, <span class="mdr-math" data-tex="c_i" data-from="1096" data-to="1101">c_i</span> is requested compute share, <span class="mdr-math" data-tex="C_{\max}" data-from="1130" data-to="1140">C_{\max}</span> is cluster capacity, <span class="mdr-math" data-tex="d_i" data-from="1162" data-to="1167">d_i</span> is deadline slack, and <span class="mdr-math" data-tex="\alpha, \beta, \gamma" data-from="1191" data-to="1214">\alpha, \beta, \gamma</span> are tunable coefficients. This formulation is elegant and the derivation in Appendix B is mostly rigorous.</p>
+<p data-from="1323" data-to="1556">Reviewers agree that the simulation methodology (Section 5) is well-documented, and the benchmark suite (12 synthetic workloads plus 2 traces from the fictional "Meridian Cloud" dataset) is a reasonable proxy for production behavior.</p>
+<h3 id="12-weaknesses" data-from="1558" data-to="1576">1.2 Weaknesses</h3>
+<ol data-from="1578" data-to="2449">
+  <li data-from="1578" data-to="1788"><strong data-from="1581" data-to="1619">Insufficient sensitivity analysis.</strong> The coefficients <span class="mdr-math" data-tex="\alpha = 0.42" data-from="1637" data-to="1652">\alpha = 0.42</span>, <span class="mdr-math" data-tex="\beta = 0.31" data-from="1654" data-to="1668">\beta = 0.31</span>, <span class="mdr-math" data-tex="\gamma = 0.27" data-from="1670" data-to="1685">\gamma = 0.27</span> appear to have been tuned on the same dataset used for evaluation, raising concerns about overfitting.</li>
+  <li data-from="1789" data-to="2116"><strong data-from="1792" data-to="1828">Missing failure-mode discussion.</strong> There is no analysis of what happens when <span class="mdr-math" data-tex="w_i \to \infty" data-from="1871" data-to="1887">w_i \to \infty</span> for starved low-priority jobs — the formula suggests <span class="mdr-math" data-tex="\pi_i \to \alpha/\epsilon" data-from="1941" data-to="1968">\pi_i \to \alpha/\epsilon</span>, a bounded value, but the paper never discusses whether this bound is actually reachable in practice or whether starvation is empirically observed.</li>
+  <li data-from="2117" data-to="2290"><strong data-from="2120" data-to="2143">Ambiguous notation.</strong> The symbol <span class="mdr-math" data-tex="d_i" data-from="2155" data-to="2160">d_i</span> is used both for "deadline slack" (Section 3) and "node degree" (Section 6), which is confusing and likely a copy-paste artifact.</li>
+  <li data-from="2291" data-to="2449"><strong data-from="2294" data-to="2318">Reproducibility gap.</strong> No pseudocode or reference implementation is provided; the described algorithm cannot currently be reproduced from the text alone.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="warning" data-from="2451" data-to="2642">
+  <div class="mdr-callout-title" data-from="2453" data-to="2463">
+    Warning
+  </div>
+  <p data-from="2466" data-to="2642">The lack of a public or internal reference implementation is a blocking issue for acceptance. Reviewers were unable to verify the claimed 23% latency improvement independently.</p>
+</blockquote>
+<hr data-from="2644" data-to="2647">
+<h2 id="2-detailed-comments-by-section" data-from="2649" data-to="2683">2. Detailed Comments by Section</h2>
+<h3 id="section-2-related-work" data-from="2685" data-to="2713">Section 2 — Related Work</h3>
+<p data-from="2715" data-to="3009">The related work section is thin. It cites only four prior scheduling systems (Thistlewood, Kestrel-Q, Vantablack Scheduler, and Orinoco) and omits any comparison to gang-scheduling or bin-packing heuristics, which seem highly relevant given the workload characteristics described in Section 4.</p>
+<h3 id="section-3-algorithm-design" data-from="3011" data-to="3043">Section 3 — Algorithm Design</h3>
+<p data-from="3045" data-to="3294">The resonance metaphor (jobs "resonating" with available nodes based on affinity scores) is intuitive but under-formalized. A worked example would help. Reviewer Osei suggested the following minimal pseudocode be added to clarify the placement loop:</p>
+<pre class="mdr-code" data-lang="python" data-from="3296" data-to="3859"><code class="language-python" data-verbatim data-from="3306" data-to="3855">def schedule(jobs, nodes, alpha=0.42, beta=0.31, gamma=0.27, eps=1e-6):
+    for job in sorted(jobs, key=lambda j: -priority(j, alpha, beta, gamma, eps)):
+        best_node = max(nodes, key=lambda n: affinity(job, n))
+        if best_node.has_capacity(job):
+            assign(job, best_node)
+        else:
+            requeue(job)
+    return nodes
+
+def priority(job, alpha, beta, gamma, eps):
+    return (alpha / (job.wait + eps)
+            + beta * (job.compute_share / job.cluster_capacity)
+            - gamma * math.log(1 + job.deadline_slack))</code></pre>
+<p data-from="3861" data-to="3969">This kind of concrete listing would substantially improve reproducibility and should be added as Appendix C.</p>
+<h3 id="section-4-workload-model" data-from="3971" data-to="4001">Section 4 — Workload Model</h3>
+<p data-from="4003" data-to="4328">The workload generator assumes job arrival follows a Poisson process with rate <span class="mdr-math" data-tex="\lambda = 14.5" data-from="4082" data-to="4098">\lambda = 14.5</span> jobs/minute, but real cluster traces (per Ferro's prior experience with the "Solstice" production cluster) tend to be bursty and better modeled by a Hawkes process. This assumption should at least be acknowledged as a limitation.</p>
+<h3 id="section-5-evaluation" data-from="4330" data-to="4356">Section 5 — Evaluation</h3>
+<p data-from="4358" data-to="4684">The comparison baselines (RRW and FIFO-Weighted) are reasonable, but the absence of a comparison against a modern learned scheduler (e.g., a reinforcement-learning-based approach) weakens the claim of state-of-the-art performance. Additionally, confidence intervals are missing from Table 4; only point estimates are reported.</p>
+<h3 id="section-6-fault-tolerance" data-from="4686" data-to="4717">Section 6 — Fault Tolerance</h3>
+<p data-from="4719" data-to="4984">This section is the weakest in the document. The claim that ARS-7 "gracefully degrades" under node failure is not substantiated with any experiment involving simulated node churn. Reviewer Venkat recommends at minimum a 5% and 15% node-failure injection experiment.</p>
+<hr data-from="4986" data-to="4989">
+<h2 id="3-questions-for-the-authors" data-from="4991" data-to="5022">3. Questions for the Authors</h2>
+<ol data-from="5024" data-to="5806">
+  <li data-from="5024" data-to="5211">How were the coefficients <span class="mdr-math" data-tex="\alpha" data-from="5053" data-to="5061">\alpha</span>, <span class="mdr-math" data-tex="\beta" data-from="5063" data-to="5070">\beta</span>, and <span class="mdr-math" data-tex="\gamma" data-from="5076" data-to="5084">\gamma</span> selected — via grid search, Bayesian optimization, or manual tuning? Please report the search space and validation split used.</li>
+  <li data-from="5212" data-to="5345">Is the epsilon term <span class="mdr-math" data-tex="\epsilon" data-from="5235" data-to="5245">\epsilon</span> in the priority function a fixed constant across all experiments, or does it vary by workload type?</li>
+  <li data-from="5346" data-to="5488">What is the computational complexity of the scheduling loop per epoch? The paper implies <span class="mdr-math" data-tex="O(n \log n)" data-from="5438" data-to="5451">O(n \log n)</span> but does not derive this explicitly.</li>
+  <li data-from="5489" data-to="5625">Why was the Meridian Cloud trace truncated to 48 hours rather than using the full 7-day trace available in the appendix data release?</li>
+  <li data-from="5626" data-to="5806">Can the authors clarify whether "resonance" in the title is meant literally (i.e., tied to some oscillatory signal in the affinity computation) or is purely metaphorical naming?</li>
+</ol>
+<hr data-from="5808" data-to="5811">
+<h2 id="4-recommended-changes" data-from="5813" data-to="5838">4. Recommended Changes</h2>
+<p data-from="5840" data-to="5932">The following changes are recommended before the document proceeds to the next review cycle:</p>
+<ul data-from="5934" data-to="6618">
+  <li class="mdr-task" data-from="5934" data-to="6009"><input type="checkbox" disabled checked data-from="5936" data-to="5939">Disambiguate the overloaded symbol <span class="mdr-math" data-tex="d_i" data-from="5975" data-to="5980">d_i</span> throughout Sections 3 and 6.</li>
+  <li class="mdr-task" data-from="6010" data-to="6113"><input type="checkbox" disabled checked data-from="6012" data-to="6015">Add a reference implementation or detailed pseudocode (see Section 3 draft above) as an appendix.</li>
+  <li class="mdr-task" data-from="6114" data-to="6199"><input type="checkbox" disabled data-from="6116" data-to="6119">Include confidence intervals or variance bars in all latency comparison tables.</li>
+  <li class="mdr-task" data-from="6200" data-to="6287"><input type="checkbox" disabled data-from="6202" data-to="6205">Add a node-failure injection experiment (minimum two failure rates) to Section 6.</li>
+  <li class="mdr-task" data-from="6288" data-to="6408"><input type="checkbox" disabled data-from="6290" data-to="6293">Expand related work to include at least two additional scheduling paradigms (gang scheduling, learned schedulers).</li>
+  <li class="mdr-task" data-from="6409" data-to="6497"><input type="checkbox" disabled data-from="6411" data-to="6414">Report the hyperparameter search procedure used to obtain <span class="mdr-math" data-tex="\alpha, \beta, \gamma" data-from="6473" data-to="6496">\alpha, \beta, \gamma</span>.</li>
+  <li class="mdr-task" data-from="6498" data-to="6618"><input type="checkbox" disabled data-from="6500" data-to="6503">Clarify whether the "resonance" terminology has a literal mathematical grounding or should be renamed for clarity.</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="note" data-from="6620" data-to="6839">
+  <div class="mdr-callout-title" data-from="6622" data-to="6629">
+    Note
+  </div>
+  <p data-from="6632" data-to="6839">None of the recommended changes are considered fundamentally destabilizing to the paper's core contribution. With moderate revision, this work could be a solid addition to the internal scheduling literature.</p>
+</blockquote>
+<hr data-from="6841" data-to="6844">
+<h2 id="5-overall-recommendation" data-from="6846" data-to="6874">5. Overall Recommendation</h2>
+<p data-from="6876" data-to="7248">Given the promising core idea but significant gaps in reproducibility and evaluation rigor, the consolidated recommendation from all three reviewers is <strong data-from="7028" data-to="7046">major revision</strong>. The algorithmic contribution appears novel enough to warrant continued development, but the current draft does not meet the bar for publication or internal deployment without the changes listed above.</p>
+<p data-from="7250" data-to="7422">A follow-up review is recommended within four weeks of resubmission, ideally accompanied by the requested reference implementation and expanded fault-tolerance experiments.</p>

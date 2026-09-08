@@ -1,0 +1,341 @@
+<h1 id="dataflow-analytics-platform---technical-specification" data-from="0" data-to="55">DataFlow Analytics Platform - Technical Specification</h1>
+<h2 id="executive-summary" data-from="57" data-to="77">Executive Summary</h2>
+<p data-from="79" data-to="360">The <strong data-from="83" data-to="114">DataFlow Analytics Platform</strong> is a next-generation system designed to process, analyze, and visualize time-series data from distributed sensor networks. This specification outlines the core requirements, system architecture, and API endpoints for version 2.1 of the platform.</p>
+<hr data-from="362" data-to="365">
+<h2 id="1-project-overview" data-from="367" data-to="389">1. Project Overview</h2>
+<p data-from="391" data-to="713">The DataFlow Analytics Platform enables organizations to collect metrics from thousands of IoT devices, perform real-time aggregations, and generate actionable insights through customizable dashboards. The system must handle high-throughput data ingestion while maintaining sub-second query latency for analytical queries.</p>
+<h3 id="key-objectives" data-from="715" data-to="733">Key Objectives</h3>
+<ol data-from="735" data-to="1100">
+  <li data-from="735" data-to="828">Ingest data from multiple source types at a rate of <mark data-from="790" data-to="828">at least 500,000 events per second</mark></li>
+  <li data-from="829" data-to="903">Provide query response times under 1 second for 95th percentile queries</li>
+  <li data-from="904" data-to="973">Support retention policies for automatic data lifecycle management</li>
+  <li data-from="974" data-to="1037">Enable user-defined transformations on incoming data streams</li>
+  <li data-from="1038" data-to="1100">Deliver comprehensive audit logging for compliance purposes</li>
+</ol>
+<hr data-from="1102" data-to="1105">
+<h2 id="2-system-requirements" data-from="1107" data-to="1132">2. System Requirements</h2>
+<h3 id="21-functional-requirements" data-from="1134" data-to="1165">2.1 Functional Requirements</h3>
+<blockquote data-from="1167" data-to="1381">
+  <p data-from="1169" data-to="1381">The platform must be <mark data-from="1190" data-to="1210">production-ready</mark> by Q3 2025, supporting both push and pull data ingestion patterns. All components should follow a microservices architecture to enable independent scaling and deployment.</p>
+</blockquote>
+<h4 id="data-ingestion" data-from="1383" data-to="1402">Data Ingestion</h4>
+<ul data-from="1403" data-to="1602">
+  <li data-from="1403" data-to="1444">Accept JSON and Avro formatted messages</li>
+  <li data-from="1445" data-to="1492">Support batched and streaming data submission</li>
+  <li data-from="1493" data-to="1532">Implement automatic schema validation</li>
+  <li data-from="1533" data-to="1602">Provide client libraries for Python 3.9+, Node.js 16+, and Go 1.19+</li>
+</ul>
+<h4 id="query-engine" data-from="1604" data-to="1621">Query Engine</h4>
+<ul data-from="1622" data-to="1838">
+  <li data-from="1622" data-to="1674">Support SQL-like query syntax for time-series data</li>
+  <li data-from="1675" data-to="1729">Implement window functions and temporal aggregations</li>
+  <li data-from="1730" data-to="1787">Cache frequent queries with configurable TTL parameters</li>
+  <li data-from="1788" data-to="1838">Return results in JSON, CSV, and Parquet formats</li>
+</ul>
+<h4 id="storage-layer" data-from="1840" data-to="1858">Storage Layer</h4>
+<ul data-from="1859" data-to="2075">
+  <li data-from="1859" data-to="1911">Maintain hot storage for data younger than 30 days</li>
+  <li data-from="1912" data-to="1976">Archive older data to cold storage with retrieval capabilities</li>
+  <li data-from="1977" data-to="2022">Partition data by tenant and time dimension</li>
+  <li data-from="2023" data-to="2075">Support data deduplication within 5-minute windows</li>
+</ul>
+<h3 id="22-non-functional-requirements" data-from="2077" data-to="2112">2.2 Non-Functional Requirements</h3>
+<div class="mdr-table-wrap" data-from="2114" data-to="2468">
+  <table data-from="2114" data-to="2468">
+    <thead data-from="2114" data-to="2155">
+      <tr data-from="2114" data-to="2155">
+        <th data-from="2116" data-to="2127">Requirement</th>
+        <th data-from="2130" data-to="2142">Target Value</th>
+        <th data-from="2145" data-to="2153">Priority</th>
+      </tr>
+    </thead>
+    <tbody data-from="2170" data-to="2468">
+      <tr data-from="2170" data-to="2231">
+        <td data-from="2172" data-to="2197">Data Ingestion Throughput</td>
+        <td data-from="2200" data-to="2218">500,000 events/sec</td>
+        <td data-from="2221" data-to="2229">Critical</td>
+      </tr>
+      <tr data-from="2232" data-to="2279">
+        <td data-from="2234" data-to="2253">Query Latency (P95)</td>
+        <td data-from="2256" data-to="2266">&lt; 1 second</td>
+        <td data-from="2269" data-to="2277">Critical</td>
+      </tr>
+      <tr data-from="2280" data-to="2319">
+        <td data-from="2282" data-to="2294">Availability</td>
+        <td data-from="2297" data-to="2310">99.95% uptime</td>
+        <td data-from="2313" data-to="2317">High</td>
+      </tr>
+      <tr data-from="2320" data-to="2374">
+        <td data-from="2322" data-to="2336">Data Retention</td>
+        <td data-from="2339" data-to="2365">Configurable (7-3650 days)</td>
+        <td data-from="2368" data-to="2372">High</td>
+      </tr>
+      <tr data-from="2375" data-to="2421">
+        <td data-from="2377" data-to="2400">API Response Time (P50)</td>
+        <td data-from="2403" data-to="2410">&lt; 200ms</td>
+        <td data-from="2413" data-to="2419">Medium</td>
+      </tr>
+      <tr data-from="2422" data-to="2468">
+        <td data-from="2424" data-to="2443">Dashboard Load Time</td>
+        <td data-from="2446" data-to="2457">&lt; 3 seconds</td>
+        <td data-from="2460" data-to="2466">Medium</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h4 id="scalability-requirements" data-from="2470" data-to="2499">Scalability Requirements</h4>
+<p data-from="2501" data-to="2538">The system architecture must support:</p>
+<ol data-from="2540" data-to="2907">
+  <li data-from="2540" data-to="2664">Horizontal scaling of ingestion nodes<ul data-from="2584" data-to="2664">
+      <li data-from="2584" data-to="2619">Auto-scaling based on queue depth</li>
+      <li data-from="2623" data-to="2664">Load balancing across 50+ cluster nodes</li>
+    </ul></li>
+  <li data-from="2665" data-to="2794">Storage scaling<ul data-from="2687" data-to="2794">
+      <li data-from="2687" data-to="2722">Partitioned sharding by tenant ID</li>
+      <li data-from="2726" data-to="2753">Dynamic shard rebalancing</li>
+      <li data-from="2757" data-to="2794">Support for petabyte-scale datasets</li>
+    </ul></li>
+  <li data-from="2795" data-to="2907">Query scaling<ul data-from="2815" data-to="2907">
+      <li data-from="2815" data-to="2844">Distributed query execution</li>
+      <li data-from="2848" data-to="2870">Query result caching</li>
+      <li data-from="2874" data-to="2907">Multi-tenant resource isolation</li>
+    </ul></li>
+</ol>
+<h3 id="23-security-requirements" data-from="2909" data-to="2938">2.3 Security Requirements</h3>
+<p data-from="2940" data-to="3149"><em data-from="2940" data-to="2961">All data in transit</em> must use TLS 1.3 encryption. At rest, customer data requires AES-256 encryption with customer-managed keys. The platform implements role-based access control with the following hierarchy:</p>
+<ol data-from="3151" data-to="3395">
+  <li data-from="3151" data-to="3234">Admin roles<ul data-from="3169" data-to="3234">
+      <li data-from="3169" data-to="3191">Tenant configuration</li>
+      <li data-from="3195" data-to="3212">User management</li>
+      <li data-from="3216" data-to="3234">Billing controls</li>
+    </ul></li>
+  <li data-from="3235" data-to="3318">Analyst roles<ul data-from="3255" data-to="3318">
+      <li data-from="3255" data-to="3271">Query creation</li>
+      <li data-from="3275" data-to="3295">Dashboard creation</li>
+      <li data-from="3299" data-to="3318">Report scheduling</li>
+    </ul></li>
+  <li data-from="3319" data-to="3395">Viewer roles<ul data-from="3338" data-to="3395">
+      <li data-from="3338" data-to="3366">Read-only dashboard access</li>
+      <li data-from="3370" data-to="3395">Limited query execution</li>
+    </ul></li>
+</ol>
+<hr data-from="3397" data-to="3400">
+<h2 id="3-api-specification" data-from="3402" data-to="3425">3. API Specification</h2>
+<h3 id="31-authentication" data-from="3427" data-to="3449">3.1 Authentication</h3>
+<p data-from="3451" data-to="3585">All API requests must include a bearer token in the Authorization header. Tokens expire after 24 hours and support refresh mechanisms.</p>
+<pre class="mdr-code" data-lang="python" data-from="3587" data-to="3852"><code class="language-python" data-verbatim data-from="3597" data-to="3848">import requests
+import json
+
+headers = {
+    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "Content-Type": "application/json"
+}
+
+response = requests.get(
+    "https://api.dataflow.example.com/v2/metrics",
+    headers=headers
+)</code></pre>
+<h3 id="32-data-ingestion-endpoints" data-from="3854" data-to="3886">3.2 Data Ingestion Endpoints</h3>
+<h4 id="post-v2eventsingest" data-from="3888" data-to="3915">POST /v2/events/ingest</h4>
+<p data-from="3916" data-to="3957">Submits a batch of events for processing.</p>
+<p data-from="3959" data-to="3976"><strong data-from="3959" data-to="3976">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="3977" data-to="4222"><code class="language-json" data-verbatim data-from="3985" data-to="4218">{
+  "tenant_id": "acme-corp",
+  "events": [
+    {
+      "timestamp": 1704067200000,
+      "metric_name": "cpu_usage",
+      "value": 45.2,
+      "tags": {
+        "host": "server-01",
+        "region": "us-west-2"
+      }
+    }
+  ]
+}</code></pre>
+<p data-from="4224" data-to="4252"><strong data-from="4224" data-to="4252">Response (202 Accepted):</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="4253" data-to="4347"><code class="language-json" data-verbatim data-from="4261" data-to="4343">{
+  "batch_id": "batch_7f8d2c4e",
+  "events_accepted": 1,
+  "events_rejected": 0
+}</code></pre>
+<h3 id="33-query-endpoints" data-from="4349" data-to="4372">3.3 Query Endpoints</h3>
+<h4 id="post-v2queriesexecute" data-from="4374" data-to="4403">POST /v2/queries/execute</h4>
+<p data-from="4404" data-to="4453">Executes an analytical query against stored data.</p>
+<p data-from="4455" data-to="4472"><strong data-from="4455" data-to="4472">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="4473" data-to="4670"><code class="language-json" data-verbatim data-from="4481" data-to="4666">{
+  "query": "SELECT avg(value) as avg_cpu FROM metrics WHERE metric_name='cpu_usage' AND timestamp &gt;= 1704067200000 GROUP BY host",
+  "output_format": "json",
+  "timeout_seconds": 30
+}</code></pre>
+<p data-from="4672" data-to="4740">The mathematical representation of query execution time is given by:</p>
+<div class="mdr-math-block" data-tex="T_{total} = T_{parse} + T_{plan} + T_{execute} + T_{serialize}" data-from="4742" data-to="4808">
+  T_{total} = T_{parse} + T_{plan} + T_{execute} + T_{serialize}
+</div>
+<p data-from="4810" data-to="4875">where each component contributes linearly to total query latency.</p>
+<h4 id="get-v2queriesquery_id" data-from="4877" data-to="4908">GET /v2/queries/{query_id}</h4>
+<p data-from="4909" data-to="4974">Retrieves the status and results of a previously submitted query.</p>
+<p data-from="4976" data-to="4989"><strong data-from="4976" data-to="4989">Response:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="4990" data-to="5190"><code class="language-json" data-verbatim data-from="4998" data-to="5186">{
+  "query_id": "query_a9e1d8f2",
+  "status": "completed",
+  "rows_returned": 24,
+  "execution_time_ms": 342,
+  "result_url": "https://api.dataflow.example.com/v2/results/query_a9e1d8f2"
+}</code></pre>
+<h3 id="34-metric-definition-endpoints" data-from="5192" data-to="5227">3.4 Metric Definition Endpoints</h3>
+<h4 id="put-v2metricsmetric_id" data-from="5229" data-to="5261">PUT /v2/metrics/{metric_id}</h4>
+<p data-from="5262" data-to="5313">Updates metric configuration and aggregation rules.</p>
+<p data-from="5315" data-to="5332"><strong data-from="5315" data-to="5332">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="5333" data-to="5612"><code class="language-json" data-verbatim data-from="5341" data-to="5608">{
+  "metric_name": "response_time_ms",
+  "description": "HTTP endpoint response latency",
+  "unit": "milliseconds",
+  "aggregation_functions": ["avg", "p50", "p95", "p99"],
+  "retention_days": 90,
+  "tags": {
+    "team": "platform",
+    "service": "api-gateway"
+  }
+}</code></pre>
+<h3 id="35-dashboard-endpoints" data-from="5614" data-to="5641">3.5 Dashboard Endpoints</h3>
+<h4 id="post-v2dashboards" data-from="5643" data-to="5667">POST /v2/dashboards</h4>
+<p data-from="5668" data-to="5703">Creates a new analytical dashboard.</p>
+<p data-from="5705" data-to="5722"><strong data-from="5705" data-to="5722">Request Body:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="5723" data-to="6054"><code class="language-json" data-verbatim data-from="5731" data-to="6050">{
+  "title": "Production Monitoring Dashboard",
+  "description": "Real-time metrics for production services",
+  "widgets": [
+    {
+      "type": "timeseries",
+      "title": "CPU Usage Trend",
+      "metric_query": "SELECT timestamp, avg(value) FROM metrics WHERE metric_name='cpu_usage' GROUP BY timestamp"
+    }
+  ]
+}</code></pre>
+<hr data-from="6056" data-to="6059">
+<h2 id="4-data-model" data-from="6061" data-to="6077">4. Data Model</h2>
+<h3 id="41-core-entities" data-from="6079" data-to="6100">4.1 Core Entities</h3>
+<p data-from="6102" data-to="6170">Events flowing through the platform conform to the following schema:</p>
+<ul data-from="6172" data-to="6465">
+  <li data-from="6172" data-to="6223"><strong data-from="6174" data-to="6187">timestamp</strong> (int64): Unix millisecond timestamp</li>
+  <li data-from="6224" data-to="6288"><strong data-from="6226" data-to="6241">metric_name</strong> (string): Identifier for the measured quantity</li>
+  <li data-from="6289" data-to="6337"><strong data-from="6291" data-to="6300">value</strong> (float64): Numeric measurement value</li>
+  <li data-from="6338" data-to="6405"><strong data-from="6340" data-to="6348">tags</strong> (map): Dimensional attributes for filtering and grouping</li>
+  <li data-from="6406" data-to="6465"><strong data-from="6408" data-to="6421">tenant_id</strong> (string): Multi-tenant isolation identifier</li>
+</ul>
+<p data-from="6467" data-to="6534">The relationship between raw events and aggregated metrics follows:</p>
+<div class="mdr-math-block" data-tex="V_{agg}(t) = \frac{1}{n}\sum_{i=1}^{n} V_{raw}(t_i)" data-from="6536" data-to="6591">
+  V_{agg}(t) = \frac{1}{n}\sum_{i=1}^{n} V_{raw}(t_i)
+</div>
+<p data-from="6593" data-to="6668">where <span class="mdr-math" data-tex="n" data-from="6599" data-to="6602">n</span> represents the number of raw events within an aggregation window.</p>
+<h3 id="42-storage-partitioning" data-from="6670" data-to="6698">4.2 Storage Partitioning</h3>
+<p data-from="6700" data-to="6757">Data partitioning strategy prioritizes query performance:</p>
+<ul data-from="6759" data-to="6933">
+  <li data-from="6759" data-to="6795">Primary partition key: <code data-from="6784" data-to="6795">tenant_id</code></li>
+  <li data-from="6796" data-to="6863">Secondary partition key: <code data-from="6823" data-to="6839">date_partition</code> (day-level granularity)</li>
+  <li data-from="6864" data-to="6933">Tertiary partition key: <code data-from="6890" data-to="6903">metric_name</code> (optional, for large metrics)</li>
+</ul>
+<hr data-from="6935" data-to="6938">
+<h2 id="5-configuration-and-deployment" data-from="6940" data-to="6974">5. Configuration and Deployment</h2>
+<h3 id="51-environment-variables" data-from="6976" data-to="7005">5.1 Environment Variables</h3>
+<ul data-from="7007" data-to="7237">
+  <li data-from="7007" data-to="7063"><code data-from="7009" data-to="7032">DATAFLOW_CLUSTER_NAME</code>: Kubernetes cluster identifier</li>
+  <li data-from="7064" data-to="7117"><code data-from="7066" data-to="7089">DATAFLOW_STORAGE_PATH</code>: Root path for data storage</li>
+  <li data-from="7118" data-to="7177"><code data-from="7120" data-to="7148">DATAFLOW_CACHE_TTL_SECONDS</code>: Query cache expiration time</li>
+  <li data-from="7178" data-to="7237"><code data-from="7180" data-to="7211">DATAFLOW_INGESTION_BATCH_SIZE</code>: Maximum events per batch</li>
+</ul>
+<h3 id="52-deployment-checklist" data-from="7239" data-to="7267">5.2 Deployment Checklist</h3>
+<ol data-from="7269" data-to="7797">
+  <li data-from="7269" data-to="7421">Infrastructure provisioning<ul data-from="7303" data-to="7421">
+      <li data-from="7303" data-to="7342">Kubernetes cluster (minimum 10 nodes)</li>
+      <li data-from="7346" data-to="7378">Persistent volume provisioning</li>
+      <li data-from="7382" data-to="7421">Network security groups configuration</li>
+    </ul></li>
+  <li data-from="7422" data-to="7556">Application deployment<ul data-from="7451" data-to="7556">
+      <li data-from="7451" data-to="7495">Container image building and registry push</li>
+      <li data-from="7499" data-to="7524">Helm chart installation</li>
+      <li data-from="7528" data-to="7556">Service mesh configuration</li>
+    </ul></li>
+  <li data-from="7557" data-to="7664">Data migration<ul data-from="7578" data-to="7664">
+      <li data-from="7578" data-to="7601">Schema initialization</li>
+      <li data-from="7605" data-to="7629">Historical data import</li>
+      <li data-from="7633" data-to="7664">Validation and reconciliation</li>
+    </ul></li>
+  <li data-from="7665" data-to="7797">Testing and validation<ul data-from="7694" data-to="7797">
+      <li data-from="7694" data-to="7734">Load testing (target: 500k events/sec)</li>
+      <li data-from="7738" data-to="7766">Query latency benchmarking</li>
+      <li data-from="7770" data-to="7797">Failover scenario testing</li>
+    </ul></li>
+</ol>
+<hr data-from="7799" data-to="7802">
+<h2 id="6-performance-targets" data-from="7804" data-to="7829">6. Performance Targets</h2>
+<p data-from="7831" data-to="7891">The platform must meet the following operational benchmarks:</p>
+<div class="mdr-table-wrap" data-from="7893" data-to="8247">
+  <table data-from="7893" data-to="8247">
+    <thead data-from="7893" data-to="7933">
+      <tr data-from="7893" data-to="7933">
+        <th data-from="7895" data-to="7901">Metric</th>
+        <th data-from="7904" data-to="7910">Target</th>
+        <th data-from="7913" data-to="7931">Measurement Method</th>
+      </tr>
+    </thead>
+    <tbody data-from="7948" data-to="8247">
+      <tr data-from="7948" data-to="8010">
+        <td data-from="7950" data-to="7970">Ingestion Throughput</td>
+        <td data-from="7973" data-to="7984">500,000 eps</td>
+        <td data-from="7987" data-to="8008">Sustained over 1 hour</td>
+      </tr>
+      <tr data-from="8011" data-to="8068">
+        <td data-from="8013" data-to="8030">P95 Query Latency</td>
+        <td data-from="8033" data-to="8041">1 second</td>
+        <td data-from="8044" data-to="8066">Across all query types</td>
+      </tr>
+      <tr data-from="8069" data-to="8129">
+        <td data-from="8071" data-to="8088">P99 Query Latency</td>
+        <td data-from="8091" data-to="8100">5 seconds</td>
+        <td data-from="8103" data-to="8127">For complex aggregations</td>
+      </tr>
+      <tr data-from="8130" data-to="8189">
+        <td data-from="8132" data-to="8149">Data Availability</td>
+        <td data-from="8152" data-to="8158">99.95%</td>
+        <td data-from="8161" data-to="8187">Monthly uptime measurement</td>
+      </tr>
+      <tr data-from="8190" data-to="8247">
+        <td data-from="8192" data-to="8213">Mean Time to Recovery</td>
+        <td data-from="8216" data-to="8225">5 minutes</td>
+        <td data-from="8228" data-to="8245">From node failure</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="8249" data-to="8252">
+<h2 id="7-monitoring-and-observability" data-from="8254" data-to="8288">7. Monitoring and Observability</h2>
+<p data-from="8290" data-to="8407">The platform exposes Prometheus-compatible metrics at <code data-from="8344" data-to="8368">/v2/metrics/prometheus</code>. Critical alerting thresholds include:</p>
+<ul data-from="8409" data-to="8543">
+  <li data-from="8409" data-to="8447">Queue depth exceeds 1 million events</li>
+  <li data-from="8448" data-to="8485">Query latency P95 exceeds 2 seconds</li>
+  <li data-from="8486" data-to="8519">Storage utilization exceeds 85%</li>
+  <li data-from="8520" data-to="8543">Node failure detected</li>
+</ul>
+<hr data-from="8545" data-to="8548">
+<h2 id="8-future-enhancements" data-from="8550" data-to="8575">8. Future Enhancements</h2>
+<p data-from="8577" data-to="8618">Planned features for subsequent releases:</p>
+<ol data-from="8620" data-to="8887">
+  <li data-from="8620" data-to="8710">Machine learning model integration<ul data-from="8661" data-to="8710">
+      <li data-from="8661" data-to="8680">Anomaly detection</li>
+      <li data-from="8684" data-to="8710">Forecasting capabilities</li>
+    </ul></li>
+  <li data-from="8711" data-to="8803">Advanced query optimization<ul data-from="8745" data-to="8803">
+      <li data-from="8745" data-to="8772">Cost-based query planning</li>
+      <li data-from="8776" data-to="8803">Materialized view support</li>
+    </ul></li>
+  <li data-from="8804" data-to="8887">Data federation<ul data-from="8826" data-to="8887">
+      <li data-from="8826" data-to="8849">Multi-cluster queries</li>
+      <li data-from="8853" data-to="8887">External data source integration</li>
+    </ul></li>
+</ol>
+<hr data-from="8889" data-to="8892">
+<p data-from="8894" data-to="8973"><em data-from="8894" data-to="8917">Document Version: 2.1</em>
+<em data-from="8918" data-to="8946">Last Updated: January 2024</em>
+<em data-from="8947" data-to="8973">Status: Draft for Review</em></p>

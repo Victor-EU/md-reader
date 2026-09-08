@@ -1,0 +1,113 @@
+<h1 id="technical-specification-ravenloop-task-scheduler-rts-7" data-from="0" data-to="59">Technical Specification: Ravenloop Task Scheduler (RTS-7)</h1>
+<h2 id="1-overview" data-from="61" data-to="75">1. Overview</h2>
+<p data-from="77" data-to="396">The <strong data-from="81" data-to="109">Ravenloop Task Scheduler</strong> (internally codenamed <em data-from="132" data-to="144">Thornfield</em>) is a lightweight distributed job orchestration engine designed to coordinate asynchronous workloads across heterogeneous compute nodes. This document specifies the architecture, API surface, and performance requirements for version 7.2 of the system.</p>
+<p data-from="398" data-to="649">The scheduler's primary goal is to minimize <em data-from="442" data-to="456">tail latency</em> while maximizing throughput under bursty load conditions. Unlike prior iterations, RTS-7 introduces a <mark data-from="559" data-to="592">priority-decay queueing model</mark> that adjusts task weight dynamically based on wait time.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="651" data-to="817">
+  <div class="mdr-callout-title" data-from="653" data-to="660">
+    Note
+  </div>
+  <p data-from="663" data-to="817">This specification assumes familiarity with the Ravenloop cluster runtime (RCR) and its node-discovery protocol, described separately in document RVL-014.</p>
+</blockquote>
+<h2 id="2-goals-and-non-goals" data-from="819" data-to="844">2. Goals and Non-Goals</h2>
+<h3 id="21-goals" data-from="846" data-to="859">2.1 Goals</h3>
+<ol data-from="861" data-to="1301">
+  <li data-from="861" data-to="941">Provide a deterministic scheduling algorithm with bounded worst-case latency.</li>
+  <li data-from="942" data-to="1011">Support <strong data-from="953" data-to="970">at-least-once</strong> delivery semantics for all queued tasks.</li>
+  <li data-from="1012" data-to="1108">Allow pluggable backends for persistence (in-memory, disk-backed, or remote key-value store).</li>
+  <li data-from="1109" data-to="1198">Expose a minimal, stable API surface for client libraries in at least three languages.</li>
+  <li data-from="1199" data-to="1301">Guarantee graceful degradation when node count drops below a configured quorum threshold <span class="mdr-math" data-tex="q_{min}" data-from="1291" data-to="1300">q_{min}</span>.</li>
+</ol>
+<h3 id="22-non-goals" data-from="1303" data-to="1320">2.2 Non-Goals</h3>
+<ul data-from="1322" data-to="1541">
+  <li data-from="1322" data-to="1430">RTS-7 does not attempt to provide strong consistency guarantees across geographically distributed regions.</li>
+  <li data-from="1431" data-to="1541">The scheduler does not manage container lifecycle; that responsibility belongs to the Orbital runtime layer.</li>
+</ul>
+<h2 id="3-architecture" data-from="1543" data-to="1561">3. Architecture</h2>
+<p data-from="1563" data-to="1609">The system is composed of three logical tiers:</p>
+<ul data-from="1611" data-to="1885">
+  <li data-from="1611" data-to="1696"><strong data-from="1613" data-to="1627">Dispatcher</strong> — accepts incoming task submissions and performs initial validation.</li>
+  <li data-from="1697" data-to="1784"><strong data-from="1699" data-to="1714">Coordinator</strong> — maintains the global queue state and assigns tasks to worker nodes.</li>
+  <li data-from="1785" data-to="1885"><strong data-from="1787" data-to="1802">Worker Pool</strong> — executes tasks and reports completion or failure status back to the Coordinator.</li>
+</ul>
+<p data-from="1887" data-to="2037">Each Coordinator instance maintains a local priority heap keyed by an <em data-from="1957" data-to="1983">effective priority score</em>. The score for a task <span class="mdr-math" data-tex="i" data-from="2006" data-to="2009">i</span> at time <span class="mdr-math" data-tex="t" data-from="2018" data-to="2021">t</span> is computed as:</p>
+<div class="mdr-math-block" data-tex="P_i(t) = P_i^{0} \cdot e^{-\lambda (t - t_i^{submit})} + \beta \cdot \frac{w_i}{\max(1, d_i)}" data-from="2039" data-to="2138">
+  P_i(t) = P_i^{0} \cdot e^{-\lambda (t - t_i^{submit})} + \beta \cdot \frac{w_i}{\max(1, d_i)}
+</div>
+<p data-from="2140" data-to="2299">where <span class="mdr-math" data-tex="P_i^{0}" data-from="2146" data-to="2155">P_i^{0}</span> is the initial priority, <span class="mdr-math" data-tex="\lambda" data-from="2181" data-to="2190">\lambda</span> is the decay constant, <span class="mdr-math" data-tex="w_i" data-from="2214" data-to="2219">w_i</span> is the accumulated wait time, and <span class="mdr-math" data-tex="d_i" data-from="2254" data-to="2259">d_i</span> is the task's declared deadline offset.</p>
+<p data-from="2301" data-to="2472">For a quick sanity check, note that when <span class="mdr-math" data-tex="\lambda = 0" data-from="2342" data-to="2355">\lambda = 0</span> and <span class="mdr-math" data-tex="\beta = 0" data-from="2360" data-to="2371">\beta = 0</span>, the formula reduces to the static priority <span class="mdr-math" data-tex="P_i(t) = P_i^{0}" data-from="2416" data-to="2434">P_i(t) = P_i^{0}</span>, which matches the behavior of RTS-6.</p>
+<p data-from="2474" data-to="2674">The relationship between decay constant <span class="mdr-math" data-tex="\lambda" data-from="2514" data-to="2523">\lambda</span> and average queue depth <span class="mdr-math" data-tex="\bar{Q}" data-from="2548" data-to="2557">\bar{Q}</span> is approximated empirically as <span class="mdr-math" data-tex="\lambda \approx 0.003 \cdot \bar{Q}^{0.5}" data-from="2589" data-to="2632">\lambda \approx 0.003 \cdot \bar{Q}^{0.5}</span>, though this may be tuned per deployment.</p>
+<h2 id="4-functional-requirements" data-from="2676" data-to="2705">4. Functional Requirements</h2>
+<ol data-from="2707" data-to="3410">
+  <li data-from="2707" data-to="2802">The system <strong data-from="2721" data-to="2729">must</strong> accept task submissions via both synchronous and asynchronous API calls.</li>
+  <li data-from="2803" data-to="2930">Task payloads <strong data-from="2820" data-to="2832">must not</strong> exceed 2 MiB in serialized form; larger payloads should be referenced via an external blob store.</li>
+  <li data-from="2931" data-to="3051">The Coordinator <strong data-from="2950" data-to="2958">must</strong> re-balance the worker assignment table whenever cluster membership changes by more than 15%.</li>
+  <li data-from="3052" data-to="3174">All task state transitions <strong data-from="3082" data-to="3090">must</strong> be logged to the durable event log with a monotonically increasing sequence number.</li>
+  <li data-from="3175" data-to="3277">The API <strong data-from="3186" data-to="3196">should</strong> support optional idempotency keys to prevent duplicate execution during retries.</li>
+  <li data-from="3278" data-to="3410">Configuration values (e.g., <span class="mdr-math" data-tex="\lambda" data-from="3309" data-to="3318">\lambda</span>, <span class="mdr-math" data-tex="\beta" data-from="3320" data-to="3327">\beta</span>, <span class="mdr-math" data-tex="q_{min}" data-from="3329" data-to="3338">q_{min}</span>) <strong data-from="3340" data-to="3348">must</strong> be hot-reloadable without restarting the Coordinator process.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="warning" data-from="3412" data-to="3729">
+  <div class="mdr-callout-title" data-from="3414" data-to="3424">
+    Warning
+  </div>
+  <p data-from="3427" data-to="3729">Setting <span class="mdr-math" data-tex="\lambda" data-from="3435" data-to="3444">\lambda</span> too high in combination with a small <span class="mdr-math" data-tex="q_{min}" data-from="3482" data-to="3491">q_{min}</span> can cause <em data-from="3502" data-to="3522">priority thrashing</em>, where low-priority tasks starve indefinitely because decay outweighs deadline pressure. Deployments should validate parameter combinations against the provided simulation harness before production rollout.</p>
+</blockquote>
+<h2 id="5-api-sketch" data-from="3731" data-to="3747">5. API Sketch</h2>
+<p data-from="3749" data-to="3882">Below is a representative sketch of the core client-facing interface, written in a Go-like pseudocode for illustration purposes only.</p>
+<pre class="mdr-code" data-lang="go" data-from="3884" data-to="5004"><code class="language-go" data-verbatim data-from="3890" data-to="5000">package thornfield
+
+// Task represents a unit of schedulable work.
+type Task struct {
+    ID           string
+    Payload      []byte
+    Priority     float64
+    DeadlineMs   int64
+    IdempotentKey string
+}
+
+// SchedulerClient defines the primary interaction surface.
+type SchedulerClient interface {
+    // Submit enqueues a task and returns immediately with a receipt.
+    Submit(ctx context.Context, t Task) (Receipt, error)
+
+    // Await blocks until the task reaches a terminal state or timeout elapses.
+    Await(ctx context.Context, id string, timeout time.Duration) (Result, error)
+
+    // Cancel attempts to remove a task from the queue before execution.
+    Cancel(ctx context.Context, id string) error
+
+    // Status queries the current lifecycle state of a task.
+    Status(ctx context.Context, id string) (TaskState, error)
+}
+
+type Receipt struct {
+    TaskID     string
+    AcceptedAt time.Time
+    Node       string // assigned coordinator shard, if known
+}
+
+type TaskState int
+
+const (
+    StatePending TaskState = iota
+    StateRunning
+    StateCompleted
+    StateFailed
+    StateCancelled
+)</code></pre>
+<p data-from="5006" data-to="5237">Clients interact with the Coordinator over a lightweight RPC transport (Ravenloop calls this <em data-from="5099" data-to="5108">Fenwire</em>), which serializes requests using a compact binary format rather than JSON, reducing overhead by roughly 40% in benchmark tests.</p>
+<h3 id="51-error-semantics" data-from="5239" data-to="5262">5.1 Error Semantics</h3>
+<p data-from="5264" data-to="5549">All API methods return errors conforming to the <code data-from="5312" data-to="5329">ThornfieldError</code> taxonomy, which includes at minimum the categories <code data-from="5381" data-to="5392">Transient</code>, <code data-from="5394" data-to="5405">Permanent</code>, and <code data-from="5411" data-to="5426">QuotaExceeded</code>. Clients should treat <code data-from="5449" data-to="5460">Transient</code> errors as retryable with exponential backoff, starting at 50ms and capping at 4 seconds.</p>
+<h2 id="6-performance-requirements" data-from="5551" data-to="5581">6. Performance Requirements</h2>
+<ul data-from="5583" data-to="5955">
+  <li data-from="5583" data-to="5723">99th-percentile submission latency must remain under <strong data-from="5638" data-to="5658">120 milliseconds</strong> at a sustained load of 8,000 tasks/second per Coordinator shard.</li>
+  <li data-from="5724" data-to="5864">The system must tolerate the loss of any single Coordinator node without dropping in-flight tasks, provided replication factor <span class="mdr-math" data-tex="r \geq 2" data-from="5853" data-to="5863">r \geq 2</span>.</li>
+  <li data-from="5865" data-to="5955">Recovery time objective (RTO) after a Coordinator failure must not exceed <strong data-from="5941" data-to="5954">6 seconds</strong>.</li>
+</ul>
+<h2 id="7-security-considerations" data-from="5957" data-to="5986">7. Security Considerations</h2>
+<p data-from="5988" data-to="6237">All inter-node communication must be encrypted using mutually authenticated TLS. Task payloads containing sensitive data should be encrypted client-side prior to submission; the Coordinator treats payloads as opaque bytes and performs no inspection.</p>
+<h2 id="8-open-questions" data-from="6239" data-to="6259">8. Open Questions</h2>
+<ul data-from="6261" data-to="6440">
+  <li data-from="6261" data-to="6357">Should the decay constant <span class="mdr-math" data-tex="\lambda" data-from="6289" data-to="6298">\lambda</span> be per-tenant configurable, or globally fixed per cluster?</li>
+  <li data-from="6358" data-to="6440">What is the appropriate default for <span class="mdr-math" data-tex="\beta" data-from="6396" data-to="6403">\beta</span> when deadlines are omitted entirely?</li>
+</ul>
+<p data-from="6442" data-to="6661">These questions are tracked in the Thornfield design backlog under ticket group RVL-THN-22 through RVL-THN-27, pending further benchmarking against synthetic workload traces generated by the <em data-from="6633" data-to="6645">Hollowmere</em> load generator.</p>

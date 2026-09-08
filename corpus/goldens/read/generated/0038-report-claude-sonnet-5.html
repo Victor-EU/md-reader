@@ -1,0 +1,189 @@
+<h1 id="project-aurora-distributed-cache-optimization-status-report" data-from="0" data-to="64">Project Aurora: Distributed Cache Optimization — Status Report</h1>
+<p data-from="66" data-to="185"><strong data-from="66" data-to="87">Reporting Period:</strong> Q3 2024, Week 9
+<strong data-from="104" data-to="121">Project Lead:</strong> Priya Nakamura
+<strong data-from="137" data-to="148">Status:</strong> 🟡 On Track (Minor Risks Identified)</p>
+<hr data-from="187" data-to="190">
+<h2 id="executive-summary" data-from="192" data-to="212">Executive Summary</h2>
+<p data-from="214" data-to="563">The <em data-from="218" data-to="226">Aurora</em> project aims to reduce p99 latency across our distributed caching layer by re-architecting the eviction policy and introducing adaptive sharding. This week's work focused on benchmarking the new <strong data-from="422" data-to="465">Least Frequently Used with Decay (LFUD)</strong> algorithm against the legacy LRU implementation, along with initial rollout to our staging fleet.</p>
+<p data-from="565" data-to="713">Overall, we are <mark data-from="581" data-to="611">tracking ahead of schedule</mark> on the algorithmic work but slightly behind on infrastructure provisioning for the canary deployment.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="715" data-to="903">
+  <div class="mdr-callout-title" data-from="717" data-to="724">
+    Note
+  </div>
+  <p data-from="727" data-to="903">All benchmark numbers below were collected on the <code data-from="777" data-to="795">cache-staging-07</code> cluster using synthetic Zipfian-distributed workloads (θ = 1.2) to approximate production traffic patterns.</p>
+</blockquote>
+<hr data-from="905" data-to="908">
+<h2 id="key-metrics" data-from="910" data-to="924">Key Metrics</h2>
+<div class="mdr-table-wrap" data-from="926" data-to="1213">
+  <table data-from="926" data-to="1213">
+    <thead data-from="926" data-to="978">
+      <tr data-from="926" data-to="978">
+        <th data-from="928" data-to="934">Metric</th>
+        <th data-from="937" data-to="951">Baseline (LRU)</th>
+        <th data-from="954" data-to="968">Current (LFUD)</th>
+        <th data-from="971" data-to="976">Delta</th>
+      </tr>
+    </thead>
+    <tbody data-from="997" data-to="1213">
+      <tr data-from="997" data-to="1037">
+        <td data-from="999" data-to="1015">p50 latency (ms)</td>
+        <td data-from="1018" data-to="1021">4.2</td>
+        <td data-from="1024" data-to="1027">3.8</td>
+        <td data-from="1030" data-to="1035">-9.5%</td>
+      </tr>
+      <tr data-from="1038" data-to="1081">
+        <td data-from="1040" data-to="1056">p99 latency (ms)</td>
+        <td data-from="1059" data-to="1063">38.6</td>
+        <td data-from="1066" data-to="1070">24.1</td>
+        <td data-from="1073" data-to="1079">-37.6%</td>
+      </tr>
+      <tr data-from="1082" data-to="1119">
+        <td data-from="1084" data-to="1093">Hit ratio</td>
+        <td data-from="1096" data-to="1101">0.812</td>
+        <td data-from="1104" data-to="1109">0.867</td>
+        <td data-from="1112" data-to="1117">+6.8%</td>
+      </tr>
+      <tr data-from="1120" data-to="1162">
+        <td data-from="1122" data-to="1137">Memory overhead</td>
+        <td data-from="1140" data-to="1145">1.00x</td>
+        <td data-from="1148" data-to="1153">1.14x</td>
+        <td data-from="1156" data-to="1160">+14%</td>
+      </tr>
+      <tr data-from="1163" data-to="1213">
+        <td data-from="1165" data-to="1188">Eviction rate (ops/sec)</td>
+        <td data-from="1191" data-to="1196">1,204</td>
+        <td data-from="1199" data-to="1202">892</td>
+        <td data-from="1205" data-to="1211">-25.9%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="1215" data-to="1443">The hit ratio improvement is particularly encouraging given that it was achieved with only a modest increase in memory overhead. The theoretical model predicted a ceiling around 0.88, so we're approaching the expected asymptote.</p>
+<h3 id="latency-distribution-model" data-from="1445" data-to="1475">Latency Distribution Model</h3>
+<p data-from="1477" data-to="1699">The observed latency <span class="mdr-math" data-tex="L" data-from="1498" data-to="1501">L</span> under the LFUD policy can be approximated by a mixture model where <span class="mdr-math" data-tex="\lambda" data-from="1569" data-to="1578">\lambda</span> represents the decay rate and <span class="mdr-math" data-tex="k" data-from="1609" data-to="1612">k</span> the frequency count of a cached item. The expected wait time under load is modeled as:</p>
+<div class="mdr-math-block" data-tex="E[L] = \frac{1}{\mu - \sigma} \sum_{i=1}^{n} p_i \cdot \left(1 - e^{-\lambda k_i}\right) + \epsilon" data-from="1701" data-to="1806">
+  E[L] = \frac{1}{\mu - \sigma} \sum_{i=1}^{n} p_i \cdot \left(1 - e^{-\lambda k_i}\right) + \epsilon
+</div>
+<p data-from="1808" data-to="2013">where <span class="mdr-math" data-tex="\mu" data-from="1814" data-to="1819">\mu</span> is the mean service rate, <span class="mdr-math" data-tex="\sigma" data-from="1846" data-to="1854">\sigma</span> is the arrival rate variance, and <span class="mdr-math" data-tex="\epsilon" data-from="1889" data-to="1899">\epsilon</span> is a small constant accounting for network jitter (typically <span class="mdr-math" data-tex="\epsilon \approx 0.3\text{ms}" data-from="1961" data-to="1992">\epsilon \approx 0.3\text{ms}</span> in our environment).</p>
+<hr data-from="2015" data-to="2018">
+<h2 id="workstream-breakdown" data-from="2020" data-to="2043">Workstream Breakdown</h2>
+<ol data-from="2045" data-to="2541">
+  <li data-from="2045" data-to="2224"><strong data-from="2048" data-to="2073">Algorithm Development</strong><ul data-from="2077" data-to="2224">
+      <li data-from="2077" data-to="2116">LFUD core implementation — <em data-from="2106" data-to="2116">complete</em></li>
+      <li data-from="2120" data-to="2163">Decay tuning via grid search — <em data-from="2153" data-to="2163">complete</em></li>
+      <li data-from="2167" data-to="2224">Edge-case handling for cold-start items — <em data-from="2211" data-to="2224">in progress</em></li>
+    </ul></li>
+  <li data-from="2225" data-to="2373"><strong data-from="2228" data-to="2246">Infrastructure</strong><ul data-from="2250" data-to="2373">
+      <li data-from="2250" data-to="2279">Canary cluster provisioning</li>
+      <li data-from="2283" data-to="2346">Monitoring dashboard integration (Grafana + custom exporters)</li>
+      <li data-from="2350" data-to="2373">Chaos testing harness</li>
+    </ul></li>
+  <li data-from="2374" data-to="2541"><strong data-from="2377" data-to="2404">Documentation &amp; Rollout</strong><ul data-from="2408" data-to="2541">
+      <li data-from="2408" data-to="2440">Internal RFC for policy change</li>
+      <li data-from="2444" data-to="2485">Migration runbook for on-call engineers</li>
+      <li data-from="2489" data-to="2541">Post-mortem template updates (in case of rollback)</li>
+    </ul></li>
+</ol>
+<h3 id="detailed-task-breakdown-nested" data-from="2543" data-to="2579">Detailed Task Breakdown (Nested)</h3>
+<ul data-from="2581" data-to="3492">
+  <li data-from="2581" data-to="3093"><strong data-from="2583" data-to="2608">Algorithm Development</strong><ul data-from="2611" data-to="3093">
+      <li data-from="2611" data-to="2881">Core LFUD logic<ul data-from="2633" data-to="2881">
+          <li data-from="2633" data-to="2793">Frequency counter with exponential decay<ul data-from="2682" data-to="2793">
+              <li data-from="2682" data-to="2733">Implemented using a sliding window of 512 buckets</li>
+              <li data-from="2740" data-to="2793">Tuned decay constant <span class="mdr-math" data-tex="\lambda = 0.0037" data-from="2763" data-to="2781">\lambda = 0.0037</span> empirically</li>
+            </ul></li>
+          <li data-from="2798" data-to="2881">Cold-start heuristic<ul data-from="2827" data-to="2881">
+              <li data-from="2827" data-to="2881">Fallback to LRU for items with fewer than 3 accesses</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="2884" data-to="3093">Benchmarking suite<ul data-from="2909" data-to="3093">
+          <li data-from="2909" data-to="3011">Synthetic workload generator<ul data-from="2946" data-to="3011">
+              <li data-from="2946" data-to="2976">Zipfian distribution support</li>
+              <li data-from="2983" data-to="3011">Poisson arrival simulation</li>
+            </ul></li>
+          <li data-from="3016" data-to="3093">Result aggregation pipeline<ul data-from="3052" data-to="3093">
+              <li data-from="3052" data-to="3093">Exports to Parquet for offline analysis</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="3094" data-to="3492"><strong data-from="3096" data-to="3114">Infrastructure</strong><ul data-from="3117" data-to="3492">
+      <li data-from="3117" data-to="3307">Canary environment<ul data-from="3142" data-to="3307">
+          <li data-from="3142" data-to="3261">Node pool: 12 x <code data-from="3160" data-to="3173">c6i.2xlarge</code><ul data-from="3180" data-to="3261">
+              <li data-from="3180" data-to="3224">Configured with 32GB memory limit per node</li>
+              <li data-from="3231" data-to="3261">NVMe-backed local cache tier</li>
+            </ul></li>
+          <li data-from="3266" data-to="3307">Traffic shadowing from <code data-from="3291" data-to="3307">prod-us-east-1</code></li>
+        </ul></li>
+      <li data-from="3310" data-to="3492">Observability<ul data-from="3330" data-to="3492">
+          <li data-from="3330" data-to="3492">Custom Prometheus exporters for eviction metrics<ul data-from="3387" data-to="3492">
+              <li data-from="3387" data-to="3427">Added <code data-from="3395" data-to="3419">aurora_evictions_total</code> counter</li>
+              <li data-from="3434" data-to="3492">Added <code data-from="3442" data-to="3466">aurora_decay_histogram</code> for distribution tracking</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+</ul>
+<hr data-from="3494" data-to="3497">
+<h2 id="task-list-this-sprint" data-from="3499" data-to="3525">Task List (This Sprint)</h2>
+<ul data-from="3527" data-to="3986">
+  <li class="mdr-task" data-from="3527" data-to="3567"><input type="checkbox" disabled checked data-from="3529" data-to="3532">Finalize LFUD algorithm design doc</li>
+  <li class="mdr-task" data-from="3568" data-to="3613"><input type="checkbox" disabled checked data-from="3570" data-to="3573">Implement decay-based frequency counter</li>
+  <li class="mdr-task" data-from="3614" data-to="3675"><input type="checkbox" disabled checked data-from="3616" data-to="3619">Run initial benchmark suite against synthetic workloads</li>
+  <li class="mdr-task" data-from="3676" data-to="3727"><input type="checkbox" disabled checked data-from="3678" data-to="3681">Set up staging cluster with traffic shadowing</li>
+  <li class="mdr-task" data-from="3728" data-to="3800"><input type="checkbox" disabled data-from="3730" data-to="3733">Complete chaos testing scenarios (network partition, node failure)</li>
+  <li class="mdr-task" data-from="3801" data-to="3858"><input type="checkbox" disabled data-from="3803" data-to="3806">Draft rollback procedure and validate with SRE team</li>
+  <li class="mdr-task" data-from="3859" data-to="3915"><input type="checkbox" disabled data-from="3861" data-to="3864">Present findings at Thursday's architecture review</li>
+  <li class="mdr-task" data-from="3916" data-to="3986"><input type="checkbox" disabled data-from="3918" data-to="3921">Update capacity planning spreadsheet with new memory projections</li>
+</ul>
+<hr data-from="3988" data-to="3991">
+<h2 id="code-snapshot-decay-function" data-from="3993" data-to="4025">Code Snapshot: Decay Function</h2>
+<p data-from="4027" data-to="4123">Below is the current implementation of the frequency decay function used in the eviction scorer.</p>
+<pre class="mdr-code" data-lang="python" data-from="4125" data-to="4883"><code class="language-python" data-verbatim data-from="4135" data-to="4879">import math
+from dataclasses import dataclass
+
+@dataclass
+class CacheEntry:
+    key: str
+    frequency: int
+    last_access_ts: float
+
+def compute_decayed_score(entry: CacheEntry, now: float, decay_rate: float = 0.0037) -&gt; float:
+    """
+    Computes an eviction score where lower values are evicted first.
+    Combines raw frequency with time-based decay.
+    """
+    elapsed = max(now - entry.last_access_ts, 0.0)
+    decay_factor = math.exp(-decay_rate * elapsed)
+    score = entry.frequency * decay_factor
+    return score
+
+def select_eviction_candidate(entries: list[CacheEntry], now: float) -&gt; CacheEntry:
+    scored = [(compute_decayed_score(e, now), e) for e in entries]
+    scored.sort(key=lambda pair: pair[0])
+    return scored[0][1]</code></pre>
+<p data-from="4885" data-to="5132">This function is called on every eviction cycle, roughly every 50ms under peak load. Early profiling suggests the <code data-from="4999" data-to="5009">math.exp</code> call is <em data-from="5018" data-to="5023">not</em> a bottleneck, contrary to our initial assumption — the sort operation dominates at scale beyond 10k entries.</p>
+<hr data-from="5134" data-to="5137">
+<h2 id="risks-blockers" data-from="5139" data-to="5158">Risks &amp; Blockers</h2>
+<blockquote class="mdr-callout" data-callout="warning" data-from="5160" data-to="5442">
+  <div class="mdr-callout-title" data-from="5162" data-to="5172">
+    Warning
+  </div>
+  <p data-from="5175" data-to="5442">The chaos testing harness has a known issue where simulated node failures do not correctly trigger the rebalancing logic in <code data-from="5299" data-to="5317">shard_manager.go</code>. This must be resolved before we can sign off on production readiness. <strong data-from="5389" data-to="5399">Owner:</strong> Devon Ashworth. <strong data-from="5416" data-to="5424">ETA:</strong> End of next week.</p>
+</blockquote>
+<p data-from="5444" data-to="5461">Additional risks:</p>
+<ul data-from="5463" data-to="5792">
+  <li data-from="5463" data-to="5553">Memory overhead of 14% may require capacity re-provisioning for three regional clusters.</li>
+  <li data-from="5554" data-to="5682">The decay constant <span class="mdr-math" data-tex="\lambda" data-from="5575" data-to="5584">\lambda</span> was tuned on staging traffic; production traffic patterns may differ enough to require re-tuning.</li>
+  <li data-from="5683" data-to="5792">One engineer (Marcus Webb) is out on leave for two weeks, which may slow down the chaos testing workstream.</li>
+</ul>
+<hr data-from="5794" data-to="5797">
+<h2 id="next-steps" data-from="5799" data-to="5812">Next Steps</h2>
+<ol data-from="5814" data-to="6302">
+  <li data-from="5814" data-to="5868">Complete chaos testing scenarios by end of Week 10.</li>
+  <li data-from="5869" data-to="5986">Re-run benchmarks against a production traffic shadow (not just synthetic) to validate real-world hit ratio gains.</li>
+  <li data-from="5987" data-to="6063">Finalize rollback runbook and get sign-off from the SRE on-call rotation.</li>
+  <li data-from="6064" data-to="6184">Schedule a go/no-go decision meeting for the canary rollout to <code data-from="6130" data-to="6146">prod-us-east-1</code>, tentatively set for <strong data-from="6168" data-to="6183">October 3rd</strong>.</li>
+  <li data-from="6185" data-to="6302">Begin drafting the capacity planning update reflecting the projected 14% memory overhead across affected clusters.</li>
+</ol>
+<p data-from="6304" data-to="6486">We remain <em data-from="6314" data-to="6337">cautiously optimistic</em> about hitting our target of a 30%+ reduction in p99 latency by the end of Q3, though the chaos testing blocker is the primary risk to that timeline.</p>
+<hr data-from="6488" data-to="6491">
+<p data-from="6493" data-to="6603"><em data-from="6493" data-to="6603">Report compiled by the Aurora core team. Questions or feedback welcome in the #aurora-project Slack channel.</em></p>

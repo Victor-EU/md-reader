@@ -1,0 +1,93 @@
+<h1 id="project-phoenix-data-migration-initiative" data-from="0" data-to="44">Project Phoenix: Data Migration Initiative</h1>
+<p data-from="46" data-to="117"><strong data-from="46" data-to="63">Project Lead:</strong> Priya Nkosi
+<em data-from="76" data-to="86">Sponsor:</em> Marcus Weil, VP of Engineering</p>
+<h2 id="overview" data-from="119" data-to="130">Overview</h2>
+<p data-from="132" data-to="341">Project Phoenix aims to migrate legacy customer records from <strong data-from="193" data-to="208">System Vega</strong> to the new <strong data-from="220" data-to="239">Aurora Platform</strong>, improving query latency by an estimated factor of <span class="mdr-math" data-tex="3.5" data-from="291" data-to="296">3.5</span>. The migration success metric is defined as:</p>
+<div class="mdr-math-block" data-tex="\text{Success Rate} = \frac{\text{Records Migrated Without Error}}{\text{Total Records}} \times 100\%" data-from="343" data-to="450">
+  \text{Success Rate} = \frac{\text{Records Migrated Without Error}}{\text{Total Records}} \times 100\%
+</div>
+<p data-from="452" data-to="508">Target threshold: <mark data-from="470" data-to="492">99.2% success rate</mark> before go-live.</p>
+<h2 id="phases-milestones" data-from="510" data-to="532">Phases &amp; Milestones</h2>
+<ol data-from="534" data-to="948">
+  <li data-from="534" data-to="639"><strong data-from="537" data-to="561">Discovery &amp; Planning</strong> (Weeks 1–3)<ul data-from="577" data-to="639">
+      <li data-from="577" data-to="599">Owner: <em data-from="586" data-to="599">Priya Nkosi</em></li>
+      <li data-from="603" data-to="639">Deliverable: Data mapping document</li>
+    </ul></li>
+  <li data-from="640" data-to="737"><strong data-from="643" data-to="662">Pilot Migration</strong> (Weeks 4–6)<ul data-from="678" data-to="737">
+      <li data-from="678" data-to="700">Owner: <em data-from="687" data-to="700">Tomas Reyes</em></li>
+      <li data-from="704" data-to="737">Deliverable: 5% sample migrated</li>
+    </ul></li>
+  <li data-from="738" data-to="847"><strong data-from="741" data-to="759">Full Migration</strong> (Weeks 7–12)<ul data-from="776" data-to="847">
+      <li data-from="776" data-to="800">Owner: <em data-from="785" data-to="800">Elena Petrova</em></li>
+      <li data-from="804" data-to="847">Deliverable: Complete dataset transferred</li>
+    </ul></li>
+  <li data-from="848" data-to="948"><strong data-from="851" data-to="875">Validation &amp; Cutover</strong> (Weeks 13–14)<ul data-from="893" data-to="948">
+      <li data-from="893" data-to="914">Owner: <em data-from="902" data-to="914">Sam Okafor</em></li>
+      <li data-from="918" data-to="948">Deliverable: Sign-off report</li>
+    </ul></li>
+</ol>
+<h3 id="team-structure" data-from="950" data-to="968">Team Structure</h3>
+<ul data-from="970" data-to="1248">
+  <li data-from="970" data-to="1147">Engineering<ul data-from="986" data-to="1147">
+      <li data-from="986" data-to="1087">Backend<ul data-from="1000" data-to="1087">
+          <li data-from="1000" data-to="1040">Migration scripts (owner: Tomas Reyes)</li>
+          <li data-from="1045" data-to="1087">Schema validation (owner: Elena Petrova)</li>
+        </ul></li>
+      <li data-from="1090" data-to="1147">Frontend<ul data-from="1105" data-to="1147">
+          <li data-from="1105" data-to="1147">Dashboard updates (owner: Nina Kowalski)</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="1148" data-to="1248">QA<ul data-from="1155" data-to="1248">
+      <li data-from="1155" data-to="1248">Automated test suite<ul data-from="1182" data-to="1248">
+          <li data-from="1182" data-to="1200">Regression tests</li>
+          <li data-from="1205" data-to="1248">Load tests (target: <span class="mdr-math" data-tex="n=10^6" data-from="1227" data-to="1235">n=10^6</span> requests/hr)</li>
+        </ul></li>
+    </ul></li>
+</ul>
+<h2 id="sample-validation-script" data-from="1250" data-to="1277">Sample Validation Script</h2>
+<pre class="mdr-code" data-lang="python" data-from="1279" data-to="1458"><code class="language-python" data-verbatim data-from="1289" data-to="1454">def validate_migration(source, target):
+    mismatches = [r for r in source if r not in target]
+    rate = 1 - len(mismatches) / len(source)
+    return rate &gt;= 0.992</code></pre>
+<blockquote class="mdr-callout" data-callout="note" data-from="1460" data-to="1577">
+  <div class="mdr-callout-title" data-from="1462" data-to="1469">
+    Note
+  </div>
+  <p data-from="1472" data-to="1577">All migration windows are scheduled during low-traffic hours (2 AM–4 AM UTC) to minimize customer impact.</p>
+</blockquote>
+<blockquote class="mdr-callout" data-callout="warning" data-from="1579" data-to="1715">
+  <div class="mdr-callout-title" data-from="1581" data-to="1591">
+    Warning
+  </div>
+  <p data-from="1594" data-to="1715">If the pilot phase success rate falls below 95%, the <strong data-from="1647" data-to="1665">Full Migration</strong> phase must be paused pending root-cause analysis.</p>
+</blockquote>
+<h2 id="risks" data-from="1717" data-to="1725">Risks</h2>
+<div class="mdr-table-wrap" data-from="1727" data-to="1923">
+  <table data-from="1727" data-to="1923">
+    <thead data-from="1727" data-to="1756">
+      <tr data-from="1727" data-to="1756">
+        <th data-from="1729" data-to="1733">Risk</th>
+        <th data-from="1736" data-to="1746">Likelihood</th>
+        <th data-from="1749" data-to="1754">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="1771" data-to="1923">
+      <tr data-from="1771" data-to="1829">
+        <td data-from="1773" data-to="1802">Schema drift during migration</td>
+        <td data-from="1805" data-to="1811">Medium</td>
+        <td data-from="1814" data-to="1827">Elena Petrova</td>
+      </tr>
+      <tr data-from="1830" data-to="1875">
+        <td data-from="1832" data-to="1854">Downtime exceeding SLA</td>
+        <td data-from="1857" data-to="1860">Low</td>
+        <td data-from="1863" data-to="1873">Sam Okafor</td>
+      </tr>
+      <tr data-from="1876" data-to="1923">
+        <td data-from="1878" data-to="1900">Vendor API rate limits</td>
+        <td data-from="1903" data-to="1907">High</td>
+        <td data-from="1910" data-to="1921">Tomas Reyes</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="1925" data-to="2017">Final review scheduled for <strong data-from="1952" data-to="1964">March 15</strong>, contingent on all milestones being marked complete.</p>

@@ -1,0 +1,121 @@
+import { parser, renderDocument, resolveOffset, toDom } from '@mdreader/markdown';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createEnhancer, type Enhancer } from './enhance.ts';
+// The stylesheet is part of the feature: Shiki emits both themes as custom
+// properties and the page is what turns them into colour.
+import '../../app.css';
+
+/**
+ * The three renderers Read mode hands work to, against the real libraries:
+ * Shiki, KaTeX and Mermaid. They are loaded on demand, so this is also the
+ * test that the dynamic imports resolve in a browser build.
+ */
+const DOC = `\`\`\`js
+const answer = compute(everything);
+\`\`\`
+
+Inline $E = mc^2$ and a block:
+
+$$
+\\int_0^1 x^2 dx = \\frac{1}{3}
+$$
+
+\`\`\`mermaid
+graph LR
+  A[Read] --> B[Edit]
+\`\`\`
+
+\`\`\`not-a-language
+plain text stays plain
+\`\`\`
+`;
+
+let host: HTMLElement;
+let enhancer: Enhancer;
+let offsets: WeakMap<Text, number>;
+
+/** Wait for an asynchronous renderer to land, or give up and let the test say so. */
+async function until(check: () => boolean, ms = 20_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!check() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+beforeEach(() => {
+  host = document.createElement('div');
+  host.className = 'read';
+  host.style.cssText = 'width: 600px;';
+  document.body.appendChild(host);
+  const mounted = toDom(renderDocument(parser.parse(DOC), DOC));
+  offsets = mounted.offsets;
+  host.appendChild(mounted.fragment);
+  enhancer = createEnhancer();
+});
+
+afterEach(() => {
+  enhancer.destroy();
+  host.remove();
+});
+
+describe('enhancers', () => {
+  it('highlights a fence without changing a character of the code', async () => {
+    const code = host.querySelector('pre[data-lang="js"] code') as HTMLElement;
+    const before = code.textContent ?? '';
+    const from = Number(code.getAttribute('data-from'));
+    enhancer.run([host]);
+    await until(() => code.querySelector('span') !== null);
+
+    const token = code.querySelector('span span') as HTMLElement;
+    expect(token).not.toBeNull();
+    expect(code.textContent).toBe(before);
+    // The tokens are coloured, not merely wrapped.
+    expect(token.style.getPropertyValue('--shiki-light')).toMatch(/^#/);
+    expect(getComputedStyle(token).color).not.toBe(getComputedStyle(code).color);
+    // Click-to-edit still lands on the character under the pointer, because
+    // the highlighted subtree still holds the source verbatim.
+    const walker = document.createTreeWalker(code, NodeFilter.SHOW_TEXT);
+    const first = walker.nextNode() as Text;
+    expect(resolveOffset(first, 2, offsets)).toBe(from + 2);
+  });
+
+  it('leaves a fence whose language is not one alone', async () => {
+    const code = host.querySelector('pre[data-lang="not-a-language"] code') as HTMLElement;
+    enhancer.run([host]);
+    await until(() => host.querySelector('pre[data-lang="js"] code span') !== null);
+    expect(code.querySelector('span')).toBeNull();
+    expect(code.textContent).toBe('plain text stays plain');
+  });
+
+  it('renders inline and block math with KaTeX', async () => {
+    const inline = host.querySelector('.mdr-math') as HTMLElement;
+    const block = host.querySelector('.mdr-math-block') as HTMLElement;
+    enhancer.run([host]);
+    await until(
+      () => inline.querySelector('.katex') !== null && block.querySelector('.katex') !== null,
+    );
+
+    expect(inline.querySelector('.katex')).not.toBeNull();
+    expect(block.querySelector('.katex-display')).not.toBeNull();
+    // The source is still on the element, so Edit mode can go back to it.
+    expect(inline.dataset.tex).toBe('E = mc^2');
+  });
+
+  it('renders a mermaid fence into a diagram', async () => {
+    const diagram = host.querySelector('.mdr-mermaid') as HTMLElement;
+    enhancer.run([host]);
+    await until(() => diagram.querySelector('svg') !== null, 40_000);
+    expect(diagram.querySelector('svg'), diagram.getAttribute('title') ?? '').not.toBeNull();
+    expect(diagram.classList.contains('mdr-mermaid-done')).toBe(true);
+  }, 60_000);
+
+  it('does nothing to a chunk it has already done', async () => {
+    const code = host.querySelector('pre[data-lang="js"] code') as HTMLElement;
+    enhancer.run([host]);
+    await until(() => code.querySelector('span') !== null);
+    const html = code.innerHTML;
+    enhancer.run([host]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(code.innerHTML).toBe(html);
+  });
+});

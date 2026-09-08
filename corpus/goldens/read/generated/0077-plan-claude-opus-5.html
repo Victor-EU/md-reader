@@ -1,0 +1,221 @@
+<h1 id="project-tideline-replatforming-the-kestrel-freight-billing-engine" data-from="0" data-to="69">Project Tideline — Replatforming the Kestrel Freight Billing Engine</h1>
+<p data-from="71" data-to="300"><strong data-from="71" data-to="90">Document owner:</strong> Marisol Achterberg, Director of Platform Delivery
+<strong data-from="141" data-to="153">Version:</strong> 1.4 (draft for steering committee review)
+<strong data-from="196" data-to="213">Last updated:</strong> 14 March 2026
+<strong data-from="228" data-to="239">Status:</strong> Approved for Phase 1 funding; Phases 2–4 pending gate review</p>
+<hr data-from="302" data-to="305">
+<h2 id="1-executive-summary" data-from="307" data-to="330">1. Executive Summary</h2>
+<p data-from="332" data-to="853">Kestrel Freight Systems currently invoices roughly 41,000 shipments per business day through <em data-from="425" data-to="437">Ledgerhawk</em>, a monolithic billing engine first deployed in 2011. Ledgerhawk runs on two aging application servers in the Fairmont Road data centre, shares a single Oracle schema with the dispatch system, and requires a four-hour maintenance freeze every Sunday. In the last twelve months it has produced 312 billing exceptions requiring manual credit memos, and the average time to add a new surcharge rule is 26 business days.</p>
+<p data-from="855" data-to="1249">Project Tideline will decompose Ledgerhawk into three deployable services — <strong data-from="931" data-to="941">Rating</strong>, <strong data-from="943" data-to="956">Invoicing</strong>, and <strong data-from="962" data-to="976">Settlement</strong> — running on the Meridian container platform, backed by a dedicated PostgreSQL cluster and an event log built on Kafka topics. The target is a 90% reduction in manual credit memos, a rule-change lead time of under three business days, and elimination of the Sunday freeze.</p>
+<p data-from="1251" data-to="1385">The programme runs <strong data-from="1270" data-to="1306">6 April 2026 to 19 February 2027</strong> (46 weeks) with a capital budget of <strong data-from="1343" data-to="1353">$3.85M</strong> and a peak team size of 19 FTE.</p>
+<hr data-from="1387" data-to="1390">
+<h2 id="2-objectives-and-success-metrics" data-from="1392" data-to="1428">2. Objectives and Success Metrics</h2>
+<div class="mdr-table-wrap" data-from="1430" data-to="1986">
+  <table data-from="1430" data-to="1986">
+    <thead data-from="1430" data-to="1476">
+      <tr data-from="1430" data-to="1476">
+        <th data-from="1432" data-to="1433">#</th>
+        <th data-from="1436" data-to="1445">Objective</th>
+        <th data-from="1448" data-to="1454">Metric</th>
+        <th data-from="1457" data-to="1465">Baseline</th>
+        <th data-from="1468" data-to="1474">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="1499" data-to="1986">
+      <tr data-from="1499" data-to="1574">
+        <td data-from="1501" data-to="1503">O1</td>
+        <td data-from="1506" data-to="1531">Reduce billing exceptions</td>
+        <td data-from="1534" data-to="1561">Manual credit memos / month</td>
+        <td data-from="1564" data-to="1566">26</td>
+        <td data-from="1569" data-to="1572">≤ 3</td>
+      </tr>
+      <tr data-from="1575" data-to="1669">
+        <td data-from="1577" data-to="1579">O2</td>
+        <td data-from="1582" data-to="1606">Accelerate rule delivery</td>
+        <td data-from="1609" data-to="1646">Median lead time for a surcharge rule</td>
+        <td data-from="1649" data-to="1656">26 days</td>
+        <td data-from="1659" data-to="1667">≤ 3 days</td>
+      </tr>
+      <tr data-from="1670" data-to="1751">
+        <td data-from="1672" data-to="1674">O3</td>
+        <td data-from="1677" data-to="1702">Remove scheduled downtime</td>
+        <td data-from="1705" data-to="1737">Planned outage minutes / quarter</td>
+        <td data-from="1740" data-to="1745">3,120</td>
+        <td data-from="1748" data-to="1749">0</td>
+      </tr>
+      <tr data-from="1752" data-to="1840">
+        <td data-from="1754" data-to="1756">O4</td>
+        <td data-from="1759" data-to="1783">Improve invoice accuracy</td>
+        <td data-from="1786" data-to="1820">First-pass invoice acceptance rate</td>
+        <td data-from="1823" data-to="1828">94.1%</td>
+        <td data-from="1831" data-to="1838">≥ 99.2%</td>
+      </tr>
+      <tr data-from="1841" data-to="1908">
+        <td data-from="1843" data-to="1845">O5</td>
+        <td data-from="1848" data-to="1864">Control run cost</td>
+        <td data-from="1867" data-to="1891">Cost per 10,000 invoices</td>
+        <td data-from="1894" data-to="1898">$118</td>
+        <td data-from="1901" data-to="1906">≤ $76</td>
+      </tr>
+      <tr data-from="1909" data-to="1986">
+        <td data-from="1911" data-to="1913">O6</td>
+        <td data-from="1916" data-to="1938">Decouple from dispatch</td>
+        <td data-from="1941" data-to="1975">Cross-schema queries in production</td>
+        <td data-from="1978" data-to="1980">87</td>
+        <td data-from="1983" data-to="1984">0</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="1988" data-to="2137">Success is declared when O1–O4 hold for two consecutive month-end closes after full cutover, and O5–O6 are verified by the Architecture Review Board.</p>
+<hr data-from="2139" data-to="2142">
+<h2 id="3-scope" data-from="2144" data-to="2155">3. Scope</h2>
+<h3 id="in-scope" data-from="2157" data-to="2169">In scope</h3>
+<ol data-from="2171" data-to="2715">
+  <li data-from="2171" data-to="2264">Extraction of rating, invoicing, and settlement logic from Ledgerhawk into three services.</li>
+  <li data-from="2265" data-to="2330">A new rules authoring console for the Revenue Operations team.</li>
+  <li data-from="2331" data-to="2443">Migration of 9.4 years of historical invoice data (approximately 38.2M rows) into the Tideline archive store.</li>
+  <li data-from="2444" data-to="2550">Replacement of the nightly SFTP batch feed to the Harborline accounting suite with a streaming adapter.</li>
+  <li data-from="2551" data-to="2633">Parallel-run tooling capable of comparing legacy and new invoices line-by-line.</li>
+  <li data-from="2634" data-to="2715">Decommissioning of the Ledgerhawk application tier and its two physical hosts.</li>
+</ol>
+<h3 id="out-of-scope" data-from="2717" data-to="2733">Out of scope</h3>
+<ul data-from="2735" data-to="3045">
+  <li data-from="2735" data-to="2789">Changes to the dispatch system's own user interface.</li>
+  <li data-from="2790" data-to="2888">Renegotiation of customer tariff contracts (owned by Commercial, tracked separately as CR-2210).</li>
+  <li data-from="2889" data-to="2967">Multi-currency settlement beyond USD and CAD — deferred to a 2027 follow-on.</li>
+  <li data-from="2968" data-to="3045">Migration of the Pemberton subsidiary, which uses a separate billing stack.</li>
+</ul>
+<hr data-from="3047" data-to="3050">
+<h2 id="4-team-and-ownership" data-from="3052" data-to="3076">4. Team and Ownership</h2>
+<div class="mdr-table-wrap" data-from="3078" data-to="4100">
+  <table data-from="3078" data-to="4100">
+    <thead data-from="3078" data-to="3110">
+      <tr data-from="3078" data-to="3110">
+        <th data-from="3080" data-to="3084">Role</th>
+        <th data-from="3087" data-to="3091">Name</th>
+        <th data-from="3094" data-to="3108">Accountability</th>
+      </tr>
+    </thead>
+    <tbody data-from="3125" data-to="4100">
+      <tr data-from="3125" data-to="3218">
+        <td data-from="3127" data-to="3144">Executive sponsor</td>
+        <td data-from="3147" data-to="3178">Devrim Kaya, VP Revenue Systems</td>
+        <td data-from="3181" data-to="3216">Funding, escalation, gate approvals</td>
+      </tr>
+      <tr data-from="3219" data-to="3302">
+        <td data-from="3221" data-to="3238">Programme manager</td>
+        <td data-from="3241" data-to="3259">Marisol Achterberg</td>
+        <td data-from="3262" data-to="3300">Plan, budget, reporting, risk register</td>
+      </tr>
+      <tr data-from="3303" data-to="3390">
+        <td data-from="3305" data-to="3319">Lead architect</td>
+        <td data-from="3322" data-to="3342">Tobias Ferreira-Lund</td>
+        <td data-from="3345" data-to="3388">Service boundaries, data model, ARB liaison</td>
+      </tr>
+      <tr data-from="3391" data-to="3465">
+        <td data-from="3393" data-to="3412">Rating service lead</td>
+        <td data-from="3415" data-to="3432">Anaïs Bettencourt</td>
+        <td data-from="3435" data-to="3463">Rating engine build and test</td>
+      </tr>
+      <tr data-from="3466" data-to="3546">
+        <td data-from="3468" data-to="3490">Invoicing service lead</td>
+        <td data-from="3493" data-to="3511">Rohan Vaidyanathan</td>
+        <td data-from="3514" data-to="3544">Invoicing, document generation</td>
+      </tr>
+      <tr data-from="3547" data-to="3629">
+        <td data-from="3549" data-to="3572">Settlement service lead</td>
+        <td data-from="3575" data-to="3594">Priya Okonkwo-Reyes</td>
+        <td data-from="3597" data-to="3627">Settlement, Harborline adapter</td>
+      </tr>
+      <tr data-from="3630" data-to="3702">
+        <td data-from="3632" data-to="3651">Data migration lead</td>
+        <td data-from="3654" data-to="3666">Elias Strand</td>
+        <td data-from="3669" data-to="3700">Historical load, reconciliation</td>
+      </tr>
+      <tr data-from="3703" data-to="3782">
+        <td data-from="3705" data-to="3715">QA manager</td>
+        <td data-from="3718" data-to="3737">Hannah Cruz-Delgado</td>
+        <td data-from="3740" data-to="3780">Test strategy, parallel-run verification</td>
+      </tr>
+      <tr data-from="3783" data-to="3856">
+        <td data-from="3785" data-to="3793">SRE lead</td>
+        <td data-from="3796" data-to="3811">Marcus Oyelaran</td>
+        <td data-from="3814" data-to="3854">Platform, observability, cutover runbook</td>
+      </tr>
+      <tr data-from="3857" data-to="3935">
+        <td data-from="3859" data-to="3884">Revenue Ops product owner</td>
+        <td data-from="3887" data-to="3902">Fenella Tomczak</td>
+        <td data-from="3905" data-to="3933">Rule catalogue, UAT sign-off</td>
+      </tr>
+      <tr data-from="3936" data-to="4021">
+        <td data-from="3938" data-to="3959">Security &amp; compliance</td>
+        <td data-from="3962" data-to="3978">Ingrid Halvorsen</td>
+        <td data-from="3981" data-to="4019">SOC 2 evidence, PII handling, pen test</td>
+      </tr>
+      <tr data-from="4022" data-to="4100">
+        <td data-from="4024" data-to="4041">Change &amp; training</td>
+        <td data-from="4044" data-to="4059">Callum Devereux</td>
+        <td data-from="4062" data-to="4098">Comms, training, hypercare readiness</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="4102" data-to="4188">RACI detail lives in the programme workspace under <code data-from="4153" data-to="4187">tideline/governance/raci-v3.xlsx</code>.</p>
+<hr data-from="4190" data-to="4193">
+<h2 id="5-phases-and-milestones" data-from="4195" data-to="4222">5. Phases and Milestones</h2>
+<h3 id="phase-0-mobilisation-6-apr-1-may-2026-4-weeks" data-from="4224" data-to="4280">Phase 0 — Mobilisation (6 Apr – 1 May 2026, 4 weeks)</h3>
+<p data-from="4282" data-to="4403">Establish the team, environments, and baselines. Confirm the service boundaries proposed in the December discovery spike.</p>
+<ul data-from="4405" data-to="4786">
+  <li data-from="4405" data-to="4555"><strong data-from="4407" data-to="4424">Deliverables:</strong> signed charter; environment blueprint; Ledgerhawk behaviour catalogue (target 240 documented rules); baseline performance profile.</li>
+  <li data-from="4556" data-to="4682"><strong data-from="4558" data-to="4576">Exit criteria:</strong> ARB endorsement of the three-service decomposition; all 19 FTE onboarded with production-adjacent access.</li>
+  <li data-from="4683" data-to="4714"><strong data-from="4685" data-to="4695">Owner:</strong> Marisol Achterberg</li>
+  <li data-from="4715" data-to="4786"><strong data-from="4717" data-to="4786">Milestone M0 — Charter signed and baselines published: 1 May 2026</strong></li>
+</ul>
+<h3 id="phase-1-foundation-4-may-26-jun-2026-8-weeks" data-from="4788" data-to="4843">Phase 1 — Foundation (4 May – 26 Jun 2026, 8 weeks)</h3>
+<p data-from="4845" data-to="5010">Build the platform substrate before any business logic moves. Namespace provisioning, PostgreSQL cluster, Kafka topics, CI/CD pipelines, and the observability stack.</p>
+<ul data-from="5012" data-to="5422">
+  <li data-from="5012" data-to="5171"><strong data-from="5014" data-to="5031">Deliverables:</strong> three Meridian namespaces; <code data-from="5059" data-to="5074">tideline-core</code> shared library; golden pipeline template; synthetic load harness producing 60,000 shipments/day.</li>
+  <li data-from="5172" data-to="5302"><strong data-from="5174" data-to="5192">Exit criteria:</strong> a "hello billing" service deploys from commit to production-like in under 14 minutes with automated rollback.</li>
+  <li data-from="5303" data-to="5359"><strong data-from="5305" data-to="5315">Owner:</strong> Marcus Oyelaran (with Tobias Ferreira-Lund)</li>
+  <li data-from="5360" data-to="5422"><strong data-from="5362" data-to="5422">Milestone M1 — Platform foundation accepted: 26 Jun 2026</strong></li>
+</ul>
+<h3 id="phase-2-rating-service-29-jun-25-sep-2026-13-weeks" data-from="5424" data-to="5485">Phase 2 — Rating Service (29 Jun – 25 Sep 2026, 13 weeks)</h3>
+<p data-from="5487" data-to="5664">The highest-risk extraction. Rating holds the tariff logic, accessorial charges, fuel index interpolation, and the dimensional-weight rounding rules that generate most disputes.</p>
+<ul data-from="5666" data-to="6133">
+  <li data-from="5666" data-to="5824"><strong data-from="5668" data-to="5685">Deliverables:</strong> Rating service v1; rules authoring console (read-only in this phase); rule migration for all 240 catalogued rules; shadow-mode comparator.</li>
+  <li data-from="5825" data-to="5976"><strong data-from="5827" data-to="5845">Exit criteria:</strong> shadow mode agrees with Ledgerhawk on ≥ 99.5% of rated shipments across a 21-day window; all disagreements triaged and classified.</li>
+  <li data-from="5977" data-to="6007"><strong data-from="5979" data-to="5989">Owner:</strong> Anaïs Bettencourt</li>
+  <li data-from="6008" data-to="6072"><strong data-from="6010" data-to="6072">Milestone M2a — Rating service in shadow mode: 21 Aug 2026</strong></li>
+  <li data-from="6073" data-to="6133"><strong data-from="6075" data-to="6133">Milestone M2b — Rating parity gate passed: 25 Sep 2026</strong></li>
+</ul>
+<h3 id="phase-3-invoicing-and-settlement-28-sep-2026-8-jan-2027-15-weeks" data-from="6135" data-to="6210">Phase 3 — Invoicing and Settlement (28 Sep 2026 – 8 Jan 2027, 15 weeks)</h3>
+<p data-from="6212" data-to="6304">Two services built in parallel by separate squads, sharing the event log defined in Phase 1.</p>
+<ul data-from="6306" data-to="6955">
+  <li data-from="6306" data-to="6487"><strong data-from="6308" data-to="6325">Deliverables:</strong> Invoicing service with PDF and EDI 210 output; Settlement service; Harborline streaming adapter; rules console write-enabled; historical data migration complete.</li>
+  <li data-from="6488" data-to="6676"><strong data-from="6490" data-to="6508">Exit criteria:</strong> month-end close for November and December 2026 reproduced in the parallel environment with zero material variance (materiality threshold: $250 per customer per month).</li>
+  <li data-from="6677" data-to="6744"><strong data-from="6679" data-to="6690">Owners:</strong> Rohan Vaidyanathan, Priya Okonkwo-Reyes, Elias Strand</li>
+  <li data-from="6745" data-to="6819"><strong data-from="6747" data-to="6819">Milestone M3a — Harborline adapter certified by Finance: 20 Nov 2026</strong></li>
+  <li data-from="6820" data-to="6895"><strong data-from="6822" data-to="6895">Milestone M3b — Historical archive loaded and reconciled: 11 Dec 2026</strong></li>
+  <li data-from="6896" data-to="6955"><strong data-from="6898" data-to="6955">Milestone M3c — Two clean parallel closes: 8 Jan 2027</strong></li>
+</ul>
+<h3 id="phase-4-cutover-and-hypercare-11-jan-19-feb-2027-6-weeks" data-from="6957" data-to="7024">Phase 4 — Cutover and Hypercare (11 Jan – 19 Feb 2027, 6 weeks)</h3>
+<p data-from="7026" data-to="7236">Progressive migration by customer cohort rather than big-bang. Four cohorts: internal test accounts (12), small shippers (1,840), mid-market (410), and the eleven strategic accounts representing 38% of revenue.</p>
+<ul data-from="7238" data-to="7749">
+  <li data-from="7238" data-to="7343"><strong data-from="7240" data-to="7257">Deliverables:</strong> cutover runbook v2; cohort migration; Ledgerhawk read-only freeze; decommission plan.</li>
+  <li data-from="7344" data-to="7498"><strong data-from="7346" data-to="7364">Exit criteria:</strong> 100% of invoicing on Tideline for 14 consecutive days; zero Severity-1 incidents in the final 10 days; Ledgerhawk hosts powered down.</li>
+  <li data-from="7499" data-to="7566"><strong data-from="7501" data-to="7511">Owner:</strong> Marcus Oyelaran (cutover), Callum Devereux (hypercare)</li>
+  <li data-from="7567" data-to="7621"><strong data-from="7569" data-to="7621">Milestone M4a — Cohort 1 and 2 live: 22 Jan 2027</strong></li>
+  <li data-from="7622" data-to="7672"><strong data-from="7624" data-to="7672">Milestone M4b — All cohorts live: 5 Feb 2027</strong></li>
+  <li data-from="7673" data-to="7749"><strong data-from="7675" data-to="7749">Milestone M4c — Ledgerhawk decommissioned, project closed: 19 Feb 2027</strong></li>
+</ul>
+<hr data-from="7751" data-to="7754">
+<h2 id="6-current-sprint-board-sprint-2-ending-1-may-2026" data-from="7756" data-to="7812">6. Current Sprint Board (Sprint 2, ending 1 May 2026)</h2>
+<ul data-from="7814" data-to="8252">
+  <li class="mdr-task" data-from="7814" data-to="7886"><input type="checkbox" disabled checked data-from="7816" data-to="7819">Publish Ledgerhawk behaviour catalogue, sections 1–4 (Bettencourt)</li>
+  <li class="mdr-task" data-from="7887" data-to="7960"><input type="checkbox" disabled checked data-from="7889" data-to="7892">Provision <code data-from="7903" data-to="7917">tideline-dev</code> and <code data-from="7922" data-to="7938">tideline-stage</code> namespaces (Oyelaran)</li>
+  <li class="mdr-task" data-from="7961" data-to="8030"><input type="checkbox" disabled checked data-from="7963" data-to="7966">Agree materiality threshold with Finance (Achterberg / Tomczak)</li>
+  <li class="mdr-task" data-from="8031" data-to="8100"><input type="checkbox" disabled checked data-from="8033" data-to="8036">Draft data classification for the 38.2M-row archive (Halvorsen)</li>
+  <li class="mdr-task" data-from="8101" data-to="8186"><input type="checkbox" disabled data-from="8103" data-to="8106">Complete behaviour catalogue sections 5–7, including accessorials (Bettencourt)</li>
+  <li class="mdr-task" data-from="8187" data-to="8252"><input type="checkbox" disabled data-from="8189" data-to="8192">Sign the Kafka capacity addendum with the Meridian platform</li>
+</ul>

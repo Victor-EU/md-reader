@@ -1,0 +1,70 @@
+<h1 id="review-summary-adaptive-cache-warming-for-tiered-object-storage-draft-v07" data-from="0" data-to="81">Review Summary: "Adaptive Cache Warming for Tiered Object Storage" (Draft v0.7)</h1>
+<p data-from="83" data-to="285"><strong data-from="83" data-to="96">Reviewer:</strong> M. Okonjo-Rasmussen, Platform Reliability
+<strong data-from="139" data-to="148">Date:</strong> 14 March
+<strong data-from="158" data-to="177">Document owner:</strong> Priya Vaidyanathan
+<strong data-from="197" data-to="208">Status:</strong> Revise and resubmit — recommend a second review round before design sign-off</p>
+<hr data-from="287" data-to="290">
+<h2 id="overview" data-from="292" data-to="303">Overview</h2>
+<p data-from="305" data-to="637">The document proposes a predictive cache-warming layer ("Kettle") that sits between the Halberd object store and the regional read caches. The stated goal is to reduce p99 cold-read latency from 840 ms to under 250 ms for the twelve highest-traffic tenants, at an incremental infrastructure cost of no more than $34,000 per quarter.</p>
+<p data-from="639" data-to="1014">The proposal is well-organized and the problem framing in §2 is the strongest part of the draft. The author clearly establishes that cold reads cluster around predictable events (nightly batch imports, Monday-morning dashboard loads, and the quarterly reconciliation window). The decision to prefetch on a per-tenant schedule rather than a global heuristic is well-justified.</p>
+<p data-from="1016" data-to="1349">However, the draft is not yet ready for approval. The evaluation section rests on a single week of production traces, the failure-mode analysis omits the case that most concerns me (prefetch storms during regional failover), and the cost model appears to double-count storage that is already committed under the existing reservation.</p>
+<hr data-from="1351" data-to="1354">
+<h2 id="findings" data-from="1356" data-to="1367">Findings</h2>
+<h3 id="f1-evaluation-window-is-too-narrow-blocking" data-from="1369" data-to="1420">F1 — Evaluation window is too narrow (blocking)</h3>
+<p data-from="1422" data-to="1787">§6.2 reports a 71% cache hit-rate improvement based on traces captured between 3 and 9 February. That week overlapped the Vendrell migration, during which roughly 40% of normal write traffic was suspended. The measured hit-rate is therefore likely optimistic. I would expect the true improvement to fall in the 45–60% range once ordinary write-invalidations resume.</p>
+<h3 id="f2-prefetch-storm-during-failover-is-unaddressed-blocking" data-from="1789" data-to="1854">F2 — Prefetch storm during failover is unaddressed (blocking)</h3>
+<p data-from="1856" data-to="2228">If the <code data-from="1863" data-to="1875">eu-north-2</code> region drops out, all of its tenants are rehomed to <code data-from="1928" data-to="1939">eu-west-1</code>. Under the current design, each rehomed tenant triggers a full warm cycle on arrival. With 340 tenants and an average warm set of 1.8 GB, that is roughly 612 GB of simultaneous prefetch against an origin that is already absorbing displaced read traffic. §7 does not mention this scenario.</p>
+<h3 id="f3-cost-model-double-counts-reserved-capacity-major" data-from="2230" data-to="2289">F3 — Cost model double-counts reserved capacity (major)</h3>
+<p data-from="2291" data-to="2622">Table 4 lists $19,200/quarter for "warm tier storage." My understanding is that the warm tier already runs at 38% utilization against a three-year reservation that we pay for regardless. If so, the marginal cost is closer to $4,000/quarter for the overflow above the reservation ceiling, and the headline figure should be restated.</p>
+<h3 id="f4-eviction-interaction-is-under-specified-major" data-from="2624" data-to="2680">F4 — Eviction interaction is under-specified (major)</h3>
+<p data-from="2682" data-to="2931">The design places warmed objects in the same LRU pool as demand-loaded objects. If a warm cycle loads 1.8 GB into a 2.2 GB pool, it will evict objects that are actively being read. §5.4 hints at a "warm priority bit" but never defines its semantics.</p>
+<h3 id="f5-metrics-are-defined-but-not-instrumented-minor" data-from="2933" data-to="2990">F5 — Metrics are defined but not instrumented (minor)</h3>
+<p data-from="2992" data-to="3180">§8 lists four SLIs but does not say which are already emitted. Based on my reading of the collector config, <code data-from="3100" data-to="3128">kettle_warm_cycle_duration</code> and <code data-from="3133" data-to="3156">kettle_prefetch_bytes</code> do not currently exist.</p>
+<h3 id="f6-terminology-drift-minor" data-from="3182" data-to="3216">F6 — Terminology drift (minor)</h3>
+<p data-from="3218" data-to="3351">The terms "warm set," "prefetch set," and "candidate set" appear to describe the same concept in §3, §5, and Appendix B respectively.</p>
+<hr data-from="3353" data-to="3356">
+<h2 id="questions-for-the-author" data-from="3358" data-to="3385">Questions for the Author</h2>
+<ol data-from="3387" data-to="4037">
+  <li data-from="3387" data-to="3513">Can you re-run the §6.2 evaluation against a control week — I suggest 20–26 January — and report both figures side by side?</li>
+  <li data-from="3514" data-to="3681">What is the intended backpressure mechanism when the origin returns 503 during a warm cycle? Does the cycle abort, retry with jitter, or degrade to partial warming?</li>
+  <li data-from="3682" data-to="3796">Is the 250 ms p99 target measured at the client edge or at the cache boundary? Table 2 and §9 seem to disagree.</li>
+  <li data-from="3797" data-to="3916">Who owns the tenant-schedule configuration once this ships — the platform team or each tenant's onboarding engineer?</li>
+  <li data-from="3917" data-to="4037">Has Legal reviewed the retention implications of keeping warmed copies for tenants in the restricted-residency group?</li>
+</ol>
+<hr data-from="4039" data-to="4042">
+<h2 id="recommended-changes" data-from="4044" data-to="4066">Recommended Changes</h2>
+<p data-from="4068" data-to="4117">Please make the following before the next review:</p>
+<ul data-from="4119" data-to="4835">
+  <li data-from="4119" data-to="4308"><strong data-from="4121" data-to="4159">Add §7.4, "Failover and Rehoming."</strong> Include a rate limiter on warm cycles with a documented global ceiling. My suggestion is a token bucket sized to roughly 8% of origin read capacity.</li>
+  <li data-from="4309" data-to="4410"><strong data-from="4311" data-to="4330">Restate Table 4</strong> with marginal cost, and add a footnote naming the reservation it draws against.</li>
+  <li data-from="4411" data-to="4558"><strong data-from="4413" data-to="4451">Define the warm priority bit fully</strong> in §5.4: how it is set, how it decays, and whether a warmed-then-read object graduates to normal priority.</li>
+  <li data-from="4559" data-to="4657"><strong data-from="4561" data-to="4594">Add a control-week comparison</strong> to §6.2 and revise the abstract's headline number accordingly.</li>
+  <li data-from="4658" data-to="4739"><strong data-from="4660" data-to="4685">Normalize terminology</strong> to "warm set" throughout, and add it to the glossary.</li>
+  <li data-from="4740" data-to="4835"><strong data-from="4742" data-to="4778">Add an instrumentation checklist</strong> to §8 marking each SLI as existing, planned, or blocked.</li>
+</ul>
+<h3 id="suggested-configuration-sketch" data-from="4837" data-to="4871">Suggested configuration sketch</h3>
+<p data-from="4873" data-to="4956">To make F2 and F4 concrete, I would find something like this in Appendix C helpful:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="4958" data-to="5479"><code class="language-yaml" data-verbatim data-from="4966" data-to="5475">kettle:
+  warm_cycle:
+    max_concurrent_tenants: 12
+    per_tenant_bytes_per_sec: 40_000_000
+    global_ceiling_bytes_per_sec: 900_000_000
+    abort_on_origin_5xx_ratio: 0.05
+    retry:
+      strategy: exponential_jitter
+      base_ms: 400
+      max_attempts: 4
+  eviction:
+    pool: shared_lru
+    warm_priority:
+      enabled: true
+      initial_weight: 0.35
+      decay_half_life_sec: 1800
+      graduate_on_demand_read: true
+  failover:
+    rehome_warm_delay_sec: 900
+    rehome_max_concurrent_tenants: 3</code></pre>
+<p data-from="5481" data-to="5602">The specific numbers are illustrative; the point is that each knob in F2 and F4 should have a named default and an owner.</p>
+<hr data-from="5604" data-to="5607">
+<h2 id="overall-assessment" data-from="5609" data-to="5630">Overall Assessment</h2>
+<p data-from="5632" data-to="5963">The core idea is sound and I support pursuing it. The gaps are concentrated in evaluation rigor and failure-mode coverage rather than in the fundamental approach, which suggests a revision cycle of one to two weeks rather than a redesign. I am happy to pair on the failover section if that would be faster than another async round.</p>

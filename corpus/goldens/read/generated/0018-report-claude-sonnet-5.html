@@ -1,0 +1,205 @@
+<h1 id="project-orion-distributed-cache-optimization-status-report" data-from="0" data-to="63">Project Orion: Distributed Cache Optimization — Status Report</h1>
+<p data-from="65" data-to="218"><strong data-from="65" data-to="74">Date:</strong> March 14, 2025
+<strong data-from="90" data-to="101">Author:</strong> Priya Ramanathan, Lead Infrastructure Engineer
+<strong data-from="149" data-to="160">Sprint:</strong> 14 of 20
+<strong data-from="170" data-to="181">Status:</strong> 🟡 On Track (Minor Risks Identified)</p>
+<hr data-from="220" data-to="223">
+<h2 id="executive-summary" data-from="225" data-to="245">Executive Summary</h2>
+<p data-from="247" data-to="720">Project Orion aims to reduce p99 latency across our distributed caching layer by replacing the legacy LRU eviction policy with an adaptive, cost-aware eviction algorithm we call <strong data-from="425" data-to="440">W-TinyLFU-X</strong>. Over the past three sprints, we've moved from prototype to staged rollout in two of six production regions. Early results are promising, but we've encountered unexpected memory fragmentation issues under high cardinality workloads that require attention before wider deployment.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="722" data-to="858">
+  <div class="mdr-callout-title" data-from="724" data-to="731">
+    Note
+  </div>
+  <p data-from="734" data-to="858">This report covers Sprints 12–14. The previous report (Sprint 11) can be found in <code data-from="816" data-to="857">docs/reports/2025-02-21-orion-status.md</code>.</p>
+</blockquote>
+<hr data-from="860" data-to="863">
+<h2 id="key-metrics" data-from="865" data-to="879">Key Metrics</h2>
+<h3 id="cache-performance-region-us-east-2-canary-cluster" data-from="881" data-to="940">Cache Performance (Region: <code data-from="912" data-to="923">us-east-2</code>, canary cluster)</h3>
+<div class="mdr-table-wrap" data-from="942" data-to="1249">
+  <table data-from="942" data-to="1249">
+    <thead data-from="942" data-to="997">
+      <tr data-from="942" data-to="997">
+        <th data-from="944" data-to="950">Metric</th>
+        <th data-from="953" data-to="967">Baseline (LRU)</th>
+        <th data-from="970" data-to="991">Current (W-TinyLFU-X)</th>
+        <th data-from="994" data-to="995">Δ</th>
+      </tr>
+    </thead>
+    <tbody data-from="1016" data-to="1249">
+      <tr data-from="1016" data-to="1054">
+        <td data-from="1018" data-to="1026">Hit Rate</td>
+        <td data-from="1029" data-to="1034">87.2%</td>
+        <td data-from="1037" data-to="1042">94.6%</td>
+        <td data-from="1045" data-to="1052">+7.4 pp</td>
+      </tr>
+      <tr data-from="1055" data-to="1097">
+        <td data-from="1057" data-to="1068">p50 Latency</td>
+        <td data-from="1071" data-to="1077">1.8 ms</td>
+        <td data-from="1080" data-to="1086">1.1 ms</td>
+        <td data-from="1089" data-to="1095">−38.9%</td>
+      </tr>
+      <tr data-from="1098" data-to="1142">
+        <td data-from="1100" data-to="1111">p99 Latency</td>
+        <td data-from="1114" data-to="1121">42.3 ms</td>
+        <td data-from="1124" data-to="1131">19.7 ms</td>
+        <td data-from="1134" data-to="1140">−53.4%</td>
+      </tr>
+      <tr data-from="1143" data-to="1186">
+        <td data-from="1145" data-to="1160">Memory Overhead</td>
+        <td data-from="1163" data-to="1167">4.1%</td>
+        <td data-from="1170" data-to="1174">6.8%</td>
+        <td data-from="1177" data-to="1184">+2.7 pp</td>
+      </tr>
+      <tr data-from="1187" data-to="1249">
+        <td data-from="1189" data-to="1208">Eviction Throughput</td>
+        <td data-from="1211" data-to="1223">12,400 ops/s</td>
+        <td data-from="1226" data-to="1238">15,900 ops/s</td>
+        <td data-from="1241" data-to="1247">+28.2%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="1251" data-to="1326">The theoretical hit-rate improvement predicted by our simulation model was:</p>
+<div class="mdr-math-block" data-tex="H_{\text{predicted}} = 1 - \frac{1}{1 + \alpha \cdot \log_2\left(\frac{N}{k}\right)}" data-from="1328" data-to="1418">
+  H_{\text{predicted}} = 1 - \frac{1}{1 + \alpha \cdot \log_2\left(\frac{N}{k}\right)}
+</div>
+<p data-from="1420" data-to="1736">where <span class="mdr-math" data-tex="N" data-from="1426" data-to="1429">N</span> is the total key space size, <span class="mdr-math" data-tex="k" data-from="1459" data-to="1462">k</span> is the cache capacity, and <span class="mdr-math" data-tex="\alpha = 0.83" data-from="1490" data-to="1505">\alpha = 0.83</span> is the empirically fitted admission-filter sensitivity constant. Our observed hit rate of <span class="mdr-math" data-tex="94.6\%" data-from="1596" data-to="1604">94.6\%</span> tracks the prediction within a margin of <span class="mdr-math" data-tex="\epsilon = 1.2\%" data-from="1646" data-to="1664">\epsilon = 1.2\%</span>, which is within our acceptable tolerance of <span class="mdr-math" data-tex="\epsilon_{\max} = 2.0\%" data-from="1710" data-to="1735">\epsilon_{\max} = 2.0\%</span>.</p>
+<h3 id="infrastructure-cost" data-from="1738" data-to="1761">Infrastructure Cost</h3>
+<ul data-from="1763" data-to="1986">
+  <li data-from="1763" data-to="1840">Monthly compute spend (canary): <strong data-from="1797" data-to="1807">$4,280</strong> (up from $3,950 baseline, +8.4%)</li>
+  <li data-from="1841" data-to="1922">Projected full-rollout savings (via reduced backend DB load): <strong data-from="1905" data-to="1922">$61,000/month</strong></li>
+  <li data-from="1923" data-to="1986">Break-even point: approximately <strong data-from="1957" data-to="1968">7 weeks</strong> post full rollout</li>
+</ul>
+<hr data-from="1988" data-to="1991">
+<h2 id="technical-deep-dive-memory-fragmentation-issue" data-from="1993" data-to="2043">Technical Deep Dive: Memory Fragmentation Issue</h2>
+<p data-from="2045" data-to="2239">During load testing with the <code data-from="2074" data-to="2097">synthetic-highcard-v3</code> benchmark (2.1M unique keys, Zipfian distribution with <span class="mdr-math" data-tex="s = 1.05" data-from="2153" data-to="2163">s = 1.05</span>), we observed heap fragmentation climbing steadily over a 6-hour soak test.</p>
+<pre class="mdr-code" data-lang="rust" data-from="2241" data-to="3003"><code class="language-rust" data-verbatim data-from="2249" data-to="2999">// Simplified excerpt from src/cache/allocator.rs
+// Demonstrates the segment reuse logic under investigation
+
+pub struct SegmentPool {
+    free_list: Vec&lt;Segment&gt;,
+    active: HashMap&lt;SegmentId, Segment&gt;,
+}
+
+impl SegmentPool {
+    pub fn reclaim(&amp;mut self, id: SegmentId) -&gt; Result&lt;(), PoolError&gt; {
+        let seg = self.active.remove(&amp;id)
+            .ok_or(PoolError::NotFound)?;
+
+        // BUG SUSPECT: segments below this threshold are not
+        // being coalesced with adjacent free blocks, causing
+        // fragmentation to accumulate over long-running processes.
+        if seg.size &lt; COALESCE_THRESHOLD {
+            self.free_list.push(seg);
+        } else {
+            self.coalesce_and_push(seg)?;
+        }
+
+        Ok(())
+    }
+}</code></pre>
+<p data-from="3005" data-to="3296">The root cause appears to be the <code data-from="3038" data-to="3058">COALESCE_THRESHOLD</code> constant (currently <code data-from="3079" data-to="3085">4096</code> bytes), which was tuned for our original workload profile but does not generalize well to high-cardinality small-object patterns. We're evaluating a dynamic threshold based on recent allocation size histograms.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="3298" data-to="3559">
+  <div class="mdr-callout-title" data-from="3300" data-to="3310">
+    Warning
+  </div>
+  <p data-from="3313" data-to="3559">If left unresolved, this fragmentation issue could cause OOM kills in long-running cache nodes (uptime &gt; 72 hours) under high-cardinality workloads. This is a <strong data-from="3472" data-to="3490">blocking issue</strong> for the <code data-from="3499" data-to="3515">ap-southeast-1</code> rollout, currently scheduled for Sprint 16.</p>
+</blockquote>
+<hr data-from="3561" data-to="3564">
+<h2 id="regional-rollout-status" data-from="3566" data-to="3592">Regional Rollout Status</h2>
+<ul data-from="3594" data-to="4072">
+  <li data-from="3594" data-to="3733"><strong data-from="3596" data-to="3609">us-east-2</strong>: Canary deployment, 12% of traffic<ul data-from="3647" data-to="3733">
+      <li data-from="3647" data-to="3667">Stable for 19 days</li>
+      <li data-from="3670" data-to="3733">No fragmentation issues observed (lower cardinality workload)</li>
+    </ul></li>
+  <li data-from="3734" data-to="3871"><strong data-from="3736" data-to="3749">us-west-1</strong>: Canary deployment, 8% of traffic<ul data-from="3786" data-to="3871">
+      <li data-from="3786" data-to="3806">Stable for 11 days</li>
+      <li data-from="3809" data-to="3871">Minor alerting noise from Prometheus rules (false positives)</li>
+    </ul></li>
+  <li data-from="3872" data-to="3941"><strong data-from="3874" data-to="3890">eu-central-1</strong>: Planning phase<ul data-from="3909" data-to="3941">
+      <li data-from="3909" data-to="3941">Dependent on fragmentation fix</li>
+    </ul></li>
+  <li data-from="3942" data-to="4009"><strong data-from="3944" data-to="3962">ap-southeast-1</strong>: Blocked<ul data-from="3974" data-to="4009">
+      <li data-from="3974" data-to="4009">Awaiting fragmentation resolution</li>
+    </ul></li>
+  <li data-from="4010" data-to="4043"><strong data-from="4012" data-to="4030">ap-northeast-1</strong>: Not started</li>
+  <li data-from="4044" data-to="4072"><strong data-from="4046" data-to="4059">sa-east-1</strong>: Not started</li>
+</ul>
+<h3 id="team-structure-nested-breakdown" data-from="4074" data-to="4111">Team Structure (nested breakdown)</h3>
+<ul data-from="4113" data-to="4651">
+  <li data-from="4113" data-to="4571"><strong data-from="4115" data-to="4135">Core Engineering</strong><ul data-from="4138" data-to="4571">
+      <li data-from="4138" data-to="4392">Cache Algorithm Team<ul data-from="4165" data-to="4392">
+          <li data-from="4165" data-to="4190">Priya Ramanathan (lead)</li>
+          <li data-from="4195" data-to="4235">Dmitri Volkov (eviction policy tuning)</li>
+          <li data-from="4240" data-to="4392">Aisha Bello (benchmarking harness)<ul data-from="4283" data-to="4392">
+              <li data-from="4283" data-to="4334">Owns <code data-from="4290" data-to="4313">synthetic-highcard-v3</code> and related fixtures</li>
+              <li data-from="4341" data-to="4392">Coordinating with SRE on soak test infrastructure</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="4395" data-to="4509">Platform Reliability Team<ul data-from="4427" data-to="4509">
+          <li data-from="4427" data-to="4464">Marcus Chen (on-call rotation lead)</li>
+          <li data-from="4469" data-to="4509">Sofia Petrova (alerting/observability)</li>
+        </ul></li>
+      <li data-from="4512" data-to="4571">Infrastructure Cost Team<ul data-from="4543" data-to="4571">
+          <li data-from="4543" data-to="4571">Wei Zhang (FinOps liaison)</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="4572" data-to="4651"><strong data-from="4574" data-to="4590">Stakeholders</strong><ul data-from="4593" data-to="4651">
+      <li data-from="4593" data-to="4617">Product: Lena Kowalski</li>
+      <li data-from="4620" data-to="4651">SRE Leadership: Tomás Herrera</li>
+    </ul></li>
+</ul>
+<hr data-from="4653" data-to="4656">
+<h2 id="incident-log-since-last-report" data-from="4658" data-to="4691">Incident Log Since Last Report</h2>
+<p data-from="4693" data-to="4750">There was one Sev-3 incident during the reporting period:</p>
+<blockquote data-from="4752" data-to="5214">
+  <p data-from="4754" data-to="5214">On March 8th at 03:14 UTC, the <code data-from="4785" data-to="4796">us-west-1</code> canary cluster experienced a 4-minute partial degradation (elevated p99 latency, peaking at 210ms) due to a misconfigured connection pool size following a routine node restart. No customer-facing errors were recorded; the issue was caught by internal synthetic monitoring before user impact thresholds were crossed. Root cause: connection pool max size was not correctly propagated from the updated Helm chart values.</p>
+</blockquote>
+<p data-from="5216" data-to="5287">Postmortem document: <code data-from="5237" data-to="5287">docs/incidents/2025-03-08-uswest1-degradation.md</code></p>
+<hr data-from="5289" data-to="5292">
+<h2 id="task-list-sprint-14-deliverables" data-from="5294" data-to="5331">Task List — Sprint 14 Deliverables</h2>
+<ul data-from="5333" data-to="5931">
+  <li class="mdr-task" data-from="5333" data-to="5399"><input type="checkbox" disabled checked data-from="5335" data-to="5338">Finalize W-TinyLFU-X admission filter tuning for <code data-from="5388" data-to="5399">us-east-2</code></li>
+  <li class="mdr-task" data-from="5400" data-to="5468"><input type="checkbox" disabled checked data-from="5402" data-to="5405">Deploy observability dashboards for eviction latency (Grafana)</li>
+  <li class="mdr-task" data-from="5469" data-to="5534"><input type="checkbox" disabled checked data-from="5471" data-to="5474">Complete root-cause investigation for segment fragmentation</li>
+  <li class="mdr-task" data-from="5535" data-to="5610"><input type="checkbox" disabled data-from="5537" data-to="5540">Implement dynamic <code data-from="5559" data-to="5579">COALESCE_THRESHOLD</code> based on allocation histograms</li>
+  <li class="mdr-task" data-from="5611" data-to="5669"><input type="checkbox" disabled data-from="5613" data-to="5616">Run 72-hour soak test with fragmentation fix applied</li>
+  <li class="mdr-task" data-from="5670" data-to="5744"><input type="checkbox" disabled checked data-from="5672" data-to="5675">Update runbooks for on-call engineers regarding new eviction metrics</li>
+  <li class="mdr-task" data-from="5745" data-to="5809"><input type="checkbox" disabled data-from="5747" data-to="5750">Present findings to Platform Reliability Team for sign-off</li>
+  <li class="mdr-task" data-from="5810" data-to="5869"><input type="checkbox" disabled data-from="5812" data-to="5815">Begin <code data-from="5822" data-to="5836">eu-central-1</code> staging environment provisioning</li>
+  <li class="mdr-task" data-from="5870" data-to="5931"><input type="checkbox" disabled data-from="5872" data-to="5875">Draft cost-benefit analysis for full six-region rollout</li>
+</ul>
+<hr data-from="5933" data-to="5936">
+<h2 id="risks-and-mitigations" data-from="5938" data-to="5962">Risks and Mitigations</h2>
+<ol data-from="5964" data-to="6390">
+  <li data-from="5964" data-to="6112"><strong data-from="5967" data-to="6014">Memory fragmentation under high cardinality</strong> (High severity)<ul data-from="6034" data-to="6112">
+      <li data-from="6034" data-to="6112">Mitigation: dynamic threshold patch in progress, target completion Sprint 15</li>
+    </ul></li>
+  <li data-from="6113" data-to="6237"><strong data-from="6116" data-to="6152">Alerting noise in canary regions</strong> (Low severity)<ul data-from="6171" data-to="6237">
+      <li data-from="6171" data-to="6237">Mitigation: Sofia's team is auditing Prometheus rule sensitivity</li>
+    </ul></li>
+  <li data-from="6238" data-to="6390"><strong data-from="6241" data-to="6289">Cost overrun risk if rollout delayed past Q2</strong> (Medium severity)<ul data-from="6311" data-to="6390">
+      <li data-from="6311" data-to="6390">Mitigation: Wei is preparing a revised budget forecast assuming a 4-week slip</li>
+    </ul></li>
+</ol>
+<hr data-from="6392" data-to="6395">
+<h2 id="next-steps" data-from="6397" data-to="6410">Next Steps</h2>
+<ol data-from="6412" data-to="7072">
+  <li data-from="6412" data-to="6479">Land the dynamic coalescing threshold patch (target: March 19th)</li>
+  <li data-from="6480" data-to="6601">Re-run the 72-hour soak test on the patched build in a staging environment mirroring <code data-from="6568" data-to="6584">ap-southeast-1</code> traffic patterns</li>
+  <li data-from="6602" data-to="6724">If soak test passes cleanly (fragmentation growth rate <span class="mdr-math" data-tex="&lt; 0.5\%" data-from="6660" data-to="6669">&lt; 0.5\%</span> per hour), proceed with <code data-from="6694" data-to="6708">eu-central-1</code> staging rollout</li>
+  <li data-from="6725" data-to="6841">Schedule joint review with SRE leadership (Tomás) to sign off on <code data-from="6793" data-to="6809">ap-southeast-1</code> unblock, tentatively March 26th</li>
+  <li data-from="6842" data-to="6964">Update the cost model with actual <code data-from="6879" data-to="6890">us-west-1</code> and <code data-from="6895" data-to="6906">us-east-2</code> canary data to refine the full-rollout savings projection</li>
+  <li data-from="6965" data-to="7072">Begin drafting external-facing changelog entry for the eventual GA announcement, pending legal/PR review</li>
+</ol>
+<hr data-from="7074" data-to="7077">
+<h2 id="appendix-benchmark-configuration-reference" data-from="7079" data-to="7125">Appendix: Benchmark Configuration Reference</h2>
+<p data-from="7127" data-to="7216">For reproducibility, the benchmark harness parameters used in this reporting period were:</p>
+<ul data-from="7218" data-to="7395">
+  <li data-from="7218" data-to="7251">Key space size (<span class="mdr-math" data-tex="N" data-from="7236" data-to="7239">N</span>): 2,100,000</li>
+  <li data-from="7252" data-to="7282">Cache capacity (<span class="mdr-math" data-tex="k" data-from="7270" data-to="7273">k</span>): 50,000</li>
+  <li data-from="7283" data-to="7309">Zipfian skew (<span class="mdr-math" data-tex="s" data-from="7299" data-to="7302">s</span>): 1.05</li>
+  <li data-from="7310" data-to="7348">Request rate: 18,000 req/s sustained</li>
+  <li data-from="7349" data-to="7395">Duration: 6 hours (soak), 45 minutes (smoke)</li>
+</ul>
+<p data-from="7397" data-to="7533">Questions or feedback on this report should be directed to Priya Ramanathan or raised in <code data-from="7486" data-to="7502">#project-orion</code> on the internal chat platform.</p>

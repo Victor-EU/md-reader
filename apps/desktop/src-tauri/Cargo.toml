@@ -19,6 +19,7 @@ tauri = { workspace = true }
 # Plugins must be direct dependencies of the crate that runs tauri-build,
 # otherwise their permissions are unknown to the capability check.
 tauri-plugin-dialog = { workspace = true }
+tauri-plugin-opener = { workspace = true }
 
 [lints]
 workspace = true

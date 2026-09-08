@@ -1,0 +1,324 @@
+<h1 id="project-cormorant-status-report" data-from="0" data-to="35">Project Cormorant — Status Report</h1>
+<p data-from="37" data-to="350"><strong data-from="37" data-to="58">Reporting period:</strong> 2024-W38 through 2024-W41 (four-week cycle)
+<strong data-from="103" data-to="119">Prepared by:</strong> Dara Okonkwo, Technical Lead, Settlement Platform Guild
+<strong data-from="176" data-to="193">Distribution:</strong> Platform Steering Group, Finance Engineering, Risk &amp; Controls
+<strong data-from="256" data-to="275">Overall status:</strong> 🟡 Amber — on scope, one week behind on schedule, cost tracking favourable</p>
+<hr data-from="352" data-to="355">
+<h2 id="1-executive-summary" data-from="357" data-to="380">1. Executive Summary</h2>
+<p data-from="382" data-to="778">Project Cormorant replaces <strong data-from="409" data-to="420">Kestrel</strong>, our nightly batch settlement engine, with <strong data-from="464" data-to="477">Tidewater</strong>, a streaming settlement pipeline built on an append-only event log. The business objective is to reduce end-of-day settlement finality from a 6-hour batch window to a continuous flow with sub-second per-transaction latency, while preserving byte-for-byte reconciliation parity with the legacy ledger.</p>
+<p data-from="780" data-to="1142">During this cycle we completed the dual-write phase for all four settlement domains, shipped the reconciliation harness to production, and ran the first 72-hour shadow comparison against live volume. Shadow parity reached <strong data-from="1002" data-to="1014">99.9962%</strong> across 41.2 million compared records, with all 1,566 mismatches traced to three known root causes (two of which are now fixed).</p>
+<p data-from="1144" data-to="1499">The single schedule slip is in the <strong data-from="1179" data-to="1198">payout-reversal</strong> domain, where the legacy engine encodes an undocumented rounding behaviour for multi-currency partial reversals. Resolving it required a controls sign-off that added seven working days. We have absorbed four of those days through parallelisation and expect to recover the remainder in the next cycle.</p>
+<p data-from="1501" data-to="1668">Cost is running <strong data-from="1517" data-to="1530">18% under</strong> the approved infrastructure envelope because the compaction strategy for the event log turned out to be far more effective than modelled.</p>
+<hr data-from="1670" data-to="1673">
+<h2 id="2-milestone-progress" data-from="1675" data-to="1699">2. Milestone Progress</h2>
+<div class="mdr-table-wrap" data-from="1701" data-to="2371">
+  <table data-from="1701" data-to="2371">
+    <thead data-from="1701" data-to="1748">
+      <tr data-from="1701" data-to="1748">
+        <th data-from="1703" data-to="1704">#</th>
+        <th data-from="1707" data-to="1716">Milestone</th>
+        <th data-from="1719" data-to="1726">Planned</th>
+        <th data-from="1729" data-to="1737">Forecast</th>
+        <th data-from="1740" data-to="1746">Status</th>
+      </tr>
+    </thead>
+    <tbody data-from="1797" data-to="2371">
+      <tr data-from="1797" data-to="1887">
+        <td data-from="1799" data-to="1801">M1</td>
+        <td data-from="1804" data-to="1846">Event schema v1 frozen in Rookery registry</td>
+        <td data-from="1849" data-to="1859">2024-08-16</td>
+        <td data-from="1862" data-to="1872">2024-08-14</td>
+        <td data-from="1875" data-to="1885">✅ Complete</td>
+      </tr>
+      <tr data-from="1888" data-to="1978">
+        <td data-from="1890" data-to="1892">M2</td>
+        <td data-from="1895" data-to="1937">Tidewater ingest at 10k events/s sustained</td>
+        <td data-from="1940" data-to="1950">2024-09-06</td>
+        <td data-from="1953" data-to="1963">2024-09-04</td>
+        <td data-from="1966" data-to="1976">✅ Complete</td>
+      </tr>
+      <tr data-from="1979" data-to="2061">
+        <td data-from="1981" data-to="1983">M3</td>
+        <td data-from="1986" data-to="2020">Dual-write enabled for all domains</td>
+        <td data-from="2023" data-to="2033">2024-09-27</td>
+        <td data-from="2036" data-to="2046">2024-10-02</td>
+        <td data-from="2049" data-to="2059">✅ Complete</td>
+      </tr>
+      <tr data-from="2062" data-to="2140">
+        <td data-from="2064" data-to="2066">M4</td>
+        <td data-from="2069" data-to="2099">72-hour shadow parity ≥ 99.99%</td>
+        <td data-from="2102" data-to="2112">2024-10-11</td>
+        <td data-from="2115" data-to="2125">2024-10-09</td>
+        <td data-from="2128" data-to="2138">✅ Complete</td>
+      </tr>
+      <tr data-from="2141" data-to="2220">
+        <td data-from="2143" data-to="2145">M5</td>
+        <td data-from="2148" data-to="2179">Payout-reversal parity sign-off</td>
+        <td data-from="2182" data-to="2192">2024-10-18</td>
+        <td data-from="2195" data-to="2205">2024-10-25</td>
+        <td data-from="2208" data-to="2218">🟡 At risk</td>
+      </tr>
+      <tr data-from="2221" data-to="2299">
+        <td data-from="2223" data-to="2225">M6</td>
+        <td data-from="2228" data-to="2258">Read-path cutover (10% cohort)</td>
+        <td data-from="2261" data-to="2271">2024-11-08</td>
+        <td data-from="2274" data-to="2284">2024-11-12</td>
+        <td data-from="2287" data-to="2297">🟡 At risk</td>
+      </tr>
+      <tr data-from="2300" data-to="2371">
+        <td data-from="2302" data-to="2304">M7</td>
+        <td data-from="2307" data-to="2327">Kestrel decommission</td>
+        <td data-from="2330" data-to="2340">2025-01-31</td>
+        <td data-from="2343" data-to="2353">2025-01-31</td>
+        <td data-from="2356" data-to="2369">⬜ Not started</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="2373" data-to="2492"><strong data-from="2373" data-to="2395">Schedule variance:</strong> +5 working days on the critical path (M5 → M6). No change to M7, which retains 21 days of float.</p>
+<hr data-from="2494" data-to="2497">
+<h2 id="3-key-metrics" data-from="2499" data-to="2516">3. Key Metrics</h2>
+<h3 id="31-performance" data-from="2518" data-to="2537">3.1 Performance</h3>
+<div class="mdr-table-wrap" data-from="2539" data-to="3111">
+  <table data-from="2539" data-to="3111">
+    <thead data-from="2539" data-to="2605">
+      <tr data-from="2539" data-to="2605">
+        <th data-from="2541" data-to="2547">Metric</th>
+        <th data-from="2550" data-to="2568">Baseline (Kestrel)</th>
+        <th data-from="2571" data-to="2581">Last cycle</th>
+        <th data-from="2584" data-to="2594">This cycle</th>
+        <th data-from="2597" data-to="2603">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="2673" data-to="3111">
+      <tr data-from="2673" data-to="2737">
+        <td data-from="2675" data-to="2697">p50 settlement latency</td>
+        <td data-from="2700" data-to="2706">4h 12m</td>
+        <td data-from="2709" data-to="2715">210 ms</td>
+        <td data-from="2718" data-to="2724">148 ms</td>
+        <td data-from="2727" data-to="2735">≤ 250 ms</td>
+      </tr>
+      <tr data-from="2738" data-to="2804">
+        <td data-from="2740" data-to="2762">p99 settlement latency</td>
+        <td data-from="2765" data-to="2771">6h 40m</td>
+        <td data-from="2774" data-to="2782">2,410 ms</td>
+        <td data-from="2785" data-to="2791">337 ms</td>
+        <td data-from="2794" data-to="2802">≤ 500 ms</td>
+      </tr>
+      <tr data-from="2805" data-to="2873">
+        <td data-from="2807" data-to="2831">p99.9 settlement latency</td>
+        <td data-from="2834" data-to="2835">—</td>
+        <td data-from="2838" data-to="2847">11,900 ms</td>
+        <td data-from="2850" data-to="2858">1,240 ms</td>
+        <td data-from="2861" data-to="2871">≤ 2,000 ms</td>
+      </tr>
+      <tr data-from="2874" data-to="2955">
+        <td data-from="2876" data-to="2903">Sustained ingest throughput</td>
+        <td data-from="2906" data-to="2909">n/a</td>
+        <td data-from="2912" data-to="2923">10,400 ev/s</td>
+        <td data-from="2926" data-to="2937">14,700 ev/s</td>
+        <td data-from="2940" data-to="2953">≥ 12,000 ev/s</td>
+      </tr>
+      <tr data-from="2956" data-to="3036">
+        <td data-from="2958" data-to="2984">Peak ingest (15-min burst)</td>
+        <td data-from="2987" data-to="2990">n/a</td>
+        <td data-from="2993" data-to="3004">18,200 ev/s</td>
+        <td data-from="3007" data-to="3018">26,900 ev/s</td>
+        <td data-from="3021" data-to="3034">≥ 24,000 ev/s</td>
+      </tr>
+      <tr data-from="3037" data-to="3111">
+        <td data-from="3039" data-to="3068">Replay speed (cold partition)</td>
+        <td data-from="3071" data-to="3074">n/a</td>
+        <td data-from="3077" data-to="3085">41k ev/s</td>
+        <td data-from="3088" data-to="3096">88k ev/s</td>
+        <td data-from="3099" data-to="3109">≥ 75k ev/s</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="3113" data-to="3380">The p99 improvement from 2,410 ms to 337 ms came almost entirely from removing a synchronous currency-table lookup that was hitting the shared config database on every event. It is now materialised into the consumer's local state store and refreshed on a change-feed.</p>
+<h3 id="32-correctness-and-quality" data-from="3382" data-to="3413">3.2 Correctness and Quality</h3>
+<div class="mdr-table-wrap" data-from="3415" data-to="3891">
+  <table data-from="3415" data-to="3891">
+    <thead data-from="3415" data-to="3460">
+      <tr data-from="3415" data-to="3460">
+        <th data-from="3417" data-to="3423">Metric</th>
+        <th data-from="3426" data-to="3436">Last cycle</th>
+        <th data-from="3439" data-to="3449">This cycle</th>
+        <th data-from="3452" data-to="3458">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="3507" data-to="3891">
+      <tr data-from="3507" data-to="3564">
+        <td data-from="3509" data-to="3527">Shadow parity rate</td>
+        <td data-from="3530" data-to="3538">99.9713%</td>
+        <td data-from="3541" data-to="3549">99.9962%</td>
+        <td data-from="3552" data-to="3562">≥ 99.9990%</td>
+      </tr>
+      <tr data-from="3565" data-to="3639">
+        <td data-from="3567" data-to="3596">Records compared (cumulative)</td>
+        <td data-from="3599" data-to="3605">12.8 M</td>
+        <td data-from="3608" data-to="3614">41.2 M</td>
+        <td data-from="3617" data-to="3637">100 M before cutover</td>
+      </tr>
+      <tr data-from="3640" data-to="3675">
+        <td data-from="3642" data-to="3661">Open parity defects</td>
+        <td data-from="3664" data-to="3665">9</td>
+        <td data-from="3668" data-to="3669">3</td>
+        <td data-from="3672" data-to="3673">0</td>
+      </tr>
+      <tr data-from="3676" data-to="3731">
+        <td data-from="3678" data-to="3705">Unit + integration coverage</td>
+        <td data-from="3708" data-to="3713">71.4%</td>
+        <td data-from="3716" data-to="3721">83.1%</td>
+        <td data-from="3724" data-to="3729">≥ 80%</td>
+      </tr>
+      <tr data-from="3732" data-to="3788">
+        <td data-from="3734" data-to="3766">Mutation score (core ledger pkg)</td>
+        <td data-from="3769" data-to="3772">48%</td>
+        <td data-from="3775" data-to="3778">66%</td>
+        <td data-from="3781" data-to="3786">≥ 70%</td>
+      </tr>
+      <tr data-from="3789" data-to="3833">
+        <td data-from="3791" data-to="3816">Flaky tests in CI (7-day)</td>
+        <td data-from="3819" data-to="3821">14</td>
+        <td data-from="3824" data-to="3825">4</td>
+        <td data-from="3828" data-to="3831">≤ 3</td>
+      </tr>
+      <tr data-from="3834" data-to="3891">
+        <td data-from="3836" data-to="3861">Mean CI pipeline duration</td>
+        <td data-from="3864" data-to="3871">22m 40s</td>
+        <td data-from="3874" data-to="3881">13m 05s</td>
+        <td data-from="3884" data-to="3889">≤ 15m</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="33-reliability-and-cost" data-from="3893" data-to="3921">3.3 Reliability and Cost</h3>
+<div class="mdr-table-wrap" data-from="3923" data-to="4367">
+  <table data-from="3923" data-to="4367">
+    <thead data-from="3923" data-to="3968">
+      <tr data-from="3923" data-to="3968">
+        <th data-from="3925" data-to="3931">Metric</th>
+        <th data-from="3934" data-to="3944">Last cycle</th>
+        <th data-from="3947" data-to="3957">This cycle</th>
+        <th data-from="3960" data-to="3966">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="4015" data-to="4367">
+      <tr data-from="4015" data-to="4079">
+        <td data-from="4017" data-to="4048">Tidewater availability (shadow)</td>
+        <td data-from="4051" data-to="4057">99.87%</td>
+        <td data-from="4060" data-to="4066">99.96%</td>
+        <td data-from="4069" data-to="4077">≥ 99.95%</td>
+      </tr>
+      <tr data-from="4080" data-to="4134">
+        <td data-from="4082" data-to="4112">Error budget consumed (30-day)</td>
+        <td data-from="4115" data-to="4118">61%</td>
+        <td data-from="4121" data-to="4124">24%</td>
+        <td data-from="4127" data-to="4132">≤ 50%</td>
+      </tr>
+      <tr data-from="4135" data-to="4168">
+        <td data-from="4137" data-to="4152">Sev-2 incidents</td>
+        <td data-from="4155" data-to="4156">2</td>
+        <td data-from="4159" data-to="4160">1</td>
+        <td data-from="4163" data-to="4166">≤ 1</td>
+      </tr>
+      <tr data-from="4169" data-to="4238">
+        <td data-from="4171" data-to="4203">Consumer lag, p95 (steady state)</td>
+        <td data-from="4206" data-to="4214">3,900 ev</td>
+        <td data-from="4217" data-to="4223">610 ev</td>
+        <td data-from="4226" data-to="4236">≤ 1,500 ev</td>
+      </tr>
+      <tr data-from="4239" data-to="4296">
+        <td data-from="4241" data-to="4263">Monthly infra run-rate</td>
+        <td data-from="4266" data-to="4273">$46,200</td>
+        <td data-from="4276" data-to="4283">$37,800</td>
+        <td data-from="4286" data-to="4294">≤ 46,000</td>
+      </tr>
+      <tr data-from="4297" data-to="4367">
+        <td data-from="4299" data-to="4338">Storage per 1M events (post-compaction)</td>
+        <td data-from="4341" data-to="4347">9.1 GB</td>
+        <td data-from="4350" data-to="4356">4.4 GB</td>
+        <td data-from="4359" data-to="4365">≤ 8 GB</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="4369" data-to="4372">
+<h2 id="4-what-shipped-this-cycle" data-from="4374" data-to="4403">4. What Shipped This Cycle</h2>
+<h3 id="41-reconciliation-harness-cormorant-recon" data-from="4405" data-to="4455">4.1 Reconciliation Harness (<code data-from="4437" data-to="4454">cormorant-recon</code>)</h3>
+<p data-from="4457" data-to="4749">The harness pulls the legacy nightly extract and the Tidewater projection, normalises both into a canonical comparison record, and emits a per-field diff stream. It is now running continuously rather than as an ad-hoc job, and publishes parity metrics to Beacon dashboards every five minutes.</p>
+<p data-from="4751" data-to="4855">The comparison policy is declarative so that Risk &amp; Controls can review tolerances without reading code:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="4857" data-to="5993"><code class="language-yaml" data-verbatim data-from="4865" data-to="5989"># recon/policies/settlement-v3.yaml
+policy: settlement-parity
+version: 3
+sources:
+  legacy:
+    adapter: kestrel-extract
+    partition_key: [settlement_date, entity_id]
+    late_arrival_grace: PT45M
+  candidate:
+    adapter: tidewater-projection
+    projection: ledger_entry_v2
+    consistency: read_after_watermark
+
+comparison:
+  key_fields: [entity_id, instrument_id, value_date, leg_index]
+  field_rules:
+    - field: gross_amount_minor
+      match: exact
+    - field: fx_rate
+      match: numeric
+      tolerance: 0.00000005
+    - field: net_amount_minor
+      match: exact
+      on_mismatch: raise_defect
+    - field: booked_at
+      match: temporal
+      tolerance: PT2S
+      note: "legacy stamps at batch flush, candidate at commit"
+  ignore_fields:
+    - legacy_batch_id
+    - kestrel_row_checksum
+
+defects:
+  classifier: cormorant.recon.classifiers.RootCauseHeuristic
+  auto_group_by: [field, currency_pair, entity_class]
+  escalate_after: 25          # identical diffs before paging
+  suppression_window: PT6H
+
+reporting:
+  sink: beacon://metrics/cormorant.recon
+  emit_interval: PT5M
+  sample_diffs_retained: 500</code></pre>
+<p data-from="5995" data-to="6250">Grouping mismatches by <code data-from="6018" data-to="6056">(field, currency_pair, entity_class)</code> was the change that made the parity work tractable. Before that, engineers were triaging individual diffs; afterwards, 1,566 mismatches collapsed into three clusters within about forty minutes.</p>
+<h3 id="42-parity-defect-register" data-from="6252" data-to="6282">4.2 Parity Defect Register</h3>
+<ul data-from="6284" data-to="7341">
+  <li data-from="6284" data-to="7031"><strong data-from="6286" data-to="6344">CMR-311 — Rounding on multi-currency partial reversals</strong> <em data-from="6345" data-to="6368">(open, critical path)</em><ul data-from="6371" data-to="7031">
+      <li data-from="6371" data-to="6469">Legacy applies half-up rounding at the <em data-from="6412" data-to="6417">leg</em> level; Tidewater rounds at the <em data-from="6449" data-to="6462">instruction</em> level.</li>
+      <li data-from="6472" data-to="6528">Impact: 1,204 of 1,566 mismatches, all ≤ 1 minor unit.</li>
+      <li data-from="6531" data-to="7031">Resolution path:<ul data-from="6554" data-to="7031">
+          <li data-from="6554" data-to="6887">Reproduce legacy behaviour in a golden-vector test suite<ul data-from="6619" data-to="6887">
+              <li data-from="6619" data-to="6683">640 vectors extracted from three years of production reversals</li>
+              <li data-from="6690" data-to="6887">71 vectors currently failing, all in the <code data-from="6733" data-to="6738">XAU</code>/<code data-from="6739" data-to="6744">XAG</code> metal-account class<ul data-from="6773" data-to="6887">
+                  <li data-from="6773" data-to="6840">Root cause suspected in the four-decimal instrument scaling table</li>
+                  <li data-from="6849" data-to="6887">Owner: Teodor Vlasak; ETA 2024-10-23</li>
+                </ul></li>
+            </ul></li>
+          <li data-from="6892" data-to="6961">Obtain Risk &amp; Controls written sign-off on the reproduced behaviour</li>
+          <li data-from="6966" data-to="7031">Backfill 18 months of reversal history under the corrected rule</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="7032" data-to="7197"><strong data-from="7034" data-to="7085">CMR-318 — Timestamp skew on same-second commits</strong> <em data-from="7086" data-to="7095">(fixed)</em><ul data-from="7098" data-to="7197">
+      <li data-from="7098" data-to="7197">344 mismatches; resolved by widening the temporal tolerance to 2 s with documented justification.</li>
+    </ul></li>
+  <li data-from="7198" data-to="7341"><strong data-from="7200" data-to="7262">CMR-322 — Dropped <code data-from="7220" data-to="7234">entity_class</code> on inherited sub-accounts</strong> <em data-from="7263" data-to="7272">(fixed)</em><ul data-from="7275" data-to="7341">
+      <li data-from="7275" data-to="7341">18 mismatches; a null-propagation bug in the projection builder.</li>
+    </ul></li>
+</ul>
+<h3 id="43-platform-work" data-from="7343" data-to="7364">4.3 Platform Work</h3>
+<ul data-from="7366" data-to="7511">
+  <li data-from="7366" data-to="7474">Migrated the log from six-hour to fifteen-minute compaction intervals, halving storage per million events.</li>
+  <li data-from="7475" data-to="7511">Replaced the per-event config look</li>
+</ul>

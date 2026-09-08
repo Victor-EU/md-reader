@@ -1,0 +1,255 @@
+<h1 id="halyard-ingest-service-technical-specification-v04" data-from="0" data-to="55">Halyard Ingest Service — Technical Specification v0.4</h1>
+<p data-from="57" data-to="238"><strong data-from="57" data-to="68">Status:</strong> Draft for review
+<strong data-from="86" data-to="96">Owner:</strong> Platform Data Group (team handle <code data-from="130" data-to="143">pdg-halyard</code>)
+<strong data-from="145" data-to="162">Last revised:</strong> cycle 2027.Q1, week 6
+<strong data-from="185" data-to="200">Supersedes:</strong> v0.3 (deprecated on merge of RFC-812)</p>
+<hr data-from="240" data-to="243">
+<h2 id="1-purpose-and-scope" data-from="245" data-to="268">1. Purpose and Scope</h2>
+<p data-from="270" data-to="502">Halyard is an internal ingest service that accepts semi-structured telemetry from field devices, normalizes it against a versioned schema registry, and emits canonical records onto the <code data-from="455" data-to="470">ledger.events</code> topic for downstream consumers.</p>
+<p data-from="504" data-to="705">This document specifies the external HTTP and gRPC surfaces, the durability guarantees, and the operational thresholds Halyard must satisfy before promotion from <code data-from="666" data-to="684">staging-brackish</code> to <code data-from="688" data-to="704">prod-northwind</code>.</p>
+<p data-from="707" data-to="891"><strong data-from="707" data-to="724">Out of scope:</strong> the schema authoring workflow (see the Marlin Registry spec), long-term cold storage tiering, and the device-side agent (<code data-from="846" data-to="858">spar-agent</code>) which is documented separately.</p>
+<blockquote data-from="893" data-to="1172">
+  <p data-from="895" data-to="1172">Halyard is deliberately <em data-from="919" data-to="924">not</em> a general-purpose message broker. It performs exactly three jobs — authenticate, normalize, and durably hand off. Any feature request that adds routing logic, fan-out policy, or per-consumer filtering belongs to the Cormorant dispatcher, not here.</p>
+</blockquote>
+<hr data-from="1174" data-to="1177">
+<h2 id="2-definitions" data-from="1179" data-to="1196">2. Definitions</h2>
+<ul data-from="1198" data-to="1754">
+  <li data-from="1198" data-to="1286"><strong data-from="1200" data-to="1209">Batch</strong> — an ordered collection of 1 to 512 envelopes submitted in a single request.</li>
+  <li data-from="1287" data-to="1365"><strong data-from="1289" data-to="1301">Envelope</strong> — a single measurement payload plus its device metadata header.</li>
+  <li data-from="1366" data-to="1491"><strong data-from="1368" data-to="1390">Normalization pass</strong> — the deterministic transformation from envelope to canonical record using a pinned schema revision.</li>
+  <li data-from="1492" data-to="1615"><strong data-from="1494" data-to="1508">Quarantine</strong> — the durable holding area for envelopes that fail normalization but were accepted at the transport layer.</li>
+  <li data-from="1616" data-to="1754"><strong data-from="1618" data-to="1637">Handoff receipt</strong> — the acknowledgment token returned once a batch has been committed to the write-ahead log on at least two replicas.</li>
+</ul>
+<hr data-from="1756" data-to="1759">
+<h2 id="3-functional-requirements" data-from="1761" data-to="1790">3. Functional Requirements</h2>
+<ol data-from="1792" data-to="3544">
+  <li data-from="1792" data-to="2009"><strong data-from="1795" data-to="1826">REQ-101 — Batch acceptance.</strong> The service <em data-from="1839" data-to="1845">must</em> accept batches over HTTP/2 (<code data-from="1874" data-to="1892">POST /v1/batches</code>) and gRPC (<code data-from="1904" data-to="1925">Halyard.SubmitBatch</code>). Both surfaces must produce byte-identical canonical records for equivalent input.</li>
+  <li data-from="2010" data-to="2243"><strong data-from="2013" data-to="2039">REQ-102 — Idempotency.</strong> Every batch carries a client-generated <code data-from="2079" data-to="2090">batch_key</code> (opaque, 16–64 bytes). Replays of the same <code data-from="2134" data-to="2145">batch_key</code> within a <strong data-from="2155" data-to="2166">72-hour</strong> window must return the original handoff receipt without re-emitting records.</li>
+  <li data-from="2244" data-to="2419"><strong data-from="2247" data-to="2276">REQ-103 — Schema pinning.</strong> Each envelope declares <code data-from="2300" data-to="2312">schema_ref</code> in the form <code data-from="2325" data-to="2350">namespace/name@revision</code>. Unpinned or wildcard revisions are rejected with <code data-from="2401" data-to="2418">SCHEMA_UNPINNED</code>.</li>
+  <li data-from="2420" data-to="2705"><strong data-from="2423" data-to="2460">REQ-104 — Partial batch outcomes.</strong> A batch containing both valid and invalid envelopes must commit the valid ones and quarantine the rest. The response reports per-envelope status. <mark data-from="2607" data-to="2705">A batch is never rejected wholesale merely because a subset of envelopes failed normalization.</mark></li>
+  <li data-from="2706" data-to="2925"><strong data-from="2709" data-to="2732">REQ-105 — Ordering.</strong> Records originating from the same <code data-from="2767" data-to="2778">device_id</code> must be emitted in the order the client submitted them within a batch. Cross-batch ordering is <em data-from="2874" data-to="2879">not</em> guaranteed and clients must not depend on it.</li>
+  <li data-from="2926" data-to="3144"><strong data-from="2929" data-to="2964">REQ-106 — Clock skew tolerance.</strong> Envelopes with <code data-from="2980" data-to="2993">observed_at</code> more than <strong data-from="3004" data-to="3019">900 seconds</strong> in the future relative to service time are quarantined with <code data-from="3080" data-to="3100">CLOCK_SKEW_FORWARD</code>. Backdating is permitted up to <strong data-from="3132" data-to="3143">30 days</strong>.</li>
+  <li data-from="3145" data-to="3338"><strong data-from="3148" data-to="3183">REQ-107 — Quarantine retrieval.</strong> Quarantined envelopes must remain retrievable via <code data-from="3234" data-to="3254">GET /v1/quarantine</code> for <strong data-from="3259" data-to="3270">14 days</strong>, after which they are purged and only a counter aggregate survives.</li>
+  <li data-from="3339" data-to="3544"><strong data-from="3342" data-to="3375">REQ-108 — Credential scoping.</strong> A device token grants write access to exactly one <code data-from="3426" data-to="3436">fleet_id</code>. Cross-fleet submission returns <code data-from="3469" data-to="3489">403 FLEET_MISMATCH</code> and increments the <code data-from="3509" data-to="3535">halyard.auth.cross_fleet</code> counter.</li>
+</ol>
+<hr data-from="3546" data-to="3549">
+<h2 id="4-non-functional-requirements" data-from="3551" data-to="3584">4. Non-Functional Requirements</h2>
+<div class="mdr-table-wrap" data-from="3586" data-to="4114">
+  <table data-from="3586" data-to="4114">
+    <thead data-from="3586" data-to="3615">
+      <tr data-from="3586" data-to="3615">
+        <th data-from="3588" data-to="3590">ID</th>
+        <th data-from="3593" data-to="3604">Requirement</th>
+        <th data-from="3607" data-to="3613">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="3630" data-to="4114">
+      <tr data-from="3630" data-to="3692">
+        <td data-from="3632" data-to="3639">NFR-201</td>
+        <td data-from="3642" data-to="3680">p50 handoff latency, 64-envelope batch</td>
+        <td data-from="3683" data-to="3690">≤ 34 ms</td>
+      </tr>
+      <tr data-from="3693" data-to="3756">
+        <td data-from="3695" data-to="3702">NFR-202</td>
+        <td data-from="3705" data-to="3743">p99 handoff latency, 64-envelope batch</td>
+        <td data-from="3746" data-to="3754">≤ 210 ms</td>
+      </tr>
+      <tr data-from="3757" data-to="3830">
+        <td data-from="3759" data-to="3766">NFR-203</td>
+        <td data-from="3769" data-to="3805">Sustained ingest throughput per node</td>
+        <td data-from="3808" data-to="3828">≥ 18,000 envelopes/s</td>
+      </tr>
+      <tr data-from="3831" data-to="3899">
+        <td data-from="3833" data-to="3840">NFR-204</td>
+        <td data-from="3843" data-to="3867">Durability after receipt</td>
+        <td data-from="3870" data-to="3897">2-replica WAL commit, RPO 0</td>
+      </tr>
+      <tr data-from="3900" data-to="3953">
+        <td data-from="3902" data-to="3909">NFR-205</td>
+        <td data-from="3912" data-to="3942">Availability (rolling 30 days)</td>
+        <td data-from="3945" data-to="3951">99.95%</td>
+      </tr>
+      <tr data-from="3954" data-to="4007">
+        <td data-from="3956" data-to="3963">NFR-206</td>
+        <td data-from="3966" data-to="3983">Max envelope size</td>
+        <td data-from="3986" data-to="4005">96 KiB uncompressed</td>
+      </tr>
+      <tr data-from="4008" data-to="4055">
+        <td data-from="4010" data-to="4017">NFR-207</td>
+        <td data-from="4020" data-to="4034">Max batch size</td>
+        <td data-from="4037" data-to="4053">6 MiB compressed</td>
+      </tr>
+      <tr data-from="4056" data-to="4114">
+        <td data-from="4058" data-to="4065">NFR-208</td>
+        <td data-from="4068" data-to="4102">Cold start to first accepted batch</td>
+        <td data-from="4105" data-to="4112">≤ 4.5 s</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="4116" data-to="4352">Rate limiting is applied per <code data-from="4145" data-to="4155">fleet_id</code> using a leaky bucket with a burst capacity of <strong data-from="4202" data-to="4221">2,400 envelopes</strong> and a drain rate of <strong data-from="4242" data-to="4261">600 envelopes/s</strong>. Exceeding the bucket yields <code data-from="4291" data-to="4296">429</code> with a <code data-from="4304" data-to="4317">Retry-After</code> header expressed in whole seconds.</p>
+<hr data-from="4354" data-to="4357">
+<h2 id="5-api-sketch" data-from="4359" data-to="4375">5. API Sketch</h2>
+<h3 id="51-submit-a-batch" data-from="4377" data-to="4399">5.1 Submit a batch</h3>
+<pre class="mdr-code" data-lang="http" data-from="4401" data-to="5258"><code class="language-http" data-verbatim data-from="4409" data-to="5254">POST /v1/batches HTTP/2
+Host: halyard.internal
+Authorization: Bearer &lt;device-token&gt;
+Content-Type: application/json
+Content-Encoding: zstd
+X-Halyard-Batch-Key: b7f2c1de9a4058ee
+
+{
+  "fleet_id": "fl_thornwick_04",
+  "submitted_at": "2027-02-11T09:14:03.221Z",
+  "envelopes": [
+    {
+      "device_id": "dv_09aa31",
+      "schema_ref": "marine/hull_strain@7",
+      "observed_at": "2027-02-11T09:13:58.004Z",
+      "sequence": 918342,
+      "payload": {
+        "strain_micro": 412.77,
+        "sensor_slot": "port-aft-3",
+        "temp_c": -1.8
+      }
+    },
+    {
+      "device_id": "dv_09aa31",
+      "schema_ref": "marine/hull_strain@7",
+      "observed_at": "2027-02-11T09:13:59.010Z",
+      "sequence": 918343,
+      "payload": {
+        "strain_micro": 409.02,
+        "sensor_slot": "port-aft-3",
+        "temp_c": -1.9
+      }
+    }
+  ]
+}</code></pre>
+<p data-from="5260" data-to="5298"><strong data-from="5260" data-to="5298">Success response — <code data-from="5281" data-to="5295">202 Accepted</code>:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="5300" data-to="5606"><code class="language-json" data-verbatim data-from="5308" data-to="5602">{
+  "receipt": "rcpt_4KQ2n8vTzLp",
+  "batch_key": "b7f2c1de9a4058ee",
+  "committed": 2,
+  "quarantined": 0,
+  "replay": false,
+  "results": [
+    { "index": 0, "status": "COMMITTED", "record_id": "rec_01HQ8ZK3M2" },
+    { "index": 1, "status": "COMMITTED", "record_id": "rec_01HQ8ZK3M3" }
+  ]
+}</code></pre>
+<p data-from="5608" data-to="5649"><strong data-from="5608" data-to="5649">Partial outcome — <code data-from="5628" data-to="5646">207 Multi-Status</code>:</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="5651" data-to="6053"><code class="language-json" data-verbatim data-from="5659" data-to="6049">{
+  "receipt": "rcpt_9XmT4bQdWr1",
+  "committed": 1,
+  "quarantined": 1,
+  "replay": false,
+  "results": [
+    { "index": 0, "status": "COMMITTED", "record_id": "rec_01HQ8ZM7B1" },
+    {
+      "index": 1,
+      "status": "QUARANTINED",
+      "reason": "FIELD_TYPE_MISMATCH",
+      "detail": "payload.temp_c expected number, received string",
+      "quarantine_id": "qn_5518aa20"
+    }
+  ]
+}</code></pre>
+<h3 id="52-fetch-a-receipt" data-from="6055" data-to="6078">5.2 Fetch a receipt</h3>
+<pre class="mdr-code" data-from="6080" data-to="6117"><code data-verbatim data-from="6084" data-to="6113">GET /v1/receipts/{receipt_id}</code></pre>
+<p data-from="6119" data-to="6236">Returns the stored outcome for <strong data-from="6150" data-to="6162">72 hours</strong>. After expiry, returns <code data-from="6186" data-to="6196">410 Gone</code> with body <code data-from="6207" data-to="6235">{"code":"RECEIPT_EXPIRED"}</code>.</p>
+<h3 id="53-list-quarantined-envelopes" data-from="6238" data-to="6272">5.3 List quarantined envelopes</h3>
+<pre class="mdr-code" data-from="6274" data-to="6378"><code data-verbatim data-from="6278" data-to="6374">GET /v1/quarantine?fleet_id=fl_thornwick_04&amp;since=2027-02-10T00:00:00Z&amp;limit=100&amp;cursor=&lt;opaque&gt;</code></pre>
+<p data-from="6380" data-to="6579">Response fields: <code data-from="6397" data-to="6406">items[]</code>, <code data-from="6408" data-to="6421">next_cursor</code>, <code data-from="6423" data-to="6439">total_estimate</code>. The <code data-from="6445" data-to="6461">total_estimate</code> is a sketch-based approximation and <em data-from="6498" data-to="6521">may drift by up to 3%</em> under heavy write load; do not use it for reconciliation.</p>
+<h3 id="54-replay-a-quarantined-envelope" data-from="6581" data-to="6618">5.4 Replay a quarantined envelope</h3>
+<pre class="mdr-code" data-from="6620" data-to="6720"><code data-verbatim data-from="6624" data-to="6716">POST /v1/quarantine/{quarantine_id}/replay
+{ "schema_ref_override": "marine/hull_strain@8" }</code></pre>
+<p data-from="6722" data-to="7031">Replay attempts normalization again, optionally against a newer schema revision. On success the envelope transitions to <code data-from="6842" data-to="6853">COMMITTED</code> and the quarantine entry is tombstoned. On repeated failure, <code data-from="6915" data-to="6930">failure_count</code> increments; after <strong data-from="6949" data-to="6954">5</strong> failures the entry is locked and further replays return <code data-from="7011" data-to="7030">409 REPLAY_LOCKED</code>.</p>
+<h3 id="55-health-and-readiness" data-from="7033" data-to="7061">5.5 Health and readiness</h3>
+<ul data-from="7063" data-to="7236">
+  <li data-from="7063" data-to="7132"><code data-from="7065" data-to="7079">GET /healthz</code> — liveness only, no dependency checks, always cheap.</li>
+  <li data-from="7133" data-to="7236"><code data-from="7135" data-to="7148">GET /readyz</code> — verifies WAL writability, registry cache freshness (&lt; 90 s), and broker connectivity.</li>
+</ul>
+<h3 id="56-error-codes" data-from="7238" data-to="7257">5.6 Error codes</h3>
+<div class="mdr-table-wrap" data-from="7259" data-to="7603">
+  <table data-from="7259" data-to="7603">
+    <thead data-from="7259" data-to="7286">
+      <tr data-from="7259" data-to="7286">
+        <th data-from="7261" data-to="7265">Code</th>
+        <th data-from="7268" data-to="7272">HTTP</th>
+        <th data-from="7275" data-to="7284">Retryable</th>
+      </tr>
+    </thead>
+    <tbody data-from="7301" data-to="7603">
+      <tr data-from="7301" data-to="7333">
+        <td data-from="7303" data-to="7320"><code data-from="7303" data-to="7320">SCHEMA_UNPINNED</code></td>
+        <td data-from="7323" data-to="7326">400</td>
+        <td data-from="7329" data-to="7331">no</td>
+      </tr>
+      <tr data-from="7334" data-to="7367">
+        <td data-from="7336" data-to="7354"><code data-from="7336" data-to="7354">SCHEMA_NOT_FOUND</code></td>
+        <td data-from="7357" data-to="7360">400</td>
+        <td data-from="7363" data-to="7365">no</td>
+      </tr>
+      <tr data-from="7368" data-to="7404">
+        <td data-from="7370" data-to="7391"><code data-from="7370" data-to="7391">FIELD_TYPE_MISMATCH</code></td>
+        <td data-from="7394" data-to="7397">422</td>
+        <td data-from="7400" data-to="7402">no</td>
+      </tr>
+      <tr data-from="7405" data-to="7440">
+        <td data-from="7407" data-to="7427"><code data-from="7407" data-to="7427">CLOCK_SKEW_FORWARD</code></td>
+        <td data-from="7430" data-to="7433">422</td>
+        <td data-from="7436" data-to="7438">no</td>
+      </tr>
+      <tr data-from="7441" data-to="7472">
+        <td data-from="7443" data-to="7459"><code data-from="7443" data-to="7459">FLEET_MISMATCH</code></td>
+        <td data-from="7462" data-to="7465">403</td>
+        <td data-from="7468" data-to="7470">no</td>
+      </tr>
+      <tr data-from="7473" data-to="7505">
+        <td data-from="7475" data-to="7492"><code data-from="7475" data-to="7492">BATCH_TOO_LARGE</code></td>
+        <td data-from="7495" data-to="7498">413</td>
+        <td data-from="7501" data-to="7503">no</td>
+      </tr>
+      <tr data-from="7506" data-to="7536">
+        <td data-from="7508" data-to="7522"><code data-from="7508" data-to="7522">RATE_LIMITED</code></td>
+        <td data-from="7525" data-to="7528">429</td>
+        <td data-from="7531" data-to="7534">yes</td>
+      </tr>
+      <tr data-from="7537" data-to="7570">
+        <td data-from="7539" data-to="7556"><code data-from="7539" data-to="7556">WAL_UNAVAILABLE</code></td>
+        <td data-from="7559" data-to="7562">503</td>
+        <td data-from="7565" data-to="7568">yes</td>
+      </tr>
+      <tr data-from="7571" data-to="7603">
+        <td data-from="7573" data-to="7589"><code data-from="7573" data-to="7589">REGISTRY_STALE</code></td>
+        <td data-from="7592" data-to="7595">503</td>
+        <td data-from="7598" data-to="7601">yes</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="7605" data-to="7608">
+<h2 id="6-normalization-pipeline" data-from="7610" data-to="7638">6. Normalization Pipeline</h2>
+<p data-from="7640" data-to="7952">The pass is deterministic and side-effect free. Given identical input bytes and an identical pinned schema revision, it must produce identical canonical output — this property is enforced by a nightly differential job (<code data-from="7859" data-to="7886">halyard-determinism-sweep</code>) that replays a 50,000-envelope corpus against the current build.</p>
+<p data-from="7954" data-to="7971">Stages, in order:</p>
+<ol data-from="7973" data-to="8670">
+  <li data-from="7973" data-to="8081"><strong data-from="7976" data-to="7986">Decode</strong> — decompress, parse, and reject on malformed framing before any allocation of payload buffers.</li>
+  <li data-from="8082" data-to="8187"><strong data-from="8085" data-to="8106">Header validation</strong> — check <code data-from="8115" data-to="8126">device_id</code> format, <code data-from="8135" data-to="8145">sequence</code> monotonicity hints, and timestamp bounds.</li>
+  <li data-from="8188" data-to="8331"><strong data-from="8191" data-to="8212">Schema resolution</strong> — fetch the pinned revision from the local registry cache; on miss, perform a blocking fetch with a <strong data-from="8313" data-to="8323">250 ms</strong> budget.</li>
+  <li data-from="8332" data-to="8469"><strong data-from="8335" data-to="8347">Coercion</strong> — apply the schema's declared coercion table (e.g. integer-to-float widening). <em data-from="8427" data-to="8469">Narrowing coercions are always rejected.</em></li>
+  <li data-from="8470" data-to="8564"><strong data-from="8473" data-to="8487">Enrichment</strong> — attach <code data-from="8497" data-to="8507">fleet_id</code>, ingest timestamp, and the resolving schema fingerprint.</li>
+  <li data-from="8565" data-to="8670"><strong data-from="8568" data-to="8588">Canonical encode</strong> — serialize to the columnar canonical form and compute a content hash for dedupe.</li>
+</ol>
+<hr data-from="8672" data-to="8675">
+<h2 id="7-delivery-checklist" data-from="8677" data-to="8701">7. Delivery Checklist</h2>
+<ul data-from="8703" data-to="9200">
+  <li class="mdr-task" data-from="8703" data-to="8786"><input type="checkbox" disabled checked data-from="8705" data-to="8708">HTTP surface for <code data-from="8726" data-to="8744">POST /v1/batches</code> implemented behind flag <code data-from="8769" data-to="8786">halyard.http.v1</code></li>
+  <li class="mdr-task" data-from="8787" data-to="8839"><input type="checkbox" disabled checked data-from="8789" data-to="8792">WAL two-replica commit path with fsync barrier</li>
+  <li class="mdr-task" data-from="8840" data-to="8904"><input type="checkbox" disabled checked data-from="8842" data-to="8845">Idempotency store backed by the <code data-from="8878" data-to="8889">saltmarsh</code> key-value tier</li>
+  <li class="mdr-task" data-from="8905" data-to="8946"><input type="checkbox" disabled checked data-from="8907" data-to="8910">Per-fleet leaky bucket rate limiter</li>
+  <li class="mdr-task" data-from="8947" data-to="9005"><input type="checkbox" disabled checked data-from="8949" data-to="8952">Determinism sweep job scheduled nightly at 02:40 UTC</li>
+  <li class="mdr-task" data-from="9006" data-to="9079"><input type="checkbox" disabled data-from="9008" data-to="9011">gRPC surface parity (<code data-from="9033" data-to="9054">Halyard.SubmitBatch</code>, <code data-from="9056" data-to="9078">Halyard.FetchReceipt</code>)</li>
+  <li class="mdr-task" data-from="9080" data-to="9150"><input type="checkbox" disabled data-from="9082" data-to="9085">Quarantine replay lock semantics and <code data-from="9123" data-to="9138">failure_count</code> persistence</li>
+  <li class="mdr-task" data-from="9151" data-to="9200"><input type="checkbox" disabled data-from="9153" data-to="9156">Registry cache warm-on-boot to satisfy NFR-</li>
+</ul>

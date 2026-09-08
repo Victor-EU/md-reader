@@ -1,0 +1,50 @@
+<h1 id="review-summary-meridian-sync-service-design-document-v09" data-from="0" data-to="64">Review Summary: <em data-from="18" data-to="64">Meridian Sync Service — Design Document v0.9</em></h1>
+<p data-from="66" data-to="318"><strong data-from="66" data-to="79">Reviewer:</strong> Priya Ostrander, Platform Reliability
+<strong data-from="118" data-to="129">Author:</strong> Dane Kovalchuk, Data Services
+<strong data-from="160" data-to="178">Date reviewed:</strong> 14 March, cycle 27
+<strong data-from="198" data-to="210">Verdict:</strong> <em data-from="211" data-to="233">Approve with changes</em> — no blocking defects, but three sections need rework before implementation kickoff.</p>
+<hr data-from="320" data-to="323">
+<h2 id="overview" data-from="325" data-to="336">Overview</h2>
+<p data-from="338" data-to="774">The document proposes a bidirectional replication layer between the Harbor ledger store and the downstream Cormorant analytics warehouse, targeting a 45-second freshness budget at the 95th percentile. The architecture is coherent and the failure taxonomy in §4 is unusually thorough. My concerns center on the conflict-resolution policy, the absence of a rollback narrative, and cost figures that appear to assume best-case compression.</p>
+<h2 id="findings" data-from="776" data-to="787">Findings</h2>
+<ol data-from="789" data-to="2050">
+  <li data-from="789" data-to="1196"><strong data-from="792" data-to="834">Conflict resolution is underspecified.</strong> §5.2 states that last-writer-wins is applied per record, but the ledger emits composite events where two subfields can legitimately be updated by different producers within the same millisecond. Without field-level vector clocks, we will silently drop <mark data-from="1087" data-to="1123">roughly 0.3% of concurrent edits</mark>, which exceeds the correctness bar the team agreed to in the Q1 charter.</li>
+  <li data-from="1197" data-to="1488"><strong data-from="1200" data-to="1233">Backpressure path is missing.</strong> The diagram on page 11 shows an unbounded in-memory queue between the change reader and the transform pool. Under a replay of the 8 February incident volume (~2.1M events in 90 seconds), the worker would exhaust its 6 GiB allocation in under two minutes.</li>
+  <li data-from="1489" data-to="1720"><strong data-from="1492" data-to="1521">Cost model is optimistic.</strong> The projected $4,180/month assumes a 6.4:1 compression ratio on the staging tier. Our observed ratio on comparable payloads is closer to 3.1:1, which pushes the estimate to roughly <strong data-from="1703" data-to="1719">$7,900/month</strong>.</li>
+  <li data-from="1721" data-to="1911"><strong data-from="1724" data-to="1763">Observability is adequate but flat.</strong> Counters are proposed for throughput and error rate; there is no latency histogram, so we cannot verify the freshness SLO the document itself sets.</li>
+  <li data-from="1912" data-to="2050"><strong data-from="1915" data-to="1946">Security review is deferred</strong>, which is <em data-from="1957" data-to="1983">acceptable at this stage</em> but should be explicitly scheduled rather than left as a footnote.</li>
+</ol>
+<p data-from="2052" data-to="2107">Suggested shape for the missing histogram registration:</p>
+<pre class="mdr-code" data-lang="python" data-from="2109" data-to="2592"><code class="language-python" data-verbatim data-from="2119" data-to="2588">from metrics import Histogram, Registry
+
+sync_lag = Histogram(
+    name="meridian_sync_lag_seconds",
+    buckets=(0.5, 1, 2, 5, 10, 20, 45, 90, 180),
+    labels=("shard", "direction"),
+)
+
+def record_lag(shard: str, direction: str, emitted_at: float, applied_at: float) -&gt; None:
+    if applied_at &lt; emitted_at:          # clock skew guard
+        return
+    sync_lag.observe(applied_at - emitted_at, shard=shard, direction=direction)
+
+Registry.default().attach(sync_lag)</code></pre>
+<h2 id="open-questions" data-from="2594" data-to="2611">Open Questions</h2>
+<ul data-from="2613" data-to="3078">
+  <li data-from="2613" data-to="2721">Who owns the reconciliation job when a shard is quarantined — the sync service or the on-call ledger team?</li>
+  <li data-from="2722" data-to="2836">Does the 45-second budget include the warehouse's own 12-second micro-batch window, or is it measured at ingest?</li>
+  <li data-from="2837" data-to="2964">Is schema evolution expected to be forward-compatible only, or must we support reading records written by a <em data-from="2947" data-to="2954">newer</em> producer?</li>
+  <li data-from="2965" data-to="3078">What is the retention period for the dead-letter bucket? The document says "sufficient," which is not a number.</li>
+</ul>
+<h2 id="recommended-changes" data-from="3080" data-to="3102">Recommended Changes</h2>
+<ul data-from="3104" data-to="3584">
+  <li class="mdr-task" data-from="3104" data-to="3157"><input type="checkbox" disabled checked data-from="3106" data-to="3109">Add latency histogram with the bucket set above</li>
+  <li class="mdr-task" data-from="3158" data-to="3244"><input type="checkbox" disabled checked data-from="3160" data-to="3163">Replace the unbounded queue with a bounded channel plus a documented shed policy</li>
+  <li class="mdr-task" data-from="3245" data-to="3311"><input type="checkbox" disabled data-from="3247" data-to="3250">Introduce field-level versioning for composite ledger events</li>
+  <li class="mdr-task" data-from="3312" data-to="3373"><input type="checkbox" disabled data-from="3314" data-to="3317">Re-derive the cost table using the measured 3.1:1 ratio</li>
+  <li class="mdr-task" data-from="3374" data-to="3463"><input type="checkbox" disabled data-from="3376" data-to="3379">Add a §9 covering rollback: how a half-migrated shard returns to single-writer mode</li>
+  <li class="mdr-task" data-from="3464" data-to="3514"><input type="checkbox" disabled data-from="3466" data-to="3469">Schedule the security review and name a date</li>
+  <li class="mdr-task" data-from="3515" data-to="3584"><input type="checkbox" disabled data-from="3517" data-to="3520">Define dead-letter retention explicitly (I suggest <strong data-from="3572" data-to="3583">30 days</strong>)</li>
+</ul>
+<h2 id="next-steps" data-from="3586" data-to="3599">Next Steps</h2>
+<p data-from="3601" data-to="3815">Please resubmit as v0.10 by 28 March. I am happy to pair on the conflict-resolution section — that is the only item I consider genuinely hard, and it is worth two hours of whiteboard time before anyone writes code.</p>

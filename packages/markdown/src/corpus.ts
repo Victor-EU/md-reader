@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { generateDocument } from '@mdreader/markdown';
+import { generateDocument } from './synthetic.ts';
 
 export interface CorpusFile {
   name: string;
@@ -37,4 +37,23 @@ export function corpusFiles(synthetic = 200): CorpusFile[] {
     });
   }
   return files;
+}
+
+/**
+ * The golden set of plan 7.2: every adversarial file plus a fixed sample of
+ * the generated ones, spread evenly over the sorted list so the sample
+ * covers every prompt category and model. Snapshotting the whole corpus
+ * would turn one CSS change into a two-thousand-file diff that no human
+ * would read.
+ */
+export function goldenSet(sample = 100): CorpusFile[] {
+  const files = corpusFiles(0);
+  const generated = files.filter((file) => file.kind === 'generated');
+  const take = Math.min(sample, generated.length);
+  const chosen: CorpusFile[] = [];
+  for (let i = 0; i < take; i++) {
+    const at = take === 1 ? 0 : Math.round((i * (generated.length - 1)) / (take - 1));
+    chosen.push(generated[at] as CorpusFile);
+  }
+  return [...files.filter((file) => file.kind === 'adversarial'), ...chosen];
 }

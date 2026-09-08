@@ -1,0 +1,282 @@
+<h1 id="project-halyard-billing-engine-modernization" data-from="0" data-to="48">Project Halyard — Billing Engine Modernization</h1>
+<p data-from="50" data-to="254"><strong data-from="50" data-to="70">Program sponsor:</strong> Renata Volkov, VP of Revenue Systems
+<strong data-from="108" data-to="128">Project manager:</strong> Desmond Achebe-Lyle
+<strong data-from="149" data-to="170">Document version:</strong> 2.4 (revised 14 March)
+<strong data-from="194" data-to="205">Status:</strong> <mark data-from="206" data-to="254">Approved for execution — Phase 2 in progress</mark></p>
+<hr data-from="256" data-to="259">
+<h2 id="1-executive-summary" data-from="261" data-to="284">1. Executive Summary</h2>
+<p data-from="286" data-to="672">Nordwell Freight Systems currently invoices roughly <strong data-from="338" data-to="368">41,000 shipments per month</strong> through <em data-from="377" data-to="388">Cormorant</em>, a batch billing engine written in 2009 and maintained by a shrinking pool of three engineers. Cormorant cannot price multi-leg intermodal moves, cannot issue partial credits, and requires an eleven-hour overnight run that regularly overshoots the 04:00 cutoff for the treasury feed.</p>
+<p data-from="674" data-to="1059">Project Halyard replaces Cormorant with <strong data-from="714" data-to="727">Tidewater</strong>, an event-driven rating and invoicing service built in-house, over a fourteen-month window. The target outcomes are a rating latency under 900 milliseconds at the 95th percentile, a reduction in manual invoice corrections from 6.2% to below 1.5%, and full retirement of the Cormorant mainframe partition by the end of Q1 next year.</p>
+<blockquote data-from="1061" data-to="1305">
+  <p data-from="1063" data-to="1305">Our measure of success is not that Tidewater launches. It is that the finance close team stops scheduling weekend shifts in month three of every quarter. Everything else in this plan is instrumental to that.
+ — Renata Volkov, kickoff remarks</p>
+</blockquote>
+<p data-from="1307" data-to="1485">Total approved budget is <strong data-from="1332" data-to="1342">$3.85M</strong>, of which $2.31M is internal labor, $940K is vendor and licensing, and $600K is a contingency reserve released only by the steering committee.</p>
+<hr data-from="1487" data-to="1490">
+<h2 id="2-scope" data-from="1492" data-to="1503">2. Scope</h2>
+<h3 id="in-scope" data-from="1505" data-to="1517">In scope</h3>
+<ul data-from="1519" data-to="1860">
+  <li data-from="1519" data-to="1599">Rating engine for line-haul, drayage, accessorial, and fuel surcharge products</li>
+  <li data-from="1600" data-to="1659">Invoice generation, consolidation, and PDF/EDI 210 output</li>
+  <li data-from="1660" data-to="1699">Credit, rebill, and dispute workflows</li>
+  <li data-from="1700" data-to="1784">Migration of 7.4 years of historical invoice data (approximately 3.1 billion rows)</li>
+  <li data-from="1785" data-to="1860">Read-only reporting parity with the twenty-two reports finance uses today</li>
+</ul>
+<h3 id="out-of-scope" data-from="1862" data-to="1878">Out of scope</h3>
+<ul data-from="1880" data-to="2121">
+  <li data-from="1880" data-to="1949">Accounts receivable collections tooling (owned by Project Windlass)</li>
+  <li data-from="1950" data-to="1989">Customer self-service portal redesign</li>
+  <li data-from="1990" data-to="2068">Tax determination logic, which remains with the <em data-from="2040" data-to="2048">Argent</em> third-party service</li>
+  <li data-from="2069" data-to="2121">Any change to the general ledger chart of accounts</li>
+</ul>
+<hr data-from="2123" data-to="2126">
+<h2 id="3-phases-and-milestones" data-from="2128" data-to="2155">3. Phases and Milestones</h2>
+<h3 id="phase-0-discovery-and-baseline-complete" data-from="2157" data-to="2206">Phase 0 — Discovery and Baseline <em data-from="2194" data-to="2206">(complete)</em></h3>
+<p data-from="2208" data-to="2326"><strong data-from="2208" data-to="2218">Owner:</strong> Priya Nandakumar, Principal Analyst
+<strong data-from="2255" data-to="2268">Duration:</strong> 6 weeks | <strong data-from="2279" data-to="2295">Actual cost:</strong> $214K against a $190K estimate</p>
+<p data-from="2328" data-to="2616">Deliverables were a rating rules inventory, a data profile of the Cormorant tables, and a signed non-functional requirements document. Discovery surfaced <strong data-from="2482" data-to="2514">1,847 distinct pricing rules</strong>, of which 612 had not fired in eighteen months and were flagged for retirement rather than migration.</p>
+<div class="mdr-table-wrap" data-from="2618" data-to="2853">
+  <table data-from="2618" data-to="2853">
+    <thead data-from="2618" data-to="2657">
+      <tr data-from="2618" data-to="2657">
+        <th data-from="2620" data-to="2629">Milestone</th>
+        <th data-from="2632" data-to="2638">Target</th>
+        <th data-from="2641" data-to="2647">Actual</th>
+        <th data-from="2650" data-to="2655">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="2676" data-to="2853">
+      <tr data-from="2676" data-to="2738">
+        <td data-from="2678" data-to="2705">M0.1 Rules inventory signed</td>
+        <td data-from="2708" data-to="2714">12 Jan</td>
+        <td data-from="2717" data-to="2723">12 Jan</td>
+        <td data-from="2726" data-to="2736">Nandakumar</td>
+      </tr>
+      <tr data-from="2739" data-to="2801">
+        <td data-from="2741" data-to="2767">M0.2 NFR baseline approved</td>
+        <td data-from="2770" data-to="2776">26 Jan</td>
+        <td data-from="2779" data-to="2785">02 Feb</td>
+        <td data-from="2788" data-to="2799">Achebe-Lyle</td>
+      </tr>
+      <tr data-from="2802" data-to="2853">
+        <td data-from="2804" data-to="2824">M0.3 Steering gate 0</td>
+        <td data-from="2827" data-to="2833">30 Jan</td>
+        <td data-from="2836" data-to="2842">06 Feb</td>
+        <td data-from="2845" data-to="2851">Volkov</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="phase-1-architecture-and-foundations-complete" data-from="2855" data-to="2910">Phase 1 — Architecture and Foundations <em data-from="2898" data-to="2910">(complete)</em></h3>
+<p data-from="2912" data-to="3003"><strong data-from="2912" data-to="2922">Owner:</strong> Tomas Bergqvist, Chief Architect
+<strong data-from="2956" data-to="2969">Duration:</strong> 10 weeks | <strong data-from="2981" data-to="2997">Actual cost:</strong> $488K</p>
+<p data-from="3005" data-to="3285">Established the Tidewater service skeleton, the event schema registry, and the parallel-run harness that replays production shipments against both engines. The harness is the single most important asset produced in this phase — every subsequent validation milestone depends on it.</p>
+<pre class="mdr-code" data-lang="yaml" data-from="3287" data-to="3789"><code class="language-yaml" data-verbatim data-from="3295" data-to="3785"># tidewater/config/parallel-run.yaml
+harness:
+  name: cormorant-shadow
+  sample_rate: 1.0          # replay 100% of production traffic
+  divergence_threshold_bps: 5
+  quarantine_on_divergence: true
+  outputs:
+    - sink: s3://nfs-halyard-divergence/daily/
+      format: parquet
+    - sink: kafka://rating.divergence.v2
+      partition_key: shipment_id
+alerting:
+  page_when:
+    consecutive_failed_batches: 2
+    divergence_rate_pct_gt: 0.35
+  channel: "#halyard-oncall"
+retention_days: 400</code></pre>
+<h3 id="phase-2-core-rating-build-in-progress-63-complete" data-from="3791" data-to="3852">Phase 2 — Core Rating Build <em data-from="3823" data-to="3852">(in progress, 63% complete)</em></h3>
+<p data-from="3854" data-to="3948"><strong data-from="3854" data-to="3864">Owner:</strong> Aiko Ferrand-Marsh, Engineering Manager
+<strong data-from="3905" data-to="3918">Duration:</strong> 20 weeks | <strong data-from="3930" data-to="3941">Budget:</strong> $1.02M</p>
+<p data-from="3950" data-to="4375">The team of nine engineers is porting the 1,235 surviving pricing rules in four thematic waves. Wave 1 (line-haul) and Wave 2 (accessorials) have passed parallel-run validation at a divergence rate of 0.11%, comfortably inside the 0.35% tolerance. Wave 3 (fuel surcharge indexing) is the hardest, because the legacy code contains an undocumented rounding behavior that finance has been silently reconciling against for years.</p>
+<p data-from="4377" data-to="4406"><strong data-from="4377" data-to="4406">Current sprint checklist:</strong></p>
+<ul data-from="4408" data-to="4849">
+  <li class="mdr-task" data-from="4408" data-to="4457"><input type="checkbox" disabled checked data-from="4410" data-to="4413">Wave 1 line-haul rules ported and validated</li>
+  <li class="mdr-task" data-from="4458" data-to="4509"><input type="checkbox" disabled checked data-from="4460" data-to="4463">Wave 2 accessorial rules ported and validated</li>
+  <li class="mdr-task" data-from="4510" data-to="4570"><input type="checkbox" disabled checked data-from="4512" data-to="4515">Divergence dashboard published to finance stakeholders</li>
+  <li class="mdr-task" data-from="4571" data-to="4625"><input type="checkbox" disabled checked data-from="4573" data-to="4576">Rounding-behavior spike completed and documented</li>
+  <li class="mdr-task" data-from="4626" data-to="4689"><input type="checkbox" disabled data-from="4628" data-to="4631">Wave 3 fuel surcharge indexing (14 of 63 rules remaining)</li>
+  <li class="mdr-task" data-from="4690" data-to="4733"><input type="checkbox" disabled data-from="4692" data-to="4695">Wave 4 intermodal multi-leg splitting</li>
+  <li class="mdr-task" data-from="4734" data-to="4792"><input type="checkbox" disabled data-from="4736" data-to="4739">Load test at 3× peak volume sustained for 90 minutes</li>
+  <li class="mdr-task" data-from="4793" data-to="4849"><input type="checkbox" disabled data-from="4795" data-to="4798">Security review with the Ridgeline assessment team</li>
+</ul>
+<div class="mdr-table-wrap" data-from="4851" data-to="5142">
+  <table data-from="4851" data-to="5142">
+    <thead data-from="4851" data-to="4881">
+      <tr data-from="4851" data-to="4881">
+        <th data-from="4853" data-to="4862">Milestone</th>
+        <th data-from="4865" data-to="4871">Target</th>
+        <th data-from="4874" data-to="4879">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="4896" data-to="5142">
+      <tr data-from="4896" data-to="4948">
+        <td data-from="4898" data-to="4919">M2.1 Wave 1 validated</td>
+        <td data-from="4922" data-to="4930">18 Feb ✅</td>
+        <td data-from="4933" data-to="4946">Ferrand-Marsh</td>
+      </tr>
+      <tr data-from="4949" data-to="5001">
+        <td data-from="4951" data-to="4972">M2.2 Wave 2 validated</td>
+        <td data-from="4975" data-to="4983">09 Mar ✅</td>
+        <td data-from="4986" data-to="4999">Ferrand-Marsh</td>
+      </tr>
+      <tr data-from="5002" data-to="5052">
+        <td data-from="5004" data-to="5025">M2.3 Wave 3 validated</td>
+        <td data-from="5028" data-to="5034">11 Apr</td>
+        <td data-from="5037" data-to="5050">Ferrand-Marsh</td>
+      </tr>
+      <tr data-from="5053" data-to="5099">
+        <td data-from="5055" data-to="5076">M2.4 Wave 4 validated</td>
+        <td data-from="5079" data-to="5085">23 May</td>
+        <td data-from="5088" data-to="5097">Bergqvist</td>
+      </tr>
+      <tr data-from="5100" data-to="5142">
+        <td data-from="5102" data-to="5122">M2.5 Steering gate 2</td>
+        <td data-from="5125" data-to="5131">30 May</td>
+        <td data-from="5134" data-to="5140">Volkov</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="phase-3-data-migration" data-from="5144" data-to="5172">Phase 3 — Data Migration</h3>
+<p data-from="5174" data-to="5270"><strong data-from="5174" data-to="5184">Owner:</strong> Colin Sayeda-Brandt, Data Engineering Lead
+<strong data-from="5228" data-to="5241">Duration:</strong> 12 weeks | <strong data-from="5253" data-to="5264">Budget:</strong> $610K</p>
+<p data-from="5272" data-to="5554">Historical invoice data moves in three tranches, oldest first, using a checksum-per-partition reconciliation. Tranche 1 covers years 6–7.4 and is deliberately low-risk to prove the tooling. <em data-from="5462" data-to="5554">No tranche is considered migrated until finance signs a reconciliation certificate for it.</em></p>
+<ol data-from="5556" data-to="5941">
+  <li data-from="5556" data-to="5623">Build extraction jobs and partition checksum tooling (weeks 1–3)</li>
+  <li data-from="5624" data-to="5681">Tranche 1 dry run into the staging cluster (weeks 4–5)</li>
+  <li data-from="5682" data-to="5741">Tranche 1 production load and reconciliation (weeks 6–7)</li>
+  <li data-from="5742" data-to="5801">Tranche 2 production load and reconciliation (weeks 8–9)</li>
+  <li data-from="5802" data-to="5879">Tranche 3 production load, including the hot 18-month window (weeks 10–11)</li>
+  <li data-from="5880" data-to="5941">Freeze, final delta sync, and migration sign-off (week 12)</li>
+</ol>
+<h3 id="phase-4-pilot-and-controlled-rollout" data-from="5943" data-to="5985">Phase 4 — Pilot and Controlled Rollout</h3>
+<p data-from="5987" data-to="6092"><strong data-from="5987" data-to="5997">Owner:</strong> Marguerite Oyelaran, Director of Billing Operations
+<strong data-from="6050" data-to="6063">Duration:</strong> 10 weeks | <strong data-from="6075" data-to="6086">Budget:</strong> $445K</p>
+<p data-from="6094" data-to="6473">Tidewater becomes the system of record for a widening slice of the customer book while Cormorant continues to run in shadow mode. The ramp is <strong data-from="6236" data-to="6261">5% → 20% → 50% → 100%</strong>, with a mandatory seven-day soak and a documented rollback decision at each step. Pilot cohort selection favors mid-size shippers with straightforward accessorial profiles; the eleven largest accounts move last.</p>
+<div class="mdr-table-wrap" data-from="6475" data-to="6696">
+  <table data-from="6475" data-to="6696">
+    <thead data-from="6475" data-to="6505">
+      <tr data-from="6475" data-to="6505">
+        <th data-from="6477" data-to="6486">Milestone</th>
+        <th data-from="6489" data-to="6495">Target</th>
+        <th data-from="6498" data-to="6503">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="6520" data-to="6696">
+      <tr data-from="6520" data-to="6563">
+        <td data-from="6522" data-to="6541">M4.1 5% cohort live</td>
+        <td data-from="6544" data-to="6550">08 Sep</td>
+        <td data-from="6553" data-to="6561">Oyelaran</td>
+      </tr>
+      <tr data-from="6564" data-to="6608">
+        <td data-from="6566" data-to="6586">M4.2 50% cohort live</td>
+        <td data-from="6589" data-to="6595">20 Oct</td>
+        <td data-from="6598" data-to="6606">Oyelaran</td>
+      </tr>
+      <tr data-from="6609" data-to="6653">
+        <td data-from="6611" data-to="6628">M4.3 100% cutover</td>
+        <td data-from="6631" data-to="6637">17 Nov</td>
+        <td data-from="6640" data-to="6651">Achebe-Lyle</td>
+      </tr>
+      <tr data-from="6654" data-to="6696">
+        <td data-from="6656" data-to="6676">M4.4 Steering gate 4</td>
+        <td data-from="6679" data-to="6685">21 Nov</td>
+        <td data-from="6688" data-to="6694">Volkov</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3 id="phase-5-decommission-and-hypercare" data-from="6698" data-to="6738">Phase 5 — Decommission and Hypercare</h3>
+<p data-from="6740" data-to="6812"><strong data-from="6740" data-to="6750">Owner:</strong> Desmond Achebe-Lyle
+<strong data-from="6771" data-to="6784">Duration:</strong> 8 weeks | <strong data-from="6795" data-to="6806">Budget:</strong> $332K</p>
+<p data-from="6814" data-to="7168">Thirty days of hypercare with a dedicated rotation, then progressive shutdown of Cormorant: batch schedules disabled, mainframe partition released, and licenses terminated. The final milestone, <strong data-from="7008" data-to="7054">M5.3 Cormorant partition released (12 Feb)</strong>, unlocks an annualized $780K infrastructure saving that has already been committed in next year's operating plan.</p>
+<hr data-from="7170" data-to="7173">
+<h2 id="4-governance" data-from="7175" data-to="7191">4. Governance</h2>
+<p data-from="7193" data-to="7463">Steering committee meets fortnightly on Thursdays at 09:30. Gate decisions require Volkov plus two of three functional directors. Working-level status is published every Friday to <code data-from="7373" data-to="7390">#halyard-status</code>; escalations follow a two-hour acknowledgment SLA during business hours.</p>
+<hr data-from="7465" data-to="7468">
+<h2 id="5-risk-register" data-from="7470" data-to="7489">5. Risk Register</h2>
+<div class="mdr-table-wrap" data-from="7491" data-to="8818">
+  <table data-from="7491" data-to="8818">
+    <thead data-from="7491" data-to="7550">
+      <tr data-from="7491" data-to="7550">
+        <th data-from="7493" data-to="7495">ID</th>
+        <th data-from="7498" data-to="7502">Risk</th>
+        <th data-from="7505" data-to="7510">Prob.</th>
+        <th data-from="7513" data-to="7519">Impact</th>
+        <th data-from="7522" data-to="7527">Score</th>
+        <th data-from="7530" data-to="7535">Owner</th>
+        <th data-from="7538" data-to="7548">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody data-from="7581" data-to="8818">
+      <tr data-from="7581" data-to="7823">
+        <td data-from="7583" data-to="7587">R-01</td>
+        <td data-from="7590" data-to="7678">Fuel surcharge rounding cannot be reproduced exactly, causing customer-visible variances</td>
+        <td data-from="7681" data-to="7685">High</td>
+        <td data-from="7688" data-to="7692">High</td>
+        <td data-from="7695" data-to="7697">20</td>
+        <td data-from="7700" data-to="7713">Ferrand-Marsh</td>
+        <td data-from="7716" data-to="7821">Codify legacy rounding as an explicit compatibility mode; finance approves a ±$0.02 per-invoice tolerance</td>
+      </tr>
+      <tr data-from="7824" data-to="7989">
+        <td data-from="7826" data-to="7830">R-02</td>
+        <td data-from="7833" data-to="7886">Tranche 3 migration exceeds the 36-hour freeze window</td>
+        <td data-from="7889" data-to="7895">Medium</td>
+        <td data-from="7898" data-to="7902">High</td>
+        <td data-from="7905" data-to="7907">15</td>
+        <td data-from="7910" data-to="7923">Sayeda-Brandt</td>
+        <td data-from="7926" data-to="7987">Pre-stage 90% via incremental sync; freeze covers deltas only</td>
+      </tr>
+      <tr data-from="7990" data-to="8183">
+        <td data-from="7992" data-to="7996">R-03</td>
+        <td data-from="7999" data-to="8063">Key-person dependency on the two remaining Cormorant maintainers</td>
+        <td data-from="8066" data-to="8072">Medium</td>
+        <td data-from="8075" data-to="8079">High</td>
+        <td data-from="8082" data-to="8084">15</td>
+        <td data-from="8087" data-to="8098">Achebe-Lyle</td>
+        <td data-from="8101" data-to="8181">Retention agreements through March; mandatory pair-documentation sessions weekly</td>
+      </tr>
+      <tr data-from="8184" data-to="8352">
+        <td data-from="8186" data-to="8190">R-04</td>
+        <td data-from="8193" data-to="8253">Argent tax service contract renegotiation slips past cutover</td>
+        <td data-from="8256" data-to="8259">Low</td>
+        <td data-from="8262" data-to="8266">High</td>
+        <td data-from="8269" data-to="8271">10</td>
+        <td data-from="8274" data-to="8280">Volkov</td>
+        <td data-from="8283" data-to="8350">Legal engaged in January; 90-day extension clause already exercised</td>
+      </tr>
+      <tr data-from="8353" data-to="8519">
+        <td data-from="8355" data-to="8359">R-05</td>
+        <td data-from="8362" data-to="8416">Load test reveals the event bus cannot sustain 3× peak</td>
+        <td data-from="8419" data-to="8425">Medium</td>
+        <td data-from="8428" data-to="8434">Medium</td>
+        <td data-from="8437" data-to="8438">9</td>
+        <td data-from="8441" data-to="8450">Bergqvist</td>
+        <td data-from="8453" data-to="8517">Partition rebalancing spike budgeted; fallback to batched writes</td>
+      </tr>
+      <tr data-from="8520" data-to="8671">
+        <td data-from="8522" data-to="8526">R-06</td>
+        <td data-from="8529" data-to="8578">Pilot customers reject invoice PDF layout changes</td>
+        <td data-from="8581" data-to="8587">Medium</td>
+        <td data-from="8590" data-to="8593">Low</td>
+        <td data-from="8596" data-to="8597">6</td>
+        <td data-from="8600" data-to="8608">Oyelaran</td>
+        <td data-from="8611" data-to="8669">Layout held pixel-identical for phase 4; redesign deferred</td>
+      </tr>
+      <tr data-from="8672" data-to="8818">
+        <td data-from="8674" data-to="8678">R-07</td>
+        <td data-from="8681" data-to="8724">Contingency reserve consumed before Phase 4</td>
+        <td data-from="8727" data-to="8730">Low</td>
+        <td data-from="8733" data-to="8739">Medium</td>
+        <td data-from="8742" data-to="8743">6</td>
+        <td data-from="8746" data-to="8757">Achebe-Lyle</td>
+        <td data-from="8760" data-to="8816">Reserve draws require gate approval; monthly burn review</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="8820" data-to="9219"><strong data-from="8820" data-to="8853">Top risk this period is R-01.</strong> The spike concluded that legacy rounding applies half-up at the leg level and half-even at the invoice level, an inconsistency that will be preserved rather than corrected. Correcting it would shift approximately $18,400 per month in aggregate billing and require customer notification — a change deliberately deferred to a separate initiative after Halyard closes.</p>

@@ -1,0 +1,97 @@
+<h1 id="review-summary-adaptive-resonance-filtering-for-distributed-sensor-networks-working-draft-v32" data-from="0" data-to="101">Review Summary: "Adaptive Resonance Filtering for Distributed Sensor Networks" (Working Draft v3.2)</h1>
+<h2 id="overview" data-from="103" data-to="114">Overview</h2>
+<p data-from="116" data-to="734">This review covers the internal draft submitted by the Kestrel Labs signal processing group, authored under the working title <em data-from="242" data-to="304">Adaptive Resonance Filtering for Distributed Sensor Networks</em>. The document proposes a new filtering architecture — referred to throughout as <strong data-from="385" data-to="396">ARF-Net</strong> — intended to reduce false-positive detection rates in low-power distributed sensor arrays. Overall, the manuscript is well organized and the core algorithmic contribution appears sound, but there are several methodological gaps, unclear derivations, and presentation issues that should be addressed before this moves to external review.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="736" data-to="956">
+  <div class="mdr-callout-title" data-from="738" data-to="745">
+    Note
+  </div>
+  <p data-from="748" data-to="956">This summary reflects a single-pass technical review conducted by the internal methods committee (reviewers: R. Alcazar, T. Ndiaye, and M. Okonkwo-Fields). It is not a substitute for a full statistical audit.</p>
+</blockquote>
+<hr data-from="958" data-to="961">
+<h2 id="high-level-findings" data-from="963" data-to="985">High-Level Findings</h2>
+<h3 id="strengths" data-from="987" data-to="1000">Strengths</h3>
+<ul data-from="1002" data-to="1657">
+  <li data-from="1002" data-to="1166">The motivation section clearly frames the problem of <em data-from="1057" data-to="1071">sensor drift</em> in long-duration deployments and does a good job distinguishing it from ordinary sensor noise.</li>
+  <li data-from="1167" data-to="1455">The proposed resonance kernel is a genuinely interesting reformulation of the classical Kalman-style update, and the authors' claim that it reduces computational overhead by roughly 40% relative to their baseline (referred to as <strong data-from="1398" data-to="1407">BFK-7</strong>) is plausible given the simplified update rule.</li>
+  <li data-from="1456" data-to="1587">Section 4's ablation study is thorough and covers a reasonable number of configurations (14 total, spanning three noise regimes).</li>
+  <li data-from="1588" data-to="1657">The writing is generally clear, though dense in places (see below).</li>
+</ul>
+<h3 id="weaknesses" data-from="1659" data-to="1673">Weaknesses</h3>
+<ul data-from="1675" data-to="2470">
+  <li data-from="1675" data-to="1903"><strong data-from="1677" data-to="1699">Undefined notation</strong>: The symbol <span class="mdr-math" data-tex="\theta_t" data-from="1712" data-to="1722">\theta_t</span> is introduced in Section 2.1 as a "resonance parameter" but is never formally defined in terms of the underlying state-space model. Readers are left to infer its role from context.</li>
+  <li data-from="1904" data-to="2132"><strong data-from="1906" data-to="1941">Inconsistent experimental setup</strong>: Table 3 reports results for "Network Configuration B" but the appendix describes only configurations A, C, and D. It's unclear whether this is a typo or a missing configuration description.</li>
+  <li data-from="2133" data-to="2334">The claim that ARF-Net achieves <em data-from="2167" data-to="2183">"near-optimal"</em> convergence is not substantiated by a formal proof or even an informal argument — this term is used three times in the document without qualification.</li>
+  <li data-from="2335" data-to="2470">Several of the reported confidence intervals appear implausibly tight given the stated sample sizes (see Statistical Concerns below).</li>
+</ul>
+<hr data-from="2472" data-to="2475">
+<h2 id="detailed-technical-notes" data-from="2477" data-to="2504">Detailed Technical Notes</h2>
+<h3 id="1-the-core-update-rule" data-from="2506" data-to="2533">1. The Core Update Rule</h3>
+<p data-from="2535" data-to="2759">The paper's central contribution is the modified update equation, which the authors write informally in prose but never present as a standalone equation. For clarity, I reconstruct what I believe is the intended formulation:</p>
+<div class="mdr-math-block" data-tex="\hat{x}_{t+1} = \hat{x}_t + \kappa_t \left( z_t - H \hat{x}_t \right) + \lambda \sum_{i=1}^{N} w_i \, \phi(\hat{x}_t - \hat{x}_t^{(i)})" data-from="2761" data-to="2902">
+  \hat{x}_{t+1} = \hat{x}_t + \kappa_t \left( z_t - H \hat{x}_t \right) + \lambda \sum_{i=1}^{N} w_i \, \phi(\hat{x}_t - \hat{x}_t^{(i)})
+</div>
+<p data-from="2904" data-to="3206">where <span class="mdr-math" data-tex="\hat{x}_t" data-from="2910" data-to="2921">\hat{x}_t</span> is the local state estimate, <span class="mdr-math" data-tex="z_t" data-from="2951" data-to="2956">z_t</span> is the observed measurement, <span class="mdr-math" data-tex="H" data-from="2986" data-to="2989">H</span> is the observation matrix, <span class="mdr-math" data-tex="\kappa_t" data-from="3017" data-to="3027">\kappa_t</span> is a time-varying gain, and the second term represents the "resonance coupling" across neighboring nodes <span class="mdr-math" data-tex="i = 1, \dots, N" data-from="3133" data-to="3150">i = 1, \dots, N</span> with weights <span class="mdr-math" data-tex="w_i" data-from="3164" data-to="3169">w_i</span> and coupling function <span class="mdr-math" data-tex="\phi(\cdot)" data-from="3192" data-to="3205">\phi(\cdot)</span>.</p>
+<p data-from="3208" data-to="3426"><strong data-from="3208" data-to="3267">This reconstruction should be verified with the authors</strong> — if it is correct, it belongs explicitly in the main text rather than being left implicit. If incorrect, the ambiguity itself is a serious presentation flaw.</p>
+<p data-from="3428" data-to="3738">A related concern: the gain term <span class="mdr-math" data-tex="\kappa_t" data-from="3461" data-to="3471">\kappa_t</span> is described as "adaptively tuned" but no update rule is given for <span class="mdr-math" data-tex="\kappa_t" data-from="3539" data-to="3549">\kappa_t</span> itself. Is it a fixed schedule, a learned parameter, or computed via a secondary optimization (e.g., minimizing <span class="mdr-math" data-tex="\mathbb{E}[\|\hat{x}_t - x_t\|^2]" data-from="3662" data-to="3697">\mathbb{E}[\|\hat{x}_t - x_t\|^2]</span> at each step)? This needs clarification.</p>
+<h3 id="2-statistical-concerns" data-from="3740" data-to="3767">2. Statistical Concerns</h3>
+<p data-from="3769" data-to="4146">The reported results in Table 5 show a mean detection latency of <em data-from="3834" data-to="3843">38.2 ms</em> with a 95% confidence interval of <em data-from="3878" data-to="3892">[37.9, 38.5]</em> across only <strong data-from="3905" data-to="3918">22 trials</strong>. This interval seems narrow given the sample size and the reported standard deviation of <em data-from="4008" data-to="4016">4.1 ms</em> elsewhere in the same table — these two numbers are not mutually consistent under a standard <span class="mdr-math" data-tex="t" data-from="4110" data-to="4113">t</span>-distribution assumption. Either:</p>
+<ol data-from="4148" data-to="4390">
+  <li data-from="4148" data-to="4220">the standard deviation is a typo (perhaps it should be <em data-from="4206" data-to="4215">0.41 ms</em>), or</li>
+  <li data-from="4221" data-to="4276">the confidence interval was computed incorrectly, or</li>
+  <li data-from="4277" data-to="4390">the trials are not independent and some form of clustering/bootstrap correction was applied but not described.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="warning" data-from="4392" data-to="4641">
+  <div class="mdr-callout-title" data-from="4394" data-to="4404">
+    Warning
+  </div>
+  <p data-from="4407" data-to="4641">This inconsistency, if unresolved, undermines confidence in <strong data-from="4467" data-to="4474">all</strong> reported intervals in Sections 4 and 5. I recommend a full recomputation and a clear statement of the statistical method used (bootstrap, normal approximation, etc.).</p>
+</blockquote>
+<h3 id="3-reproducibility" data-from="4643" data-to="4665">3. Reproducibility</h3>
+<p data-from="4667" data-to="4925">The appendix includes a partial code listing for the coupling function <span class="mdr-math" data-tex="\phi(\cdot)" data-from="4738" data-to="4751">\phi(\cdot)</span>, but it is incomplete — it references a helper function <code data-from="4808" data-to="4829">normalize_weights()</code> that is never defined. Below is the listing as it appears, annotated with a missing-piece flag:</p>
+<pre class="mdr-code" data-lang="python" data-from="4927" data-to="5291"><code class="language-python" data-verbatim data-from="4937" data-to="5287">def resonance_update(x_hat, neighbors, weights, lam=0.15):
+    # weights should sum to 1 across neighbors
+    w = normalize_weights(weights)  # &lt;-- undefined elsewhere in appendix
+    coupling = sum(w[i] * phi(x_hat - neighbors[i]) for i in range(len(neighbors)))
+    return x_hat + lam * coupling
+
+def phi(delta):
+    return delta / (1 + abs(delta))</code></pre>
+<p data-from="5293" data-to="5690">The <code data-from="5297" data-to="5302">phi</code> function itself is a reasonable soft-saturation nonlinearity, and it's helpful that the authors included it explicitly — this is one of the few places in the document where implementation details are concrete enough to reproduce. I'd strongly recommend expanding this appendix so the <em data-from="5587" data-to="5595">entire</em> pipeline can be reconstructed by a reader who did not participate in the original experiments.</p>
+<h3 id="4-terminology-and-framing" data-from="5692" data-to="5722">4. Terminology and Framing</h3>
+<p data-from="5724" data-to="6169">The term "resonance" is used somewhat loosely throughout — at times it refers to the coupling mechanism between nodes, and at other times it seems to refer to a temporal oscillation in the estimate itself (Section 3.4, paragraph 2). These are <em data-from="5967" data-to="5989">related but distinct</em> phenomena and conflating them makes the theoretical contribution harder to evaluate. I recommend the authors settle on one precise usage and define it early, ideally in Section 1.</p>
+<p data-from="6171" data-to="6433">Additionally, the phrase "<em data-from="6197" data-to="6220">near state-of-the-art</em>" appears in the abstract without a citation to what the actual state-of-the-art baseline is. Given that BFK-7 is described later as the primary comparison point, it would help to name it in the abstract directly.</p>
+<hr data-from="6435" data-to="6438">
+<h2 id="minor-issues" data-from="6440" data-to="6455">Minor Issues</h2>
+<ul data-from="6457" data-to="7084">
+  <li data-from="6457" data-to="6579">Figure 6's y-axis is unlabeled — I assume it is "false positive rate" based on the caption, but this should be explicit.</li>
+  <li data-from="6580" data-to="6731">The bibliography has at least one broken cross-reference: citation <code data-from="6649" data-to="6661">[Okafor19]</code> is referenced in Section 3 but does not appear in the reference list.</li>
+  <li data-from="6732" data-to="6962">Section 2.3 uses the phrase "<em data-from="6763" data-to="6782">trivially follows</em>" to describe a derivation that, on inspection, took the reviewers about fifteen minutes to reconstruct. Consider either providing the intermediate steps or softening the language.</li>
+  <li data-from="6963" data-to="7084">There are a handful of inconsistent capitalizations of "ARF-Net" vs. "ARFNet" vs. "arf-net" scattered through the text.</li>
+</ul>
+<hr data-from="7086" data-to="7089">
+<h2 id="questions-for-the-authors" data-from="7091" data-to="7119">Questions for the Authors</h2>
+<ol data-from="7121" data-to="7942">
+  <li data-from="7121" data-to="7305">Is <span class="mdr-math" data-tex="\theta_t" data-from="7127" data-to="7137">\theta_t</span> intended to be equivalent to <span class="mdr-math" data-tex="\kappa_t" data-from="7167" data-to="7177">\kappa_t</span> in the update rule, or are these genuinely separate quantities? The current text seems to conflate them in at least two places.</li>
+  <li data-from="7306" data-to="7461">What is the actual network topology used for the "Configuration B" experiments referenced in Table 3? Is this a ring, star, or fully-connected topology?</li>
+  <li data-from="7462" data-to="7613">Was <span class="mdr-math" data-tex="\lambda" data-from="7469" data-to="7478">\lambda</span> (the coupling strength) held fixed across all experiments, or was it tuned per configuration? If tuned, what was the search procedure?</li>
+  <li data-from="7614" data-to="7793">Regarding the confidence interval discrepancy in Table 5 — can the authors confirm whether trials were treated as independent, and if not, what correction (if any) was applied?</li>
+  <li data-from="7794" data-to="7942">Is there a theoretical convergence guarantee for ARF-Net under bounded but adversarial noise, or is the "near-optimal" language purely empirical?</li>
+</ol>
+<hr data-from="7944" data-to="7947">
+<h2 id="recommended-changes" data-from="7949" data-to="7971">Recommended Changes</h2>
+<ul data-from="7973" data-to="8711">
+  <li class="mdr-task" data-from="7973" data-to="8053"><input type="checkbox" disabled checked data-from="7975" data-to="7978">Add an explicit, numbered equation for the core update rule (Section 2.1).</li>
+  <li class="mdr-task" data-from="8054" data-to="8172"><input type="checkbox" disabled checked data-from="8056" data-to="8059">Clarify the relationship between <span class="mdr-math" data-tex="\theta_t" data-from="8093" data-to="8103">\theta_t</span> and <span class="mdr-math" data-tex="\kappa_t" data-from="8108" data-to="8118">\kappa_t</span>, or merge the notation if they are the same quantity.</li>
+  <li class="mdr-task" data-from="8173" data-to="8245"><input type="checkbox" disabled data-from="8175" data-to="8178">Resolve the missing "Configuration B" description in the appendix.</li>
+  <li class="mdr-task" data-from="8246" data-to="8322"><input type="checkbox" disabled data-from="8248" data-to="8251">Recompute and double-check all confidence intervals in Tables 4 and 5.</li>
+  <li class="mdr-task" data-from="8323" data-to="8445"><input type="checkbox" disabled data-from="8325" data-to="8328">Define <code data-from="8336" data-to="8357">normalize_weights()</code> in the code appendix, or remove the reference if it's a leftover from an earlier draft.</li>
+  <li class="mdr-task" data-from="8446" data-to="8518"><input type="checkbox" disabled data-from="8448" data-to="8451">Standardize capitalization of "ARF-Net" throughout the manuscript.</li>
+  <li class="mdr-task" data-from="8519" data-to="8578"><input type="checkbox" disabled data-from="8521" data-to="8524">Fix the broken citation to <code data-from="8552" data-to="8564">[Okafor19]</code> or remove it.</li>
+  <li class="mdr-task" data-from="8579" data-to="8613"><input type="checkbox" disabled data-from="8581" data-to="8584">Add axis labels to Figure 6.</li>
+  <li class="mdr-task" data-from="8614" data-to="8711"><input type="checkbox" disabled data-from="8616" data-to="8619">Either prove or soften the "near-optimal convergence" claim in the abstract and conclusion.</li>
+</ul>
+<hr data-from="8713" data-to="8716">
+<h2 id="overall-recommendation" data-from="8718" data-to="8743">Overall Recommendation</h2>
+<p data-from="8745" data-to="9242">This draft demonstrates a <em data-from="8771" data-to="8782">promising</em> architectural idea with reasonably strong empirical support, but it is <strong data-from="8854" data-to="8871">not yet ready</strong> for external submission. The statistical inconsistencies in particular (see Section 2 of this review) are the kind of issue that reviewers at an external venue would likely flag immediately, and it would be far better to resolve them internally first. The notation and terminology issues, while less severe, compound the difficulty of evaluating the paper's core claims.</p>
+<p data-from="9244" data-to="9770">My overall assessment is that this needs a <strong data-from="9287" data-to="9313">moderate revision pass</strong> — likely two to three weeks of focused work — rather than a full rewrite. The underlying contribution seems real; what's missing is the rigor and clarity needed to make that contribution legible to an outside reader. I'd recommend a follow-up internal review once the confidence-interval issue and the missing appendix content have been resolved, since those two items alone affect how much weight can be placed on the empirical claims in Sections 4 and 5.</p>
+<p data-from="9772" data-to="10085">Finally, I want to flag that the collaborative tone of the writing is a genuine strength — the paper reads as though the authors are inviting scrutiny rather than avoiding it, which made this review easier to conduct in good faith. That spirit should be preserved even as the technical issues above are addressed.</p>

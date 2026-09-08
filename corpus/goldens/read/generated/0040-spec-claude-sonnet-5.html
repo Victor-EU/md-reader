@@ -1,0 +1,72 @@
+<h1 id="technical-specification-vortex-rate-limiter-service" data-from="0" data-to="54">Technical Specification: Vortex Rate Limiter Service</h1>
+<h2 id="overview" data-from="56" data-to="67">Overview</h2>
+<p data-from="69" data-to="293">Vortex is a distributed rate-limiting service designed to throttle API requests across a horizontally scaled fleet of edge nodes. It uses a token-bucket algorithm with adaptive refill rates based on observed traffic entropy.</p>
+<hr data-from="295" data-to="298">
+<h2 id="requirements" data-from="300" data-to="315">Requirements</h2>
+<ol data-from="317" data-to="797">
+  <li data-from="317" data-to="396">The service must support at least 50,000 concurrent client buckets per node.</li>
+  <li data-from="397" data-to="495">Latency for a single rate-check decision must not exceed 2 milliseconds at the 99th percentile.</li>
+  <li data-from="496" data-to="566">Configuration changes must propagate to all nodes within 5 seconds.</li>
+  <li data-from="567" data-to="708">The system must degrade gracefully when the coordination backend (Consensus Store) is unreachable, falling back to local-only enforcement.</li>
+  <li data-from="709" data-to="797">All bucket state must be persisted asynchronously to avoid blocking the request path.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="note" data-from="799" data-to="979">
+  <div class="mdr-callout-title" data-from="801" data-to="808">
+    Note
+  </div>
+  <p data-from="811" data-to="979">Requirement 4 is considered the most critical resilience guarantee. Any implementation that blocks on the Consensus Store during an outage will fail acceptance testing.</p>
+</blockquote>
+<blockquote class="mdr-callout" data-callout="warning" data-from="981" data-to="1170">
+  <div class="mdr-callout-title" data-from="983" data-to="993">
+    Warning
+  </div>
+  <p data-from="996" data-to="1170">Do not use wall-clock timestamps for bucket refill calculations without accounting for clock skew between nodes. Use the monotonic clock supplied by <code data-from="1145" data-to="1169">vortex.clock.Monotonic</code>.</p>
+</blockquote>
+<h2 id="algorithm" data-from="1172" data-to="1184">Algorithm</h2>
+<p data-from="1186" data-to="1355">Each bucket has a capacity <span class="mdr-math" data-tex="C" data-from="1213" data-to="1216">C</span> and a refill rate <span class="mdr-math" data-tex="r" data-from="1235" data-to="1238">r</span> tokens per second. Given an elapsed time <span class="mdr-math" data-tex="\Delta t" data-from="1280" data-to="1290">\Delta t</span> since the last request, the available tokens <span class="mdr-math" data-tex="T" data-from="1336" data-to="1339">T</span> are updated as:</p>
+<div class="mdr-math-block" data-tex="T_{new} = \min\left(C,\; T_{old} + r \cdot \Delta t\right)" data-from="1357" data-to="1421">
+  T_{new} = \min\left(C,\; T_{old} + r \cdot \Delta t\right)
+</div>
+<p data-from="1423" data-to="1495">A request of cost <span class="mdr-math" data-tex="k" data-from="1441" data-to="1444">k</span> is admitted only if <span class="mdr-math" data-tex="T_{new} \geq k" data-from="1465" data-to="1481">T_{new} \geq k</span>, after which:</p>
+<div class="mdr-math-block" data-tex="T_{final} = T_{new} - k" data-from="1497" data-to="1526">
+  T_{final} = T_{new} - k
+</div>
+<p data-from="1528" data-to="1766">The adaptive component adjusts <span class="mdr-math" data-tex="r" data-from="1559" data-to="1562">r</span> periodically based on a smoothed entropy measure <span class="mdr-math" data-tex="H" data-from="1612" data-to="1615">H</span> of recent request intervals, where <span class="mdr-math" data-tex="r_{next} = r \cdot (1 + \alpha (H - H_{target}))" data-from="1651" data-to="1701">r_{next} = r \cdot (1 + \alpha (H - H_{target}))</span> and <span class="mdr-math" data-tex="\alpha" data-from="1706" data-to="1714">\alpha</span> is a damping coefficient typically set near <span class="mdr-math" data-tex="0.05" data-from="1759" data-to="1765">0.05</span>.</p>
+<h2 id="api-sketch" data-from="1768" data-to="1781">API Sketch</h2>
+<pre class="mdr-code" data-lang="python" data-from="1783" data-to="2429"><code class="language-python" data-verbatim data-from="1793" data-to="2425">class RateLimiter:
+    def __init__(self, capacity: int, refill_rate: float, clock: Clock):
+        self.capacity = capacity
+        self.refill_rate = refill_rate
+        self.clock = clock
+        self.tokens = capacity
+        self.last_check = clock.now()
+
+    def allow(self, cost: int = 1) -&gt; bool:
+        now = self.clock.now()
+        elapsed = now - self.last_check
+        self.tokens = min(
+            self.capacity,
+            self.tokens + self.refill_rate * elapsed
+        )
+        self.last_check = now
+
+        if self.tokens &gt;= cost:
+            self.tokens -= cost
+            return True
+        return False</code></pre>
+<p data-from="2431" data-to="2536">Client integrations should wrap this in a decorator or middleware layer, depending on the host framework.</p>
+<hr data-from="2538" data-to="2541">
+<h2 id="implementation-checklist" data-from="2543" data-to="2570">Implementation Checklist</h2>
+<ul data-from="2572" data-to="2840">
+  <li class="mdr-task" data-from="2572" data-to="2613"><input type="checkbox" disabled checked data-from="2574" data-to="2577">Core token-bucket logic implemented</li>
+  <li class="mdr-task" data-from="2614" data-to="2653"><input type="checkbox" disabled checked data-from="2616" data-to="2619">Monotonic clock abstraction added</li>
+  <li class="mdr-task" data-from="2654" data-to="2707"><input type="checkbox" disabled checked data-from="2656" data-to="2659">Local fallback mode for Consensus Store outages</li>
+  <li class="mdr-task" data-from="2708" data-to="2748"><input type="checkbox" disabled data-from="2710" data-to="2713">Adaptive refill rate tuning module</li>
+  <li class="mdr-task" data-from="2749" data-to="2790"><input type="checkbox" disabled data-from="2751" data-to="2754">Cross-region bucket synchronization</li>
+  <li class="mdr-task" data-from="2791" data-to="2840"><input type="checkbox" disabled data-from="2793" data-to="2796">Load testing at 500k requests/sec sustained</li>
+</ul>
+<h2 id="operational-notes" data-from="2842" data-to="2862">Operational Notes</h2>
+<blockquote data-from="2864" data-to="3087">
+  <p data-from="2866" data-to="3087">"A rate limiter that never triggers under normal load is not idle—it is untested." This principle guides our synthetic load generation strategy, which deliberately spikes traffic to 3x baseline during nightly canary runs.</p>
+</blockquote>
+<p data-from="3089" data-to="3288">Deployment teams should consult the runbook before enabling adaptive mode in production, as misconfigured damping coefficients have historically caused oscillating throughput in staging environments.</p>

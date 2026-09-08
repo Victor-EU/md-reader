@@ -1,6 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import { ChangeSet, type EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { corpusFiles } from '@mdreader/markdown';
 import { afterEach, describe, expect, it } from 'vitest';
 import { activateCell } from '../preview/table/cell-editor.ts';
 import { escapePipes } from '../preview/table/commands.ts';
@@ -8,7 +9,6 @@ import { tableModel } from '../preview/table/model.ts';
 import { createEditor, type Editor } from '../view.ts';
 import { checkExactness, checkLocality, type Outcome } from './invariants.ts';
 import { mixSeed, rng } from './rng.ts';
-import { corpusFiles } from './sources.ts';
 
 /**
  * The corpus actions that need a real DOM: a cell edit through the

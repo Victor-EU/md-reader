@@ -1,0 +1,226 @@
+<h1 id="project-harbor-lantern-delivery-plan" data-from="0" data-to="40">Project Harbor Lantern — Delivery Plan</h1>
+<p data-from="42" data-to="265"><strong data-from="42" data-to="61">Document owner:</strong> Priya Raghunathan, Director of Platform Delivery
+<strong data-from="111" data-to="123">Version:</strong> 3.2 (revised 14 March)
+<strong data-from="147" data-to="164">Distribution:</strong> Steering Committee, Engineering Leads, Vendor Liaison Desk
+<strong data-from="224" data-to="243">Classification:</strong> Internal — Restricted</p>
+<hr data-from="267" data-to="270">
+<h2 id="1-purpose-and-scope" data-from="272" data-to="295">1. Purpose and Scope</h2>
+<p data-from="297" data-to="677">Project Harbor Lantern replaces the aging Fernwick order-routing engine with a modular, event-driven service capable of handling 14,000 transactions per minute at peak, up from the current ceiling of 3,200. The programme covers the routing engine itself, the four downstream reconciliation adapters, and the migration of 212 legacy customer profiles held in the Marlowe datastore.</p>
+<p data-from="679" data-to="928">Out of scope: the customer-facing web portal redesign (tracked separately as Project Quillfeather), any change to the billing ledger, and the decommissioning of the Fernwick hardware, which Facilities will handle in Q4 under a separate capital line.</p>
+<blockquote data-from="930" data-to="1171">
+  <p data-from="932" data-to="1171">The steering committee has agreed that schedule certainty outranks feature completeness. If a phase gate is at risk, we descope non-critical adapters before we move the date. This is a standing instruction and does not require re-approval.</p>
+</blockquote>
+<hr data-from="1173" data-to="1176">
+<h2 id="2-governance-and-roles" data-from="1178" data-to="1204">2. Governance and Roles</h2>
+<div class="mdr-table-wrap" data-from="1206" data-to="1776">
+  <table data-from="1206" data-to="1776">
+    <thead data-from="1206" data-to="1245">
+      <tr data-from="1206" data-to="1245">
+        <th data-from="1208" data-to="1212">Role</th>
+        <th data-from="1215" data-to="1226">Named Owner</th>
+        <th data-from="1229" data-to="1243">Accountability</th>
+      </tr>
+    </thead>
+    <tbody data-from="1260" data-to="1776">
+      <tr data-from="1260" data-to="1339">
+        <td data-from="1262" data-to="1279">Executive Sponsor</td>
+        <td data-from="1282" data-to="1300">Desmond Achterberg</td>
+        <td data-from="1303" data-to="1337">Funding, escalation of last resort</td>
+      </tr>
+      <tr data-from="1340" data-to="1416">
+        <td data-from="1342" data-to="1360">Programme Director</td>
+        <td data-from="1363" data-to="1380">Priya Raghunathan</td>
+        <td data-from="1383" data-to="1414">Overall delivery, gate sign-off</td>
+      </tr>
+      <tr data-from="1417" data-to="1493">
+        <td data-from="1419" data-to="1433">Technical Lead</td>
+        <td data-from="1436" data-to="1448">Ola Fenimore</td>
+        <td data-from="1451" data-to="1491">Architecture, code quality, ADR approval</td>
+      </tr>
+      <tr data-from="1494" data-to="1576">
+        <td data-from="1496" data-to="1515">Data Migration Lead</td>
+        <td data-from="1518" data-to="1538">Bettina Okoro-Sayles</td>
+        <td data-from="1541" data-to="1574">Marlowe extraction and validation</td>
+      </tr>
+      <tr data-from="1577" data-to="1635">
+        <td data-from="1579" data-to="1586">QA Lead</td>
+        <td data-from="1589" data-to="1602">Hendrik Vaals</td>
+        <td data-from="1605" data-to="1633">Test strategy, defect triage</td>
+      </tr>
+      <tr data-from="1636" data-to="1709">
+        <td data-from="1638" data-to="1652">Vendor Liaison</td>
+        <td data-from="1655" data-to="1670">Caro Middlemass</td>
+        <td data-from="1673" data-to="1707">Contract with Threadneedle Systems</td>
+      </tr>
+      <tr data-from="1710" data-to="1776">
+        <td data-from="1712" data-to="1726">Change &amp; Comms</td>
+        <td data-from="1729" data-to="1742">Yusuf Anwarli</td>
+        <td data-from="1745" data-to="1774">Training, runbook publication</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="1778" data-to="1921">The Steering Committee meets fortnightly on Thursdays at 09:30. Delivery stand-ups run daily at 09:00 for fifteen minutes, chaired on rotation.</p>
+<hr data-from="1923" data-to="1926">
+<h2 id="3-phases" data-from="1928" data-to="1940">3. Phases</h2>
+<h3 id="phase-0-discovery-and-baseline-weeks-14" data-from="1942" data-to="1990">Phase 0 — Discovery and Baseline (Weeks 1–4)</h3>
+<p data-from="1992" data-to="2015"><strong data-from="1992" data-to="2002">Owner:</strong> Ola Fenimore</p>
+<p data-from="2017" data-to="2221">Establish the factual baseline before design begins. The Fernwick engine has no current architecture documentation; the last diagram dates from 2019 and is known to be inaccurate in at least three places.</p>
+<p data-from="2223" data-to="2234">Activities:</p>
+<ul data-from="2236" data-to="2484">
+  <li data-from="2236" data-to="2318">Instrument the existing engine for two full weeks to capture real traffic shapes</li>
+  <li data-from="2319" data-to="2382">Interview eleven operations staff on undocumented workarounds</li>
+  <li data-from="2383" data-to="2432">Produce the Baseline Capability Report (BCR-01)</li>
+  <li data-from="2433" data-to="2484">Draft the first six Architecture Decision Records</li>
+</ul>
+<p data-from="2486" data-to="2604"><strong data-from="2486" data-to="2504">Exit criteria:</strong> BCR-01 signed by Fenimore and Vaals; traffic dataset of at least 9 million sampled events archived.</p>
+<h3 id="phase-1-core-engine-build-weeks-516" data-from="2606" data-to="2650">Phase 1 — Core Engine Build (Weeks 5–16)</h3>
+<p data-from="2652" data-to="2675"><strong data-from="2652" data-to="2662">Owner:</strong> Ola Fenimore</p>
+<p data-from="2677" data-to="2843">Construction of the routing kernel, the rules evaluator, and the internal event bus. Threadneedle Systems supplies the durable queue component under contract TN-4471.</p>
+<p data-from="2845" data-to="2879">The team splits into three squads:</p>
+<ul data-from="2881" data-to="3497">
+  <li data-from="2881" data-to="3189"><strong data-from="2883" data-to="2898">Squad Alder</strong> — routing kernel and rule evaluation<ul data-from="2938" data-to="3189">
+      <li data-from="2938" data-to="3154">Kernel core (Weeks 5–10)<ul data-from="2969" data-to="3154">
+          <li data-from="2969" data-to="3124">Deterministic replay harness<ul data-from="3006" data-to="3124">
+              <li data-from="3006" data-to="3037">Snapshot serialisation format</li>
+              <li data-from="3044" data-to="3072">Replay divergence detector</li>
+              <li data-from="3079" data-to="3124">Golden-file corpus of 480 recorded sessions</li>
+            </ul></li>
+          <li data-from="3129" data-to="3154">Rule compiler front-end</li>
+        </ul></li>
+      <li data-from="3157" data-to="3189">Kernel hardening (Weeks 11–16)</li>
+    </ul></li>
+  <li data-from="3190" data-to="3346"><strong data-from="3192" data-to="3211">Squad Birchwood</strong> — event bus and Threadneedle integration<ul data-from="3255" data-to="3346">
+      <li data-from="3255" data-to="3294">Queue adapter and backpressure policy</li>
+      <li data-from="3297" data-to="3346">Dead-letter handling and operator console hooks</li>
+    </ul></li>
+  <li data-from="3347" data-to="3497"><strong data-from="3349" data-to="3368">Squad Cormorant</strong> — observability and platform plumbing<ul data-from="3409" data-to="3497">
+      <li data-from="3409" data-to="3449">Metric taxonomy and cardinality budget</li>
+      <li data-from="3452" data-to="3497">Trace propagation across adapter boundaries</li>
+    </ul></li>
+</ul>
+<p data-from="3499" data-to="3632"><strong data-from="3499" data-to="3517">Exit criteria:</strong> Kernel sustains 16,000 TPM in the load lab for 90 minutes with p99 latency under 45ms; zero critical defects open.</p>
+<h3 id="phase-2-adapter-suite-weeks-1424" data-from="3634" data-to="3675">Phase 2 — Adapter Suite (Weeks 14–24)</h3>
+<p data-from="3677" data-to="3738"><strong data-from="3677" data-to="3687">Owner:</strong> Hendrik Vaals (delivery), Ola Fenimore (technical)</p>
+<p data-from="3740" data-to="3940">Four reconciliation adapters, built in priority order. Phase 2 overlaps Phase 1 by three weeks deliberately, since adapter work depends only on the published kernel contract, which freezes at Week 13.</p>
+<p data-from="3942" data-to="3994">Priority order, confirmed by the Steering Committee:</p>
+<ol data-from="3996" data-to="4300">
+  <li data-from="3996" data-to="4092"><strong data-from="3999" data-to="4020">Adapter Saltmarsh</strong> — settlement reconciliation, highest transaction volume, non-negotiable</li>
+  <li data-from="4093" data-to="4168"><strong data-from="4096" data-to="4115">Adapter Grimsby</strong> — regulatory reporting feed, fixed external deadline</li>
+  <li data-from="4169" data-to="4232"><strong data-from="4172" data-to="4190">Adapter Pelham</strong> — internal treasury sweep, moderate value</li>
+  <li data-from="4233" data-to="4300"><strong data-from="4236" data-to="4252">Adapter Wren</strong> — analytics export, first candidate for descope</li>
+</ol>
+<p data-from="4302" data-to="4401"><strong data-from="4302" data-to="4320">Exit criteria:</strong> Saltmarsh and Grimsby pass full contract-test suites; Pelham at minimum in beta.</p>
+<h3 id="phase-3-data-migration-weeks-2030" data-from="4403" data-to="4445">Phase 3 — Data Migration (Weeks 20–30)</h3>
+<p data-from="4447" data-to="4478"><strong data-from="4447" data-to="4457">Owner:</strong> Bettina Okoro-Sayles</p>
+<p data-from="4480" data-to="4706">The Marlowe datastore holds 212 customer profiles, of which 38 use a deprecated nested-entitlement structure that has no direct equivalent in the new schema. These require a hand-authored mapping, estimated at four hours each.</p>
+<p data-from="4708" data-to="4833">Migration proceeds in three waves: 40 low-risk profiles, then 100, then the remaining 72 including all deprecated structures.</p>
+<p data-from="4835" data-to="4855">Validation approach:</p>
+<pre class="mdr-code" data-lang="python" data-from="4857" data-to="5762"><code class="language-python" data-verbatim data-from="4867" data-to="5758">def validate_wave(wave_id, source_records, target_records):
+    """Compare migrated profiles against source. Returns a report dict."""
+    discrepancies = []
+    for key in source_records:
+        src = source_records[key]
+        tgt = target_records.get(key)
+        if tgt is None:
+            discrepancies.append((key, "MISSING_IN_TARGET", None))
+            continue
+        if src.entitlement_hash != tgt.entitlement_hash:
+            discrepancies.append((key, "HASH_MISMATCH", tgt.entitlement_hash))
+        if abs(src.credit_ceiling - tgt.credit_ceiling) &gt; 0.005:
+            discrepancies.append((key, "CEILING_DRIFT", tgt.credit_ceiling))
+
+    return {
+        "wave": wave_id,
+        "checked": len(source_records),
+        "failed": len(discrepancies),
+        "pass_rate": round(1 - len(discrepancies) / max(len(source_records), 1), 4),
+        "detail": discrepancies,
+    }</code></pre>
+<p data-from="5764" data-to="5883">A wave is accepted at a pass rate of 1.0000. There is no tolerance band; any discrepancy blocks promotion of that wave.</p>
+<p data-from="5885" data-to="5986"><strong data-from="5885" data-to="5903">Exit criteria:</strong> All three waves accepted; rollback snapshot verified restorable within 20 minutes.</p>
+<h3 id="phase-4-cutover-and-stabilisation-weeks-3136" data-from="5988" data-to="6041">Phase 4 — Cutover and Stabilisation (Weeks 31–36)</h3>
+<p data-from="6043" data-to="6071"><strong data-from="6043" data-to="6053">Owner:</strong> Priya Raghunathan</p>
+<p data-from="6073" data-to="6294">Dual-run for eleven days with traffic shadowed to the new engine, then a staged traffic shift: 5%, 25%, 60%, 100%, with a minimum 36-hour soak at each step. Yusuf Anwarli publishes operator runbooks no later than Week 30.</p>
+<p data-from="6296" data-to="6411"><strong data-from="6296" data-to="6314">Exit criteria:</strong> Seven consecutive days at 100% traffic with fewer than three P2 incidents and zero P1 incidents.</p>
+<hr data-from="6413" data-to="6416">
+<h2 id="4-milestones" data-from="6418" data-to="6434">4. Milestones</h2>
+<div class="mdr-table-wrap" data-from="6436" data-to="6949">
+  <table data-from="6436" data-to="6949">
+    <thead data-from="6436" data-to="6476">
+      <tr data-from="6436" data-to="6476">
+        <th data-from="6438" data-to="6440">ID</th>
+        <th data-from="6443" data-to="6452">Milestone</th>
+        <th data-from="6455" data-to="6466">Target Week</th>
+        <th data-from="6469" data-to="6474">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="6495" data-to="6949">
+      <tr data-from="6495" data-to="6554">
+        <td data-from="6497" data-to="6499">M1</td>
+        <td data-from="6502" data-to="6537">Baseline Capability Report accepted</td>
+        <td data-from="6540" data-to="6541">4</td>
+        <td data-from="6544" data-to="6552">Fenimore</td>
+      </tr>
+      <tr data-from="6555" data-to="6602">
+        <td data-from="6557" data-to="6559">M2</td>
+        <td data-from="6562" data-to="6584">Kernel contract frozen</td>
+        <td data-from="6587" data-to="6589">13</td>
+        <td data-from="6592" data-to="6600">Fenimore</td>
+      </tr>
+      <tr data-from="6603" data-to="6666">
+        <td data-from="6605" data-to="6607">M3</td>
+        <td data-from="6610" data-to="6648">Load target of 16,000 TPM demonstrated</td>
+        <td data-from="6651" data-to="6653">16</td>
+        <td data-from="6656" data-to="6664">Fenimore</td>
+      </tr>
+      <tr data-from="6667" data-to="6716">
+        <td data-from="6669" data-to="6671">M4</td>
+        <td data-from="6674" data-to="6701">Saltmarsh adapter certified</td>
+        <td data-from="6704" data-to="6706">21</td>
+        <td data-from="6709" data-to="6714">Vaals</td>
+      </tr>
+      <tr data-from="6717" data-to="6764">
+        <td data-from="6719" data-to="6721">M5</td>
+        <td data-from="6724" data-to="6749">Grimsby adapter certified</td>
+        <td data-from="6752" data-to="6754">24</td>
+        <td data-from="6757" data-to="6762">Vaals</td>
+      </tr>
+      <tr data-from="6765" data-to="6819">
+        <td data-from="6767" data-to="6769">M6</td>
+        <td data-from="6772" data-to="6797">Migration Wave 3 accepted</td>
+        <td data-from="6800" data-to="6802">30</td>
+        <td data-from="6805" data-to="6817">Okoro-Sayles</td>
+      </tr>
+      <tr data-from="6820" data-to="6887">
+        <td data-from="6822" data-to="6824">M7</td>
+        <td data-from="6827" data-to="6866">Dual-run complete, no blocking findings</td>
+        <td data-from="6869" data-to="6871">33</td>
+        <td data-from="6874" data-to="6885">Raghunathan</td>
+      </tr>
+      <tr data-from="6888" data-to="6949">
+        <td data-from="6890" data-to="6892">M8</td>
+        <td data-from="6895" data-to="6928">100% traffic sustained seven days</td>
+        <td data-from="6931" data-to="6933">36</td>
+        <td data-from="6936" data-to="6947">Raghunathan</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="6951" data-to="6954">
+<h2 id="5-risks" data-from="6956" data-to="6967">5. Risks</h2>
+<p data-from="6969" data-to="7286"><strong data-from="6969" data-to="7038">R-01 — Threadneedle queue component underperforms (High / Medium)</strong>
+Contract TN-4471 guarantees 18,000 messages per minute, but the figure is unverified in our topology. <em data-from="7141" data-to="7154">Mitigation:</em> independent benchmark by Week 9; fallback implementation of a file-backed queue scoped at 14 engineer-days. Owner: Caro Middlemass.</p>
+<p data-from="7288" data-to="7630"><strong data-from="7288" data-to="7360">R-02 — Deprecated entitlement mappings exceed estimate (High / High)</strong>
+The four-hour-per-profile figure comes from a sample of three. If the true average is eight hours, Phase 3 slips by roughly two weeks. <em data-from="7496" data-to="7509">Mitigation:</em> re-estimate after the first twelve mappings; pre-approved budget for two contract analysts. Owner: Bettina Okoro-Sayles.</p>
+<p data-from="7632" data-to="7889"><strong data-from="7632" data-to="7703">R-03 — Kernel contract churn after Week 13 freeze (Medium / Medium)</strong>
+Adapter squads cannot absorb late interface changes. <em data-from="7757" data-to="7770">Mitigation:</em> any post-freeze change requires joint sign-off from Fenimore and Vaals and a written impact note. Owner: Ola Fenimore.</p>
+<p data-from="7891" data-to="8163"><strong data-from="7891" data-to="7952">R-04 — Grimsby regulatory deadline immovable (High / Low)</strong>
+The external filing date sits at Week 26 with no extension mechanism. <em data-from="8023" data-to="8036">Mitigation:</em> Grimsby elevated to second build priority; contingency of a manual filing process documented by Week 22. Owner: Hendrik Vaals.</p>
+<p data-from="8165" data-to="8404"><strong data-from="8165" data-to="8240">R-05 — Key-person concentration on the replay harness (Medium / Medium)</strong>
+Only two engineers understand the divergence detector. <em data-from="8296" data-to="8309">Mitigation:</em> mandatory pairing rotation from Week 8; design note published by Week 12. Owner: Ola Fenimore.</p>
+<p data-from="8406" data-to="8656"><strong data-from="8406" data-to="8478">R-06 — Operations staff unavailable during cutover (Medium / Medium)</strong>
+Phase 4 overlaps the annual audit window. <em data-from="8521" data-to="8534">Mitigation:</em> negotiate a two-week audit deferral with Achterberg by Week 26; otherwise shift cutover to Week 34. Owner: Yusuf Anwarli.</p>
+<hr data-from="8658" data-to="8661">
+<h2 id="6-reporting" data-from="8663" data-to="8678">6. Reporting</h2>
+<p data-from="8680" data-to="8936">A one-page status note circulates every Monday by 12:00, covering milestone position, open risks above the medium threshold, and burn against the 4,180 engineer-day budget. Exceptions escalate to Desmond Achterberg within one working day of identification.</p>

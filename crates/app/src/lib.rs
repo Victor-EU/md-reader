@@ -180,6 +180,9 @@ pub fn run(context: tauri::Context) {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Links in Read mode open in the system browser; the webview never
+        // navigates away from the app (design 6.2).
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);

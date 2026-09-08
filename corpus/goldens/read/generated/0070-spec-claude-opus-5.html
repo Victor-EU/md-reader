@@ -1,0 +1,144 @@
+<h1 id="tidewell-telemetry-ingestion-rollup-service" data-from="0" data-to="49">Tidewell — Telemetry Ingestion &amp; Rollup Service</h1>
+<p data-from="51" data-to="204"><strong data-from="51" data-to="67">Document ID:</strong> TDW-SPEC-0142
+<strong data-from="82" data-to="94">Version:</strong> 0.9 (draft for review)
+<strong data-from="118" data-to="129">Status:</strong> Proposed
+<strong data-from="139" data-to="150">Owners:</strong> Platform Hydrology Group
+<strong data-from="176" data-to="193">Last revised:</strong> 2031-04-18</p>
+<hr data-from="206" data-to="209">
+<h2 id="1-purpose-and-scope" data-from="211" data-to="234">1. Purpose and Scope</h2>
+<p data-from="236" data-to="512">Tidewell is an internal service that accepts high-frequency measurement streams from moored and drifting marine sensor platforms, normalizes them against pinned schemas, and produces time-bucketed rollups that downstream analytics tools can query without touching raw storage.</p>
+<p data-from="514" data-to="921">This document specifies the externally visible behavior of Tidewell: its resource model, ingestion contract, query surface, error semantics, and the performance envelope it commits to. It does <strong data-from="707" data-to="714">not</strong> specify the internal storage engine, the schema registry's replication topology, or the firmware running on the sensor platforms themselves. Those are covered by TDW-SPEC-0143 and FW-BUOY-0088 respectively.</p>
+<p data-from="923" data-to="932">In scope:</p>
+<ul data-from="934" data-to="1261">
+  <li data-from="934" data-to="1026">Authenticated ingestion of numeric and categorical observations from registered platforms.</li>
+  <li data-from="1027" data-to="1098">Schema validation, unit coercion, and rejection of malformed records.</li>
+  <li data-from="1099" data-to="1146">Deterministic rollups at fixed bucket widths.</li>
+  <li data-from="1147" data-to="1193">A read API for both raw windows and rollups.</li>
+  <li data-from="1194" data-to="1261">Backfill of late-arriving data within a bounded lateness horizon.</li>
+</ul>
+<p data-from="1263" data-to="1276">Out of scope:</p>
+<ul data-from="1278" data-to="1446">
+  <li data-from="1278" data-to="1325">Alerting, thresholding, or anomaly detection.</li>
+  <li data-from="1326" data-to="1387">Long-term archival beyond the 400-day hot retention window.</li>
+  <li data-from="1388" data-to="1446">Any form of cross-platform data fusion or interpolation.</li>
+</ul>
+<hr data-from="1448" data-to="1451">
+<h2 id="2-definitions" data-from="1453" data-to="1470">2. Definitions</h2>
+<div class="mdr-table-wrap" data-from="1472" data-to="2303">
+  <table data-from="1472" data-to="2303">
+    <thead data-from="1472" data-to="1490">
+      <tr data-from="1472" data-to="1490">
+        <th data-from="1474" data-to="1478">Term</th>
+        <th data-from="1481" data-to="1488">Meaning</th>
+      </tr>
+    </thead>
+    <tbody data-from="1501" data-to="2303">
+      <tr data-from="1501" data-to="1655">
+        <td data-from="1503" data-to="1515"><strong data-from="1503" data-to="1515">Platform</strong></td>
+        <td data-from="1518" data-to="1653">A physical or virtual device that emits observations. Identified by a <code data-from="1588" data-to="1601">platform_id</code> of the form <code data-from="1614" data-to="1619">pf_</code> + 12 lowercase base32 characters.</td>
+      </tr>
+      <tr data-from="1656" data-to="1783">
+        <td data-from="1658" data-to="1669"><strong data-from="1658" data-to="1669">Channel</strong></td>
+        <td data-from="1672" data-to="1781">A named measurement series on a platform, e.g. <code data-from="1719" data-to="1737">sea_surface_temp</code>. Scoped to a platform; not globally unique.</td>
+      </tr>
+      <tr data-from="1784" data-to="1880">
+        <td data-from="1786" data-to="1801"><strong data-from="1786" data-to="1801">Observation</strong></td>
+        <td data-from="1804" data-to="1878">A single <code data-from="1813" data-to="1842">(channel, timestamp, value)</code> triple plus optional quality flags.</td>
+      </tr>
+      <tr data-from="1881" data-to="1986">
+        <td data-from="1883" data-to="1895"><strong data-from="1883" data-to="1895">Envelope</strong></td>
+        <td data-from="1898" data-to="1984">A batch of observations submitted in one request, sharing a platform and a schema pin.</td>
+      </tr>
+      <tr data-from="1987" data-to="2074">
+        <td data-from="1989" data-to="1999"><strong data-from="1989" data-to="1999">Bucket</strong></td>
+        <td data-from="2002" data-to="2072">A fixed-width, left-closed, right-open time interval used for rollups.</td>
+      </tr>
+      <tr data-from="2075" data-to="2206">
+        <td data-from="2077" data-to="2097"><strong data-from="2077" data-to="2097">Lateness horizon</strong></td>
+        <td data-from="2100" data-to="2204">The maximum age of an observation that Tidewell will accept for rollup recomputation. Fixed at 96 hours.</td>
+      </tr>
+      <tr data-from="2207" data-to="2303">
+        <td data-from="2209" data-to="2216"><strong data-from="2209" data-to="2216">Pin</strong></td>
+        <td data-from="2219" data-to="2301">An immutable <code data-from="2232" data-to="2257">(schema_name, revision)</code> pair asserted by the client at ingest time.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="2305" data-to="2308">
+<h2 id="3-functional-requirements" data-from="2310" data-to="2339">3. Functional Requirements</h2>
+<p data-from="2341" data-to="2535"><strong data-from="2341" data-to="2371">FR-1 — Envelope ingestion.</strong> The service SHALL accept envelopes containing between 1 and 5,000 observations. Envelopes exceeding 5,000 observations SHALL be rejected with <code data-from="2514" data-to="2534">envelope_too_large</code>.</p>
+<p data-from="2537" data-to="2752"><strong data-from="2537" data-to="2563">FR-2 — Schema pinning.</strong> Every envelope SHALL declare a schema pin. If the pin does not resolve to a published revision, the envelope SHALL be rejected in whole. Partial acceptance on schema failure is prohibited.</p>
+<p data-from="2754" data-to="3021"><strong data-from="2754" data-to="2792">FR-3 — Per-observation validation.</strong> After the pin resolves, each observation SHALL be validated independently. Valid observations SHALL be durably accepted even when sibling observations in the same envelope fail. The response SHALL enumerate every rejected index.</p>
+<p data-from="3023" data-to="3299"><strong data-from="3023" data-to="3046">FR-4 — Idempotency.</strong> Clients MAY supply an <code data-from="3069" data-to="3083">envelope_key</code> (max 64 characters). Tidewell SHALL treat two envelopes with the same <code data-from="3154" data-to="3183">(platform_id, envelope_key)</code> submitted within 24 hours as a single logical submission and SHALL return the original result without reprocessing.</p>
+<p data-from="3301" data-to="3575"><strong data-from="3301" data-to="3326">FR-5 — Unit coercion.</strong> Where the pinned schema declares a canonical unit, values submitted in a declared alternate unit SHALL be converted using the conversion table bound to that schema revision. Coercion failures are per-observation rejections, not envelope rejections.</p>
+<p data-from="3577" data-to="3842"><strong data-from="3577" data-to="3606">FR-6 — Rollup production.</strong> For each <code data-from="3616" data-to="3654">(platform_id, channel, bucket_width)</code> the service SHALL maintain rollups at bucket widths of 60 s, 900 s, 3600 s, and 86400 s. Each rollup SHALL expose: <code data-from="3770" data-to="3777">count</code>, <code data-from="3779" data-to="3784">min</code>, <code data-from="3786" data-to="3791">max</code>, <code data-from="3793" data-to="3799">mean</code>, <code data-from="3801" data-to="3806">sum</code>, <code data-from="3808" data-to="3813">p50</code>, <code data-from="3815" data-to="3820">p95</code>, and <code data-from="3826" data-to="3841">flagged_count</code>.</p>
+<p data-from="3844" data-to="4084"><strong data-from="3844" data-to="3865">FR-7 — Late data.</strong> Observations with timestamps up to 96 hours older than ingest time SHALL trigger recomputation of every affected bucket at every width. Observations older than 96 hours SHALL be rejected with <code data-from="4058" data-to="4083">beyond_lateness_horizon</code>.</p>
+<p data-from="4086" data-to="4241"><strong data-from="4086" data-to="4109">FR-8 — Future data.</strong> Observations timestamped more than 300 seconds in the future relative to server clock SHALL be rejected with <code data-from="4219" data-to="4240">timestamp_in_future</code>.</p>
+<p data-from="4243" data-to="4405"><strong data-from="4243" data-to="4271">FR-9 — Raw window reads.</strong> Clients SHALL be able to retrieve raw observations for a single platform over a window not exceeding 6 hours, with cursor pagination.</p>
+<p data-from="4407" data-to="4581"><strong data-from="4407" data-to="4432">FR-10 — Rollup reads.</strong> Clients SHALL be able to retrieve rollups for up to 24 channels on a single platform, over a window bounded by 4,000 buckets at the requested width.</p>
+<p data-from="4583" data-to="4758"><strong data-from="4583" data-to="4617">FR-11 — Platform registration.</strong> A platform MUST be registered and in state <code data-from="4661" data-to="4669">active</code> before ingestion succeeds. States are <code data-from="4708" data-to="4721">provisioned</code>, <code data-from="4723" data-to="4731">active</code>, <code data-from="4733" data-to="4746">quarantined</code>, <code data-from="4748" data-to="4757">retired</code>.</p>
+<p data-from="4760" data-to="4935"><strong data-from="4760" data-to="4783">FR-12 — Quarantine.</strong> An operator SHALL be able to move a platform to <code data-from="4832" data-to="4845">quarantined</code>, after which ingestion returns <code data-from="4877" data-to="4899">platform_quarantined</code> and existing data remains readable.</p>
+<p data-from="4937" data-to="5106"><strong data-from="4937" data-to="4958">FR-13 — Deletion.</strong> A <code data-from="4961" data-to="4969">DELETE</code> on a platform SHALL transition it to <code data-from="5007" data-to="5016">retired</code> and schedule raw-data purge after 30 days. Rollups persist for the full retention window.</p>
+<hr data-from="5108" data-to="5111">
+<h2 id="4-non-functional-requirements" data-from="5113" data-to="5146">4. Non-Functional Requirements</h2>
+<p data-from="5148" data-to="5303"><strong data-from="5148" data-to="5178">NFR-1 — Ingest throughput.</strong> Sustained 48,000 observations per second per region, with burst tolerance to 130,000 observations per second for 90 seconds.</p>
+<p data-from="5305" data-to="5424"><strong data-from="5305" data-to="5332">NFR-2 — Ingest latency.</strong> p50 ≤ 22 ms, p99 ≤ 140 ms measured at the gateway edge for envelopes of ≤ 200 observations.</p>
+<p data-from="5426" data-to="5607"><strong data-from="5426" data-to="5455">NFR-3 — Rollup freshness.</strong> For on-time data, the 60 s bucket SHALL reflect an accepted observation within 8 seconds at p99. Wider buckets SHALL converge within 45 seconds at p99.</p>
+<p data-from="5609" data-to="5727"><strong data-from="5609" data-to="5634">NFR-4 — Availability.</strong> 99.94% monthly for the ingest path, 99.90% for the read path, measured on non-4xx responses.</p>
+<p data-from="5729" data-to="5891"><strong data-from="5729" data-to="5752">NFR-5 — Durability.</strong> Once a 202 is returned, accepted observations SHALL survive the loss of any single availability zone. Target annual durability 99.999999%.</p>
+<p data-from="5893" data-to="6020"><strong data-from="5893" data-to="5915">NFR-6 — Retention.</strong> Raw observations: 45 days. Rollups: 400 days. Both measured from observation timestamp, not ingest time.</p>
+<p data-from="6022" data-to="6172"><strong data-from="6022" data-to="6047">NFR-7 — Backpressure.</strong> Under overload the service SHALL shed load with <code data-from="6096" data-to="6101">429</code> and a <code data-from="6108" data-to="6121">Retry-After</code> header rather than degrading latency beyond NFR-2.</p>
+<blockquote data-from="6174" data-to="6607">
+  <p data-from="6176" data-to="6607"><strong data-from="6176" data-to="6192">Design note.</strong> We deliberately chose per-observation rejection over strict all-or-nothing envelopes. Field experience with the previous collector showed that a single drifting clock on one channel could stall an entire platform's telemetry for days. The cost is a more verbose response body and a harder idempotency story — which is why <code data-from="6515" data-to="6529">envelope_key</code> deduplication returns the <em data-from="6556" data-to="6580">cached original result</em> rather than re-validating.</p>
+</blockquote>
+<hr data-from="6609" data-to="6612">
+<h2 id="5-data-model" data-from="6614" data-to="6630">5. Data Model</h2>
+<pre class="mdr-code" data-lang="json" data-from="6632" data-to="7276"><code class="language-json" data-verbatim data-from="6640" data-to="7272">{
+  "envelope_key": "buoy-4471-2031-04-18T09:15Z-a",
+  "platform_id": "pf_k3m9qxr72dwv",
+  "schema": { "name": "coastal_basic", "revision": 7 },
+  "observations": [
+    {
+      "channel": "sea_surface_temp",
+      "t": "2031-04-18T09:15:03.220Z",
+      "value": 11.84,
+      "unit": "degC",
+      "flags": []
+    },
+    {
+      "channel": "significant_wave_height",
+      "t": "2031-04-18T09:15:03.220Z",
+      "value": 2.31,
+      "unit": "m",
+      "flags": ["sensor_warmup"]
+    },
+    {
+      "channel": "battery_bus",
+      "t": "2031-04-18T09:15:03.220Z",
+      "value": 13.44,
+      "unit": "V",
+      "flags": []
+    }
+  ]
+}</code></pre>
+<p data-from="7278" data-to="7290">Field notes:</p>
+<ul data-from="7292" data-to="7809">
+  <li data-from="7292" data-to="7425"><code data-from="7294" data-to="7297">t</code> MUST be RFC 3339 with an explicit offset. Millisecond precision is retained; sub-millisecond digits are truncated, not rounded.</li>
+  <li data-from="7426" data-to="7612"><code data-from="7428" data-to="7435">value</code> is a JSON number for numeric channels and a string for categorical channels. Mixing types within a channel across the retention window is rejected with <code data-from="7588" data-to="7611">channel_type_conflict</code>.</li>
+  <li data-from="7613" data-to="7734"><code data-from="7615" data-to="7622">flags</code> are drawn from a closed vocabulary bound to the schema revision. Unknown flags cause per-observation rejection.</li>
+  <li data-from="7735" data-to="7809"><code data-from="7737" data-to="7743">unit</code> is optional; when absent, the schema's canonical unit is assumed.</li>
+</ul>
+<hr data-from="7811" data-to="7814">
+<h2 id="6-api-sketch" data-from="7816" data-to="7832">6. API Sketch</h2>
+<p data-from="7834" data-to="7969">Base URL: <code data-from="7844" data-to="7878">https://tidewell.internal.svc/v1</code>
+All requests require <code data-from="7900" data-to="7931">Authorization: Bearer &lt;token&gt;</code> and <code data-from="7936" data-to="7968">X-Tidewell-Tenant: &lt;tenant_id&gt;</code>.</p>
+<h3 id="61-ingest" data-from="7971" data-to="7985">6.1 Ingest</h3>
+<pre class="mdr-code" data-lang="http" data-from="7987" data-to="8154"><code class="language-http" data-verbatim data-from="7995" data-to="8150">POST /v1/platforms/pf_k3m9qxr72dwv/envelopes HTTP/1.1
+Content-Type: application/json
+Idempotency-Scope: platform
+
+{ "...envelope body as in section 5..." }</code></pre>
+<p data-from="8156" data-to="8172"><strong data-from="8156" data-to="8172">202 Accepted</strong></p>
+<pre class="mdr-code" data-lang="json" data-from="8174" data-to="8221"><code class="language-json" data-verbatim data-from="8182" data-to="8221">{
+  "envelope_id": "env_8fb2c19d44a0",
+</code></pre>

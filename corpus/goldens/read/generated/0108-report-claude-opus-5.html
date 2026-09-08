@@ -1,0 +1,311 @@
+<h1 id="project-meridian-engineering-status-report" data-from="0" data-to="46">Project Meridian — Engineering Status Report</h1>
+<p data-from="48" data-to="369"><strong data-from="48" data-to="69">Reporting period:</strong> 14 Apr – 27 Apr (Sprints 19–20)
+<strong data-from="102" data-to="118">Prepared by:</strong> Dana Whitcomb, Technical Program Lead
+<strong data-from="157" data-to="174">Distribution:</strong> Platform Steering Group, Data Reliability, Client SDK Guild, Finance Partner (S. Okonjo)
+<strong data-from="264" data-to="283">Overall status:</strong> 🟡 <strong data-from="287" data-to="296">Amber</strong> — schedule risk on the multi-region cutover; all other workstreams green</p>
+<hr data-from="371" data-to="374">
+<h2 id="1-executive-summary" data-from="376" data-to="399">1. Executive Summary</h2>
+<p data-from="401" data-to="739">Meridian replaces the legacy <code data-from="430" data-to="447">ingest-monolith</code> with a horizontally partitioned event pipeline built around the Halyard gateway, the Tidewater stream processor, and the Cairn schema registry. The goal is to sustain 500k events/second at a p99 end-to-end latency under 150 ms while cutting steady-state infrastructure spend by at least 30%.</p>
+<p data-from="741" data-to="1328">During this reporting period we completed the shadow-traffic phase for all seven tenant classes and promoted Tidewater to primary for 62% of production volume. Throughput and latency targets are being met comfortably in single-region operation. The Amber status is driven entirely by the <strong data-from="1029" data-to="1066">multi-region failover work (WS-4)</strong>, which slipped 11 working days after we discovered that the shard rebalancer produces duplicate partition assignments during a split-brain recovery. A fix is designed and partially implemented; we expect to recover roughly half the slip by the end of Sprint 22.</p>
+<p data-from="1330" data-to="1476">No customer-visible incidents were attributable to Meridian this period. One Sev-3 (INC-2291) was raised against the legacy path and is unrelated.</p>
+<hr data-from="1478" data-to="1481">
+<h2 id="2-status-at-a-glance" data-from="1483" data-to="1507">2. Status at a Glance</h2>
+<div class="mdr-table-wrap" data-from="1509" data-to="2099">
+  <table data-from="1509" data-to="2099">
+    <thead data-from="1509" data-to="1558">
+      <tr data-from="1509" data-to="1558">
+        <th data-from="1511" data-to="1520">Dimension</th>
+        <th data-from="1523" data-to="1529">Target</th>
+        <th data-from="1532" data-to="1539">Current</th>
+        <th data-from="1542" data-to="1547">Trend</th>
+        <th data-from="1550" data-to="1556">Status</th>
+      </tr>
+    </thead>
+    <tbody data-from="1581" data-to="2099">
+      <tr data-from="1581" data-to="1659">
+        <td data-from="1583" data-to="1617">Production traffic on new pipeline</td>
+        <td data-from="1620" data-to="1634">100% by 12 Jun</td>
+        <td data-from="1637" data-to="1640">62%</td>
+        <td data-from="1643" data-to="1652">▲ +23 pts</td>
+        <td data-from="1655" data-to="1657">🟢</td>
+      </tr>
+      <tr data-from="1660" data-to="1734">
+        <td data-from="1662" data-to="1694">Sustained throughput (peak hour)</td>
+        <td data-from="1697" data-to="1706">500k ev/s</td>
+        <td data-from="1709" data-to="1718">412k ev/s</td>
+        <td data-from="1721" data-to="1727">▲ +58k</td>
+        <td data-from="1730" data-to="1732">🟢</td>
+      </tr>
+      <tr data-from="1735" data-to="1796">
+        <td data-from="1737" data-to="1759">End-to-end p99 latency</td>
+        <td data-from="1762" data-to="1770">≤ 150 ms</td>
+        <td data-from="1773" data-to="1778">87 ms</td>
+        <td data-from="1781" data-to="1789">▼ −19 ms</td>
+        <td data-from="1792" data-to="1794">🟢</td>
+      </tr>
+      <tr data-from="1797" data-to="1857">
+        <td data-from="1799" data-to="1826">Error budget consumed (30d)</td>
+        <td data-from="1829" data-to="1835">≤ 100%</td>
+        <td data-from="1838" data-to="1841">41%</td>
+        <td data-from="1844" data-to="1850">▬ flat</td>
+        <td data-from="1853" data-to="1855">🟢</td>
+      </tr>
+      <tr data-from="1858" data-to="1917">
+        <td data-from="1860" data-to="1882">Monthly infra run rate</td>
+        <td data-from="1885" data-to="1892">≤ $104k</td>
+        <td data-from="1895" data-to="1900">$118k</td>
+        <td data-from="1903" data-to="1910">▼ −$16k</td>
+        <td data-from="1913" data-to="1915">🟡</td>
+      </tr>
+      <tr data-from="1918" data-to="1984">
+        <td data-from="1920" data-to="1948">Line coverage, core services</td>
+        <td data-from="1951" data-to="1956">≥ 80%</td>
+        <td data-from="1959" data-to="1964">78.4%</td>
+        <td data-from="1967" data-to="1977">▲ +2.1 pts</td>
+        <td data-from="1980" data-to="1982">🟡</td>
+      </tr>
+      <tr data-from="1985" data-to="2030">
+        <td data-from="1987" data-to="2011">Open Sev-1/Sev-2 defects</td>
+        <td data-from="2014" data-to="2015">0</td>
+        <td data-from="2018" data-to="2019">0</td>
+        <td data-from="2022" data-to="2023">▬</td>
+        <td data-from="2026" data-to="2028">🟢</td>
+      </tr>
+      <tr data-from="2031" data-to="2099">
+        <td data-from="2033" data-to="2067">Multi-region failover drill passed</td>
+        <td data-from="2070" data-to="2083">Yes by 09 May</td>
+        <td data-from="2086" data-to="2088">No</td>
+        <td data-from="2091" data-to="2092">—</td>
+        <td data-from="2095" data-to="2097">🔴</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="2101" data-to="2104">
+<h2 id="3-progress-against-milestones" data-from="2106" data-to="2139">3. Progress Against Milestones</h2>
+<div class="mdr-table-wrap" data-from="2141" data-to="2547">
+  <table data-from="2141" data-to="2547">
+    <thead data-from="2141" data-to="2197">
+      <tr data-from="2141" data-to="2197">
+        <th data-from="2143" data-to="2145">ID</th>
+        <th data-from="2148" data-to="2157">Milestone</th>
+        <th data-from="2160" data-to="2173">Baseline date</th>
+        <th data-from="2176" data-to="2184">Forecast</th>
+        <th data-from="2187" data-to="2195">Variance</th>
+      </tr>
+    </thead>
+    <tbody data-from="2220" data-to="2547">
+      <tr data-from="2220" data-to="2290">
+        <td data-from="2222" data-to="2226">M-07</td>
+        <td data-from="2229" data-to="2263">Shadow traffic, all tenant classes</td>
+        <td data-from="2266" data-to="2272">18 Apr</td>
+        <td data-from="2275" data-to="2281">17 Apr</td>
+        <td data-from="2284" data-to="2288">−1 d</td>
+      </tr>
+      <tr data-from="2291" data-to="2349">
+        <td data-from="2293" data-to="2297">M-08</td>
+        <td data-from="2300" data-to="2322">50% production cutover</td>
+        <td data-from="2325" data-to="2331">25 Apr</td>
+        <td data-from="2334" data-to="2340">24 Apr</td>
+        <td data-from="2343" data-to="2347">−1 d</td>
+      </tr>
+      <tr data-from="2350" data-to="2417">
+        <td data-from="2352" data-to="2356">M-09</td>
+        <td data-from="2359" data-to="2385">Region-pair failover drill</td>
+        <td data-from="2388" data-to="2394">09 May</td>
+        <td data-from="2397" data-to="2403">24 May</td>
+        <td data-from="2406" data-to="2415"><strong data-from="2406" data-to="2415">+11 d</strong></td>
+      </tr>
+      <tr data-from="2418" data-to="2476">
+        <td data-from="2420" data-to="2424">M-10</td>
+        <td data-from="2427" data-to="2450">100% production cutover</td>
+        <td data-from="2453" data-to="2459">12 Jun</td>
+        <td data-from="2462" data-to="2468">12 Jun</td>
+        <td data-from="2471" data-to="2474">0 d</td>
+      </tr>
+      <tr data-from="2477" data-to="2547">
+        <td data-from="2479" data-to="2483">M-11</td>
+        <td data-from="2486" data-to="2520">Legacy decommission, cost realized</td>
+        <td data-from="2523" data-to="2529">30 Jun</td>
+        <td data-from="2532" data-to="2538">08 Jul</td>
+        <td data-from="2541" data-to="2545">+6 d</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="2549" data-to="2858">M-09 is the critical path item. M-10 retains its date only because the cutover ramp can proceed in single-region mode for tenant classes A–E; classes F and G (regulated workloads) contractually require a demonstrated failover before migration, so any further slip on M-09 propagates directly to M-10 and M-11.</p>
+<hr data-from="2860" data-to="2863">
+<h2 id="4-key-metrics" data-from="2865" data-to="2882">4. Key Metrics</h2>
+<h3 id="41-throughput-and-latency" data-from="2884" data-to="2914">4.1 Throughput and Latency</h3>
+<p data-from="2916" data-to="3060">Measured at the Halyard ingress edge through to durable commit in the Tidewater log, sampled at one-minute resolution over the trailing 14 days.</p>
+<div class="mdr-table-wrap" data-from="3062" data-to="3472">
+  <table data-from="3062" data-to="3472">
+    <thead data-from="3062" data-to="3117">
+      <tr data-from="3062" data-to="3117">
+        <th data-from="3064" data-to="3070">Metric</th>
+        <th data-from="3073" data-to="3082">Sprint 18</th>
+        <th data-from="3085" data-to="3094">Sprint 19</th>
+        <th data-from="3097" data-to="3106">Sprint 20</th>
+        <th data-from="3109" data-to="3115">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="3140" data-to="3472">
+      <tr data-from="3140" data-to="3202">
+        <td data-from="3142" data-to="3166">Median throughput (ev/s)</td>
+        <td data-from="3169" data-to="3176">198,400</td>
+        <td data-from="3179" data-to="3186">246,900</td>
+        <td data-from="3189" data-to="3196">291,300</td>
+        <td data-from="3199" data-to="3200">—</td>
+      </tr>
+      <tr data-from="3203" data-to="3274">
+        <td data-from="3205" data-to="3232">Peak-hour throughput (ev/s)</td>
+        <td data-from="3235" data-to="3242">291,000</td>
+        <td data-from="3245" data-to="3252">354,000</td>
+        <td data-from="3255" data-to="3262">412,000</td>
+        <td data-from="3265" data-to="3272">500,000</td>
+      </tr>
+      <tr data-from="3275" data-to="3314">
+        <td data-from="3277" data-to="3293">p50 latency (ms)</td>
+        <td data-from="3296" data-to="3298">21</td>
+        <td data-from="3301" data-to="3303">19</td>
+        <td data-from="3306" data-to="3308">18</td>
+        <td data-from="3311" data-to="3312">—</td>
+      </tr>
+      <tr data-from="3315" data-to="3360">
+        <td data-from="3317" data-to="3333">p99 latency (ms)</td>
+        <td data-from="3336" data-to="3339">132</td>
+        <td data-from="3342" data-to="3345">106</td>
+        <td data-from="3348" data-to="3350">87</td>
+        <td data-from="3353" data-to="3358">≤ 150</td>
+      </tr>
+      <tr data-from="3361" data-to="3409">
+        <td data-from="3363" data-to="3381">p99.9 latency (ms)</td>
+        <td data-from="3384" data-to="3387">604</td>
+        <td data-from="3390" data-to="3393">441</td>
+        <td data-from="3396" data-to="3399">312</td>
+        <td data-from="3402" data-to="3407">≤ 750</td>
+      </tr>
+      <tr data-from="3410" data-to="3472">
+        <td data-from="3412" data-to="3433">Ingest rejection rate</td>
+        <td data-from="3436" data-to="3442">0.084%</td>
+        <td data-from="3445" data-to="3451">0.061%</td>
+        <td data-from="3454" data-to="3460">0.037%</td>
+        <td data-from="3463" data-to="3470">≤ 0.05%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="3474" data-to="3846">The p99.9 improvement is largely attributable to the compaction scheduler change landed in <code data-from="3565" data-to="3588">tidewater-core@2.14.0</code>, which stopped compaction from competing with append-path fsyncs on the same NVMe queue. We also removed a synchronous Cairn lookup from the hot path by caching resolved schema fingerprints for 90 seconds; that alone accounted for an estimated 14 ms of p99.</p>
+<h3 id="42-reliability" data-from="3848" data-to="3867">4.2 Reliability</h3>
+<ul data-from="3869" data-to="4375">
+  <li data-from="3869" data-to="3983">Availability (successful ingest / total ingest attempts, 30-day window): <strong data-from="3944" data-to="3955">99.981%</strong> against a 99.95% objective.</li>
+  <li data-from="3984" data-to="4041">Error budget consumed: <strong data-from="4009" data-to="4016">41%</strong> of the 30-day allowance.</li>
+  <li data-from="4042" data-to="4158">Mean time to detect (synthetic canary): <strong data-from="4084" data-to="4098">48 seconds</strong>, down from 3 m 10 s after the Lantern alert-routing rework.</li>
+  <li data-from="4159" data-to="4231">Mean time to recover, non-paging degradations: <strong data-from="4208" data-to="4222">11 minutes</strong> (n = 6).</li>
+  <li data-from="4232" data-to="4375">Data loss events: <strong data-from="4252" data-to="4257">0</strong>. Duplicate-delivery events: <strong data-from="4286" data-to="4291">3</strong>, all within the at-least-once contract and absorbed by downstream idempotency keys.</li>
+</ul>
+<h3 id="43-cost" data-from="4377" data-to="4389">4.3 Cost</h3>
+<div class="mdr-table-wrap" data-from="4391" data-to="4789">
+  <table data-from="4391" data-to="4789">
+    <thead data-from="4391" data-to="4459">
+      <tr data-from="4391" data-to="4459">
+        <th data-from="4393" data-to="4402">Component</th>
+        <th data-from="4405" data-to="4419">Legacy monthly</th>
+        <th data-from="4422" data-to="4437">Meridian at 62%</th>
+        <th data-from="4440" data-to="4457">Projected at 100%</th>
+      </tr>
+    </thead>
+    <tbody data-from="4478" data-to="4789">
+      <tr data-from="4478" data-to="4542">
+        <td data-from="4480" data-to="4510">Compute (gateway + processors)</td>
+        <td data-from="4513" data-to="4520">$61,200</td>
+        <td data-from="4523" data-to="4530">$38,400</td>
+        <td data-from="4533" data-to="4540">$47,900</td>
+      </tr>
+      <tr data-from="4543" data-to="4603">
+        <td data-from="4545" data-to="4571">Storage (hot log + tiered)</td>
+        <td data-from="4574" data-to="4581">$44,800</td>
+        <td data-from="4584" data-to="4591">$29,100</td>
+        <td data-from="4594" data-to="4601">$33,600</td>
+      </tr>
+      <tr data-from="4604" data-to="4670">
+        <td data-from="4606" data-to="4638">Cross-AZ / cross-region transfer</td>
+        <td data-from="4641" data-to="4648">$27,500</td>
+        <td data-from="4651" data-to="4658">$16,900</td>
+        <td data-from="4661" data-to="4668">$19,200</td>
+      </tr>
+      <tr data-from="4671" data-to="4731">
+        <td data-from="4673" data-to="4700">Observability and telemetry</td>
+        <td data-from="4703" data-to="4710">$14,300</td>
+        <td data-from="4713" data-to="4719">$9,800</td>
+        <td data-from="4722" data-to="4729">$11,400</td>
+      </tr>
+      <tr data-from="4732" data-to="4789">
+        <td data-from="4734" data-to="4743"><strong data-from="4734" data-to="4743">Total</strong></td>
+        <td data-from="4746" data-to="4758"><strong data-from="4746" data-to="4758">$147,800</strong></td>
+        <td data-from="4761" data-to="4772"><strong data-from="4761" data-to="4772">$94,200</strong></td>
+        <td data-from="4775" data-to="4787"><strong data-from="4775" data-to="4787">$112,100</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="4791" data-to="5271">Projected steady state is $112.1k against a $104k target — an $8.1k monthly gap. Roughly $5.6k of that is telemetry cardinality we have not yet trimmed; the remainder is over-provisioned processor headroom that we intend to reclaim once autoscaling policies have 30 days of production signal. Note the transitional period carries <strong data-from="5121" data-to="5129">both</strong> stacks, so April's blended spend is $206k. Finance has been briefed and the double-run cost is inside the approved $340k transition envelope.</p>
+<h3 id="44-engineering-quality" data-from="5273" data-to="5300">4.4 Engineering Quality</h3>
+<ul data-from="5302" data-to="5694">
+  <li data-from="5302" data-to="5386">Line coverage across <code data-from="5325" data-to="5334">halyard</code>, <code data-from="5336" data-to="5352">tidewater-core</code>, <code data-from="5354" data-to="5361">cairn</code>: <strong data-from="5363" data-to="5372">78.4%</strong> (target 80%).</li>
+  <li data-from="5387" data-to="5519">Mutation score on the partition-assignment package: <strong data-from="5441" data-to="5448">64%</strong> — the lowest in the codebase and directly relevant to the WS-4 defect.</li>
+  <li data-from="5520" data-to="5573">Mean PR review time: <strong data-from="5543" data-to="5556">6.1 hours</strong> (down from 9.4).</li>
+  <li data-from="5574" data-to="5640">Flaky test rate: <strong data-from="5593" data-to="5601">1.7%</strong> of CI runs, from 4.3% two sprints ago.</li>
+  <li data-from="5641" data-to="5694">Open defects: 0 Sev-1, 0 Sev-2, 14 Sev-3, 39 Sev-4.</li>
+</ul>
+<hr data-from="5696" data-to="5699">
+<h2 id="5-workstream-detail" data-from="5701" data-to="5724">5. Workstream Detail</h2>
+<ul data-from="5726" data-to="7311">
+  <li data-from="5726" data-to="6271"><strong data-from="5728" data-to="5762">WS-1 — Halyard ingress gateway</strong> — 🟢 <em data-from="5768" data-to="5793">On track (94% complete)</em><ul data-from="5796" data-to="6271">
+      <li data-from="5796" data-to="5981">Protocol support<ul data-from="5819" data-to="5981">
+          <li data-from="5819" data-to="5860">gRPC bidirectional streaming — complete</li>
+          <li data-from="5865" data-to="5899">HTTP/2 batch endpoint — complete</li>
+          <li data-from="5904" data-to="5981">Legacy TCP framing shim — complete, deprecation notice scheduled for 15 May</li>
+        </ul></li>
+      <li data-from="5984" data-to="6271">Admission control<ul data-from="6008" data-to="6271">
+          <li data-from="6008" data-to="6045">Per-tenant token buckets — complete</li>
+          <li data-from="6050" data-to="6271">Adaptive credit-based backpressure — in progress<ul data-from="6107" data-to="6271">
+              <li data-from="6107" data-to="6143">Controller implementation — merged</li>
+              <li data-from="6150" data-to="6226">Tuning against tenant class C burst profile — <strong data-from="6198" data-to="6206">open</strong>, owner: M. Oyelaran</li>
+              <li data-from="6233" data-to="6271">Runbook and dashboards — not started</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="6272" data-to="6777"><strong data-from="6274" data-to="6311">WS-2 — Tidewater stream processor</strong> — 🟢 <em data-from="6317" data-to="6342">On track (88% complete)</em><ul data-from="6345" data-to="6777">
+      <li data-from="6345" data-to="6457">Append path<ul data-from="6363" data-to="6457">
+          <li data-from="6363" data-to="6408">Segment writer with group commit — complete</li>
+          <li data-from="6413" data-to="6457">Compaction scheduler decoupling — complete</li>
+        </ul></li>
+      <li data-from="6460" data-to="6777">Read path<ul data-from="6476" data-to="6777">
+          <li data-from="6476" data-to="6516">Consumer group coordination — complete</li>
+          <li data-from="6521" data-to="6562">Replay from arbitrary offset — complete</li>
+          <li data-from="6567" data-to="6777">Tiered-storage fetch<ul data-from="6596" data-to="6777">
+              <li data-from="6596" data-to="6630">Warm tier (local SSD) — complete</li>
+              <li data-from="6637" data-to="6777">Cold tier (object store) — in progress<ul data-from="6686" data-to="6777">
+                  <li data-from="6686" data-to="6718">Range-read coalescing — merged</li>
+                  <li data-from="6727" data-to="6777">Prefetch heuristics — <strong data-from="6751" data-to="6759">open</strong>, owner: I. Farkas</li>
+                </ul></li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="6778" data-to="6938"><strong data-from="6780" data-to="6812">WS-3 — Cairn schema registry</strong> — 🟢 <em data-from="6818" data-to="6844">On track (100% complete)</em><ul data-from="6847" data-to="6938">
+      <li data-from="6847" data-to="6938">Compatibility enforcement, fingerprint caching, and bulk import all shipped in Sprint 19.</li>
+    </ul></li>
+  <li data-from="6939" data-to="7311"><strong data-from="6941" data-to="6973">WS-4 — Multi-region failover</strong> — 🔴 <em data-from="6979" data-to="7003">At risk (46% complete)</em><ul data-from="7006" data-to="7311">
+      <li data-from="7006" data-to="7040">Replication transport — complete</li>
+      <li data-from="7043" data-to="7288">Shard rebalancer<ul data-from="7066" data-to="7288">
+          <li data-from="7066" data-to="7102">Steady-state assignment — complete</li>
+          <li data-from="7107" data-to="7288">Recovery from partial partition — <strong data-from="7143" data-to="7156">defective</strong>, see §6<ul data-from="7171" data-to="7288">
+              <li data-from="7171" data-to="7211">Fencing token design — approved 22 Apr</li>
+              <li data-from="7218" data-to="7249">Implementation — 60% complete</li>
+              <li data-from="7256" data-to="7288">Chaos test suite — not started</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="7291" data-to="7311">Failover drill run</li>
+    </ul></li>
+</ul>

@@ -1,0 +1,198 @@
+<h1 id="technical-specification-corvid-rate-limiting-gateway-crg-7" data-from="0" data-to="63">Technical Specification: Corvid Rate-Limiting Gateway (CRG-7)</h1>
+<h2 id="1-overview" data-from="65" data-to="79">1. Overview</h2>
+<p data-from="81" data-to="488">The Corvid Rate-Limiting Gateway (CRG-7) is a lightweight middleware service designed to sit between client applications and the Halcyon API cluster. Its purpose is to enforce adaptive rate limits, provide burst tolerance, and expose telemetry for capacity planning. This document describes the functional requirements, the token-bucket algorithm used for throttling, and a sketch of the public API surface.</p>
+<p data-from="490" data-to="760">CRG-7 replaces the legacy Sparrowhawk limiter, which suffered from coarse-grained window resets and poor tail-latency behavior under bursty traffic. The new design targets sub-millisecond decision latency at the 99th percentile while supporting per-tenant configuration.</p>
+<hr data-from="762" data-to="765">
+<h2 id="2-goals-and-non-goals" data-from="767" data-to="792">2. Goals and Non-Goals</h2>
+<h3 id="21-goals" data-from="794" data-to="807">2.1 Goals</h3>
+<ol data-from="809" data-to="1210">
+  <li data-from="809" data-to="890">Provide per-tenant, per-endpoint rate limiting with configurable refill rates.</li>
+  <li data-from="891" data-to="978">Support graceful degradation when the backing store (Redshank cache) is unavailable.</li>
+  <li data-from="979" data-to="1055">Expose a metrics endpoint compatible with the Ptarmigan monitoring stack.</li>
+  <li data-from="1056" data-to="1123">Allow dynamic reconfiguration of limits without service restart.</li>
+  <li data-from="1124" data-to="1210">Maintain decision latency below 2 ms at p99 under a load of 50,000 requests/second.</li>
+</ol>
+<h3 id="22-non-goals" data-from="1212" data-to="1229">2.2 Non-Goals</h3>
+<ul data-from="1231" data-to="1494">
+  <li data-from="1231" data-to="1338">CRG-7 does not perform authentication or authorization; that is delegated to the Osprey identity service.</li>
+  <li data-from="1339" data-to="1398">CRG-7 does not provide request routing or load balancing.</li>
+  <li data-from="1399" data-to="1494">Long-term storage of raw request logs is out of scope; only aggregated counters are retained.</li>
+</ul>
+<hr data-from="1496" data-to="1499">
+<h2 id="3-algorithmic-foundation" data-from="1501" data-to="1529">3. Algorithmic Foundation</h2>
+<p data-from="1531" data-to="1760">CRG-7 uses a token-bucket algorithm with continuous refill. Each tenant/endpoint pair is assigned a bucket with capacity <span class="mdr-math" data-tex="C" data-from="1652" data-to="1655">C</span> and refill rate <span class="mdr-math" data-tex="r" data-from="1672" data-to="1675">r</span> tokens per second. At time <span class="mdr-math" data-tex="t" data-from="1703" data-to="1706">t</span>, the number of available tokens <span class="mdr-math" data-tex="T(t)" data-from="1739" data-to="1745">T(t)</span> is bounded by:</p>
+<div class="mdr-math-block" data-tex="T(t) = \min\left(C,\; T(t_0) + r \cdot (t - t_0)\right)" data-from="1762" data-to="1823">
+  T(t) = \min\left(C,\; T(t_0) + r \cdot (t - t_0)\right)
+</div>
+<p data-from="1825" data-to="1899">where <span class="mdr-math" data-tex="t_0" data-from="1831" data-to="1836">t_0</span> is the timestamp of the last observed request for that bucket.</p>
+<p data-from="1901" data-to="2228">A request consumes <span class="mdr-math" data-tex="k" data-from="1920" data-to="1923">k</span> tokens (typically <span class="mdr-math" data-tex="k = 1" data-from="1942" data-to="1949">k = 1</span>, but weighted endpoints may set <span class="mdr-math" data-tex="k &gt; 1" data-from="1982" data-to="1989">k &gt; 1</span>). The request is admitted if <span class="mdr-math" data-tex="T(t) \geq k" data-from="2019" data-to="2032">T(t) \geq k</span>, in which case the bucket is updated as <span class="mdr-math" data-tex="T(t) \gets T(t) - k" data-from="2073" data-to="2094">T(t) \gets T(t) - k</span>. Otherwise the request is rejected with a <code data-from="2137" data-to="2142">429</code> status and a <code data-from="2156" data-to="2169">Retry-After</code> header computed as <span class="mdr-math" data-tex="\lceil (k - T(t)) / r \rceil" data-from="2189" data-to="2219">\lceil (k - T(t)) / r \rceil</span> seconds.</p>
+<p data-from="2230" data-to="2394">For burst smoothing, we additionally track a decaying average request rate <span class="mdr-math" data-tex="\bar{\lambda}" data-from="2305" data-to="2320">\bar{\lambda}</span> using an exponential moving average with smoothing factor <span class="mdr-math" data-tex="\alpha = 0.2" data-from="2379" data-to="2393">\alpha = 0.2</span>:</p>
+<div class="mdr-math-block" data-tex="\bar{\lambda}_{n} = \alpha \cdot \lambda_n + (1 - \alpha) \cdot \bar{\lambda}_{n-1}" data-from="2396" data-to="2483">
+  \bar{\lambda}_{n} = \alpha \cdot \lambda_n + (1 - \alpha) \cdot \bar{\lambda}_{n-1}
+</div>
+<p data-from="2485" data-to="2667">This average is exposed via telemetry but does not directly gate admission decisions in the default configuration; it is used by the adaptive tuning subsystem described in Section 6.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="2669" data-to="2905">
+  <div class="mdr-callout-title" data-from="2671" data-to="2678">
+    Note
+  </div>
+  <p data-from="2681" data-to="2905">The refill rate <span class="mdr-math" data-tex="r" data-from="2697" data-to="2700">r</span> and capacity <span class="mdr-math" data-tex="C" data-from="2714" data-to="2717">C</span> are independently configurable per tenant tier. Default tiers (Bronze, Silver, Gold) ship with preset values documented in Appendix A of the operator handbook (not included in this spec).</p>
+</blockquote>
+<hr data-from="2907" data-to="2910">
+<h2 id="4-system-requirements" data-from="2912" data-to="2937">4. System Requirements</h2>
+<h3 id="41-functional-requirements" data-from="2939" data-to="2970">4.1 Functional Requirements</h3>
+<ol data-from="2972" data-to="3986">
+  <li data-from="2972" data-to="3105">The gateway MUST evaluate every inbound request against the appropriate token bucket before forwarding to the Halcyon API cluster.</li>
+  <li data-from="3106" data-to="3508">The gateway MUST support at least three levels of limit granularity:<ul data-from="3181" data-to="3508">
+      <li data-from="3181" data-to="3295">Global limits<ul data-from="3202" data-to="3295">
+          <li data-from="3202" data-to="3295">Per-region limits<ul data-from="3229" data-to="3295">
+              <li data-from="3229" data-to="3295">Per-tenant limits<ul data-from="3258" data-to="3295">
+                  <li data-from="3258" data-to="3295">Per-endpoint limits within a tenant</li>
+                </ul></li>
+            </ul></li>
+        </ul></li>
+      <li data-from="3299" data-to="3508">Custom override limits<ul data-from="3329" data-to="3508">
+          <li data-from="3329" data-to="3467">Temporary overrides (time-boxed)<ul data-from="3371" data-to="3467">
+              <li data-from="3371" data-to="3407">Manual overrides (operator-issued)</li>
+              <li data-from="3415" data-to="3467">Automated overrides (issued by the adaptive tuner)</li>
+            </ul></li>
+          <li data-from="3473" data-to="3508">Permanent overrides (contractual)</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="3509" data-to="3611">The gateway MUST persist bucket state in the Redshank cache with a TTL no shorter than 300 seconds.</li>
+  <li data-from="3612" data-to="3767">The gateway MUST fail open (allow requests) if the Redshank cache is unreachable for more than 500 ms, subject to a configurable local fallback limiter.</li>
+  <li data-from="3768" data-to="3884">The gateway MUST expose a <code data-from="3797" data-to="3807">/healthz</code> endpoint returning <code data-from="3827" data-to="3835">200 OK</code> when the internal event loop lag is below 50 ms.</li>
+  <li data-from="3885" data-to="3986">The gateway MUST log rejected requests with tenant ID, endpoint, and computed <code data-from="3966" data-to="3979">Retry-After</code> value.</li>
+</ol>
+<h3 id="42-non-functional-requirements" data-from="3988" data-to="4023">4.2 Non-Functional Requirements</h3>
+<ol data-from="4025" data-to="4405">
+  <li data-from="4025" data-to="4105">Availability: 99.95% monthly uptime, excluding scheduled maintenance windows.</li>
+  <li data-from="4106" data-to="4181">Latency: p50 ≤ 0.4 ms, p99 ≤ 2 ms, p99.9 ≤ 8 ms for admission decisions.</li>
+  <li data-from="4182" data-to="4292">Throughput: sustain 50,000 requests/second per gateway instance on reference hardware (8 vCPU, 16 GiB RAM).</li>
+  <li data-from="4293" data-to="4405">Observability: all configuration changes MUST be recorded in the audit log with an immutable sequence number.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="warning" data-from="4407" data-to="4690">
+  <div class="mdr-callout-title" data-from="4409" data-to="4419">
+    Warning
+  </div>
+  <p data-from="4422" data-to="4690">Disabling the fail-open fallback (Requirement 4.1.4) in production without a redundant Redshank cluster will cause total request rejection during any cache outage. Operators must provision at least two independent Redshank replicas before disabling fail-open behavior.</p>
+</blockquote>
+<hr data-from="4692" data-to="4695">
+<h2 id="5-configuration-model" data-from="4697" data-to="4722">5. Configuration Model</h2>
+<p data-from="4724" data-to="4860">Configuration is expressed as YAML and loaded at startup, with hot-reload support via a <code data-from="4812" data-to="4820">SIGHUP</code> signal or the <code data-from="4835" data-to="4850">/admin/reload</code> endpoint.</p>
+<pre class="mdr-code" data-lang="yaml" data-from="4862" data-to="5381"><code class="language-yaml" data-verbatim data-from="4870" data-to="5377">tenant: acme-corp
+tier: gold
+limits:
+  default:
+    capacity: 500
+    refill_rate: 100
+  endpoints:
+    - path: /v2/orders
+      capacity: 200
+      refill_rate: 40
+      weight: 1
+    - path: /v2/orders/bulk
+      capacity: 50
+      refill_rate: 5
+      weight: 10
+overrides:
+  - id: ov-20391
+    type: temporary
+    expires_at: "2025-03-01T00:00:00Z"
+    capacity: 1000
+    refill_rate: 250
+    reason: "Q1 promotional traffic surge"
+fallback:
+  fail_open: true
+  local_capacity: 20
+  local_refill_rate: 5</code></pre>
+<p data-from="5383" data-to="5565">Configuration validation occurs before activation. Invalid configurations are rejected and the previous valid configuration remains active, with an error surfaced on <code data-from="5549" data-to="5564">/admin/status</code>.</p>
+<hr data-from="5567" data-to="5570">
+<h2 id="6-adaptive-tuning-subsystem" data-from="5572" data-to="5603">6. Adaptive Tuning Subsystem</h2>
+<p data-from="5605" data-to="5805">The adaptive tuner monitors <span class="mdr-math" data-tex="\bar{\lambda}" data-from="5633" data-to="5648">\bar{\lambda}</span> per bucket and adjusts temporary overrides when sustained demand exceeds 85% of capacity for more than 120 consecutive seconds. The adjustment procedure is:</p>
+<ol data-from="5807" data-to="6332">
+  <li data-from="5807" data-to="5864">Compute the utilization ratio <span class="mdr-math" data-tex="u = \bar{\lambda} / r" data-from="5840" data-to="5863">u = \bar{\lambda} / r</span>.</li>
+  <li data-from="5865" data-to="6009">If <span class="mdr-math" data-tex="u &gt; 0.85" data-from="5871" data-to="5881">u &gt; 0.85</span> for the trailing 120-second window, propose a new refill rate <span class="mdr-math" data-tex="r' = r \cdot 1.15" data-from="5944" data-to="5963">r' = r \cdot 1.15</span>, capped at a tenant-specific maximum ceiling.</li>
+  <li data-from="6010" data-to="6055">Submit the proposal to the override queue.</li>
+  <li data-from="6056" data-to="6186">Apply the proposal automatically if the tenant tier permits automated overrides; otherwise, queue for manual operator approval.</li>
+  <li data-from="6187" data-to="6332">Re-evaluate utilization every 60 seconds and decay the override back toward baseline over a 30-minute window once utilization drops below 0.5.</li>
+</ol>
+<p data-from="6334" data-to="6409">This subsystem is optional and disabled by default for Bronze-tier tenants.</p>
+<hr data-from="6411" data-to="6414">
+<h2 id="7-api-sketch" data-from="6416" data-to="6432">7. API Sketch</h2>
+<p data-from="6434" data-to="6550">The following is a sketch of the primary HTTP API surface exposed by CRG-7. All endpoints are versioned under <code data-from="6544" data-to="6549">/v1</code>.</p>
+<h3 id="71-admission-check-internal-used-by-the-proxy-layer" data-from="6552" data-to="6611">7.1 Admission Check (internal, used by the proxy layer)</h3>
+<pre class="mdr-code" data-from="6613" data-to="6779"><code data-verbatim data-from="6617" data-to="6775">POST /v1/internal/admit
+Content-Type: application/json
+
+{
+  "tenant_id": "acme-corp",
+  "endpoint": "/v2/orders",
+  "cost": 1,
+  "timestamp": 1732458213.221
+}</code></pre>
+<p data-from="6781" data-to="6801">Response on success:</p>
+<pre class="mdr-code" data-from="6803" data-to="6898"><code data-verbatim data-from="6807" data-to="6894">200 OK
+{
+  "allowed": true,
+  "remaining_tokens": 187.4,
+  "reset_after_seconds": 3.2
+}</code></pre>
+<p data-from="6900" data-to="6922">Response on rejection:</p>
+<pre class="mdr-code" data-from="6924" data-to="7081"><code data-verbatim data-from="6928" data-to="7077">429 Too Many Requests
+Retry-After: 4
+{
+  "allowed": false,
+  "remaining_tokens": 0.0,
+  "reset_after_seconds": 4.0,
+  "reason": "capacity_exceeded"
+}</code></pre>
+<h3 id="72-configuration-management" data-from="7083" data-to="7115">7.2 Configuration Management</h3>
+<pre class="mdr-code" data-from="7117" data-to="7320"><code data-verbatim data-from="7121" data-to="7316">GET    /v1/admin/tenants/{tenant_id}/limits
+PUT    /v1/admin/tenants/{tenant_id}/limits
+POST   /v1/admin/tenants/{tenant_id}/overrides
+DELETE /v1/admin/tenants/{tenant_id}/overrides/{override_id}</code></pre>
+<p data-from="7322" data-to="7363">Example payload for creating an override:</p>
+<pre class="mdr-code" data-lang="json" data-from="7365" data-to="7531"><code class="language-json" data-verbatim data-from="7373" data-to="7527">{
+  "type": "temporary",
+  "expires_at": "2025-04-15T12:00:00Z",
+  "capacity": 750,
+  "refill_rate": 150,
+  "reason": "Scheduled load test with QA team"
+}</code></pre>
+<h3 id="73-telemetry" data-from="7533" data-to="7550">7.3 Telemetry</h3>
+<pre class="mdr-code" data-from="7552" data-to="7575"><code data-verbatim data-from="7556" data-to="7571">GET /v1/metrics</code></pre>
+<p data-from="7577" data-to="7656">Returns Ptarmigan-compatible plaintext exposition format, including at minimum:</p>
+<ul data-from="7658" data-to="7833">
+  <li data-from="7658" data-to="7703"><code data-from="7660" data-to="7703">crg_admit_total{tenant, endpoint, result}</code></li>
+  <li data-from="7704" data-to="7746"><code data-from="7706" data-to="7746">crg_tokens_remaining{tenant, endpoint}</code></li>
+  <li data-from="7747" data-to="7790"><code data-from="7749" data-to="7790">crg_decision_latency_seconds_bucket{le}</code></li>
+  <li data-from="7791" data-to="7833"><code data-from="7793" data-to="7833">crg_fallback_activations_total{tenant}</code></li>
+</ul>
+<h3 id="74-health-and-status" data-from="7835" data-to="7860">7.4 Health and Status</h3>
+<pre class="mdr-code" data-from="7862" data-to="7903"><code data-verbatim data-from="7866" data-to="7899">GET /healthz
+GET /v1/admin/status</code></pre>
+<p data-from="7905" data-to="8087"><code data-from="7905" data-to="7923">/v1/admin/status</code> returns the currently active configuration version, the timestamp of the last successful reload, and a list of pending override proposals awaiting manual approval.</p>
+<hr data-from="8089" data-to="8092">
+<h2 id="8-deployment-topology" data-from="8094" data-to="8119">8. Deployment Topology</h2>
+<p data-from="8121" data-to="8309">CRG-7 is deployed as a stateless service fronted by the Kestrel load balancer, with each instance connecting independently to a shared Redshank cache cluster. Recommended minimum topology:</p>
+<ol data-from="8311" data-to="8620">
+  <li data-from="8311" data-to="8395">Three CRG-7 instances per region, distributed across separate availability zones.</li>
+  <li data-from="8396" data-to="8472">A Redshank cluster of at least three nodes with quorum-based replication.</li>
+  <li data-from="8473" data-to="8620">A dedicated audit-log sink (the Fieldfare log aggregator) for compliance retention of configuration changes, retained for a minimum of 400 days.</li>
+</ol>
+<p data-from="8622" data-to="8826">Instances register with Kestrel using a weighted round-robin scheme, with weights adjusted downward automatically if an instance's <code data-from="8753" data-to="8763">/healthz</code> reports degraded status for three consecutive probe intervals.</p>
+<hr data-from="8828" data-to="8831">
+<h2 id="9-security-considerations" data-from="8833" data-to="8862">9. Security Considerations</h2>
+<ul data-from="8864" data-to="9311">
+  <li data-from="8864" data-to="8977">All administrative endpoints under <code data-from="8901" data-to="8912">/v1/admin</code> require mutual TLS and a signed operator token issued by Osprey.</li>
+  <li data-from="8978" data-to="9139">Override creation requests must include a <code data-from="9022" data-to="9030">reason</code> field of at least 10 characters; empty or placeholder reasons (e.g., "test") are rejected by policy linting.</li>
+  <li data-from="9140" data-to="9311">Audit log entries are append-only and cryptographically chained using a running SHA-256 digest of the previous entry, so tampering with historical entries is detectable.</li>
+</ul>
+<hr data-from="9313" data-to="9316">
+<h2 id="10-open-questions" data-from="9318" data-to="9339">10. Open Questions</h2>
+<ol data-from="9341" data-to="9740">
+  <li data-from="9341" data-to="9489">Should per-endpoint weights be allowed to exceed the bucket capacity itself, effectively guaranteeing rejection for that endpoint under any load?</li>
+  <li data-from="9490" data-to="9596">What is the appropriate default ceiling multiplier for the adaptive tuner across tiers other than Gold?</li>
+  <li data-from="9597" data-to="9740">Should the fail-open local fallback limiter share state across instances via a lightweight gossip protocol, or remain strictly per-instance?</li>
+</ol>
+<p data-from="9742" data-to="9863">These questions are tracked in the CRG-7 design backlog and are expected to be resolved before the 1.0 release candidate.</p>

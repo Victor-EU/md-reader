@@ -10,10 +10,10 @@ Markdown viewer and editor for the AI round trip. Working title.
 
 ```
 apps/desktop      Tauri 2 app: src-tauri/ (thin Rust binary) and src/ (Svelte shell)
-packages/markdown Lezer grammar extensions, renderer, extraction. Pure TypeScript.
+packages/markdown Lezer grammar extensions, the read renderer, extraction. Pure TypeScript.
 packages/editor-core  CodeMirror 6 extensions: live preview, reveal rule, widgets. Framework free.
 packages/ipc      Generated bindings for the Rust commands, plus an in-memory fake for tests
-tools/bench       Keystroke latency harness (browser runner); results under tools/bench/results
+tools/bench       Keystroke and first-paint harness (browser runner); results under tools/bench/results
 tools/corpus-gen  Corpus generator script and manifest writer
 corpus/           Round-trip corpus: adversarial (hand-written), generated (from models), goldens
 crates/core       File IO, watcher, history, diff, search. No Tauri types.

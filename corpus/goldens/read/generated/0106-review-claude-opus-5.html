@@ -1,0 +1,129 @@
+<h1 id="review-summary-draft-specification-meridian-ingest-pipeline-v23" data-from="0" data-to="71">Review Summary: <em data-from="18" data-to="71">Draft Specification — Meridian Ingest Pipeline v2.3</em></h1>
+<p data-from="73" data-to="460"><strong data-from="73" data-to="86">Reviewer:</strong> L. Okonkwo-Bertram, Platform Reliability
+<strong data-from="128" data-to="147">Document owner:</strong> Priya Vashisht, Data Services
+<strong data-from="178" data-to="200">Revision reviewed:</strong> <code data-from="201" data-to="223">spec-meridian-ingest</code> rev. 14, dated 11 March
+<strong data-from="248" data-to="266">Review window:</strong> 12–19 March
+<strong data-from="279" data-to="303">Overall disposition:</strong> <em data-from="304" data-to="328">Approve with revisions</em> — the architecture is sound, but three sections require substantive rework before this can go to the Architecture Board on 2 April.</p>
+<hr data-from="462" data-to="465">
+<h2 id="1-summary-of-assessment" data-from="467" data-to="494">1. Summary of Assessment</h2>
+<p data-from="496" data-to="917">The draft describes a redesigned ingest path for telemetry arriving from field devices, replacing the current single-queue design with a partitioned fan-out and a deduplication layer backed by a rolling Bloom filter. The motivation section is persuasive: the current pipeline drops roughly <strong data-from="786" data-to="794">0.8%</strong> of events during regional failover, and the proposed design targets a drop rate below <strong data-from="881" data-to="890">0.02%</strong> under the same conditions.</p>
+<p data-from="919" data-to="1277">The document is strongest in Sections 2 (Topology) and 6 (Failure Modes). It is weakest in Section 4 (Deduplication Semantics), where the guarantees are stated informally and, in at least one place, appear to contradict the retry policy described in Section 7. <mark data-from="1180" data-to="1232">Section 4 must be rewritten before board review.</mark> The remaining issues are editorial or minor.</p>
+<p data-from="1279" data-to="1487">I spent approximately eleven hours on this review, including a two-hour walkthrough with the author on 15 March, where several of the questions below were raised verbally and are recorded here for the record.</p>
+<hr data-from="1489" data-to="1492">
+<h2 id="2-findings" data-from="1494" data-to="1508">2. Findings</h2>
+<h3 id="21-blocking" data-from="1510" data-to="1526">2.1 Blocking</h3>
+<ol data-from="1528" data-to="2658">
+  <li data-from="1528" data-to="1988"><strong data-from="1531" data-to="1575">Deduplication window is under-specified.</strong> Section 4.2 states that duplicates are suppressed "within the active window" but never defines the window's boundaries, whether it is wall-clock or event-time, or what happens to events straddling a rotation. Given a stated rotation interval of 90 seconds and an observed p99 device clock skew of 4.2 seconds, straddling events are not a rare edge case — I estimate <strong data-from="1942" data-to="1968">190,000 events per day</strong> at current volumes.</li>
+  <li data-from="1989" data-to="2409"><strong data-from="1992" data-to="2035">Contradiction between Sections 4 and 7.</strong> Section 4.4 claims at-most-once delivery downstream of the dedup layer. Section 7.1 describes a retry policy that re-emits from the pre-dedup buffer after a sink timeout, which yields at-least-once. Both cannot hold. My reading is that the intended guarantee is <em data-from="2298" data-to="2340">effectively-once within the dedup window</em>, but the document should say so explicitly and name the assumptions.</li>
+  <li data-from="2410" data-to="2658"><strong data-from="2413" data-to="2455">No backpressure story for the fan-out.</strong> Section 3 assumes partition consumers keep pace. There is no described behavior when one of the twelve partitions lags. The current pipeline handles this badly, and the draft does not claim improvement.</li>
+</ol>
+<h3 id="22-non-blocking-but-important" data-from="2660" data-to="2694">2.2 Non-blocking but important</h3>
+<ol start="4" data-from="2696" data-to="3366">
+  <li data-from="2696" data-to="2934"><strong data-from="2699" data-to="2730">Capacity numbers are stale.</strong> Table 3.1 cites a peak of 41,000 events/sec from the Q3 capacity model. The Q1 refresh puts peak at 58,400 events/sec, with a projected 72,000 by Q4. Sizing conclusions in Section 8 should be recomputed.</li>
+  <li data-from="2935" data-to="3176"><strong data-from="2938" data-to="3006">The Bloom filter false-positive budget is asserted, not derived.</strong> Section 4.6 states a target FPR of 0.001 without showing the bit-array sizing or hash count that yields it. Please show the arithmetic; readers will need it when tuning.</li>
+  <li data-from="3177" data-to="3366"><strong data-from="3180" data-to="3206">Observability is thin.</strong> Section 9 lists four metrics. I would expect at minimum: per-partition lag, dedup hit ratio, filter saturation, rotation latency, and sink error rate by class.</li>
+</ol>
+<h3 id="23-minor" data-from="3368" data-to="3381">2.3 Minor</h3>
+<ol start="7" data-from="3383" data-to="3662">
+  <li data-from="3383" data-to="3474">Figure 2 uses "collector" and "ingress agent" for what appears to be the same component.</li>
+  <li data-from="3475" data-to="3577">The glossary omits <em data-from="3497" data-to="3508">watermark</em>, <em data-from="3510" data-to="3526">rotation epoch</em>, and <em data-from="3532" data-to="3544">sink class</em>, all of which appear repeatedly.</li>
+  <li data-from="3578" data-to="3662">Section 10 references an internal runbook that has been deprecated since January.</li>
+</ol>
+<hr data-from="3664" data-to="3667">
+<h2 id="3-illustrative-concern-section-42" data-from="3669" data-to="3709">3. Illustrative Concern (Section 4.2)</h2>
+<p data-from="3711" data-to="3821">The straddling-event problem is easier to see in code than in prose. Roughly, the draft implies the following:</p>
+<pre class="mdr-code" data-lang="python" data-from="3823" data-to="4095"><code class="language-python" data-verbatim data-from="3833" data-to="4091">def accept(event, filters, now):
+    epoch = now // ROTATION_SECONDS
+    active = filters[epoch % 2]
+    key = (event.device_id, event.sequence)
+    if key in active:
+        return False          # suppressed as duplicate
+    active.add(key)
+    return True</code></pre>
+<p data-from="4097" data-to="4578">With a two-filter rotation and no overlap read, an event arriving at <code data-from="4166" data-to="4173">epoch</code> boundary + 0.1s will not be checked against the prior epoch's filter, so a duplicate delivered 91 seconds after its original will be accepted. <em data-from="4317" data-to="4400">This is precisely the interval in which the retry policy in Section 7.1 operates,</em> which is why findings 1 and 2 are coupled rather than independent. A grace read against the previous filter would resolve it at the cost of a modest increase in false positives.</p>
+<blockquote data-from="4580" data-to="4871">
+  <p data-from="4582" data-to="4871">During the 15 March walkthrough, the author noted that an overlap read had been prototyped but was removed because it complicated the metrics. That rationale should appear in the document as a rejected alternative, with the metric complication described, rather than being absent entirely.</p>
+</blockquote>
+<hr data-from="4873" data-to="4876">
+<h2 id="4-open-questions" data-from="4878" data-to="4898">4. Open Questions</h2>
+<ul data-from="4900" data-to="5640">
+  <li data-from="4900" data-to="5027">Is the 90-second rotation interval derived from anything, or was it chosen for convenience? What breaks at 30 seconds or 300?</li>
+  <li data-from="5028" data-to="5233">What is the intended behavior when a device replays its entire sequence range after a firmware reset? Does the sequence number reset to zero, and if so, does the dedup key collide with historical events?</li>
+  <li data-from="5234" data-to="5314">Who owns the partition assignment map, and is rebalancing manual or automatic?</li>
+  <li data-from="5315" data-to="5468">Has anyone modeled the cost delta? Section 8 gives infrastructure sizing but no dollar figure, and the fan-out roughly triples consumer instance count.</li>
+  <li data-from="5469" data-to="5640">Does the design need to survive a full regional outage, or only a zone outage? Section 6 is ambiguous, and the answer changes the replication requirements substantially.</li>
+</ul>
+<hr data-from="5642" data-to="5645">
+<h2 id="5-recommended-changes" data-from="5647" data-to="5672">5. Recommended Changes</h2>
+<div class="mdr-table-wrap" data-from="5674" data-to="6554">
+  <table data-from="5674" data-to="6554">
+    <thead data-from="5674" data-to="5709">
+      <tr data-from="5674" data-to="5709">
+        <th data-from="5676" data-to="5677">#</th>
+        <th data-from="5680" data-to="5687">Section</th>
+        <th data-from="5690" data-to="5696">Change</th>
+        <th data-from="5699" data-to="5707">Priority</th>
+      </tr>
+    </thead>
+    <tbody data-from="5746" data-to="6554">
+      <tr data-from="5746" data-to="5862">
+        <td data-from="5748" data-to="5750">R1</td>
+        <td data-from="5753" data-to="5756">4.2</td>
+        <td data-from="5759" data-to="5849">Define the dedup window formally: event-time vs. wall-clock, boundaries, straddle handling</td>
+        <td data-from="5852" data-to="5860">Blocking</td>
+      </tr>
+      <tr data-from="5863" data-to="5955">
+        <td data-from="5865" data-to="5867">R2</td>
+        <td data-from="5870" data-to="5879">4.4 / 7.1</td>
+        <td data-from="5882" data-to="5942">Reconcile the delivery guarantee; state it once, canonically</td>
+        <td data-from="5945" data-to="5953">Blocking</td>
+      </tr>
+      <tr data-from="5956" data-to="6050">
+        <td data-from="5958" data-to="5960">R3</td>
+        <td data-from="5963" data-to="5966">3.4</td>
+        <td data-from="5969" data-to="6037">Add a backpressure subsection covering partition lag and shed policy</td>
+        <td data-from="6040" data-to="6048">Blocking</td>
+      </tr>
+      <tr data-from="6051" data-to="6142">
+        <td data-from="6053" data-to="6055">R4</td>
+        <td data-from="6058" data-to="6064">3.1, 8</td>
+        <td data-from="6067" data-to="6133">Refresh capacity figures against the Q1 model and recompute sizing</td>
+        <td data-from="6136" data-to="6140">High</td>
+      </tr>
+      <tr data-from="6143" data-to="6223">
+        <td data-from="6145" data-to="6147">R5</td>
+        <td data-from="6150" data-to="6153">4.6</td>
+        <td data-from="6156" data-to="6214">Show the FPR derivation with bit-array size and hash count</td>
+        <td data-from="6217" data-to="6221">High</td>
+      </tr>
+      <tr data-from="6224" data-to="6310">
+        <td data-from="6226" data-to="6228">R6</td>
+        <td data-from="6231" data-to="6232">9</td>
+        <td data-from="6235" data-to="6299">Expand the metrics list; add alert thresholds for at least three</td>
+        <td data-from="6302" data-to="6308">Medium</td>
+      </tr>
+      <tr data-from="6311" data-to="6407">
+        <td data-from="6313" data-to="6315">R7</td>
+        <td data-from="6318" data-to="6327">4.7 (new)</td>
+        <td data-from="6330" data-to="6396">Add a "Rejected Alternatives" subsection covering the overlap read</td>
+        <td data-from="6399" data-to="6405">Medium</td>
+      </tr>
+      <tr data-from="6408" data-to="6493">
+        <td data-from="6410" data-to="6412">R8</td>
+        <td data-from="6415" data-to="6431">Fig. 2, Glossary</td>
+        <td data-from="6434" data-to="6485">Normalize component naming; add three missing terms</td>
+        <td data-from="6488" data-to="6491">Low</td>
+      </tr>
+      <tr data-from="6494" data-to="6554">
+        <td data-from="6496" data-to="6498">R9</td>
+        <td data-from="6501" data-to="6503">10</td>
+        <td data-from="6506" data-to="6546">Replace the deprecated runbook reference</td>
+        <td data-from="6549" data-to="6552">Low</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="6556" data-to="6559">
+<h2 id="6-next-steps" data-from="6561" data-to="6577">6. Next Steps</h2>
+<p data-from="6579" data-to="6877">I propose the author circulates a rev. 15 addressing <strong data-from="6632" data-to="6641">R1–R3</strong> by <strong data-from="6645" data-to="6657">26 March</strong>, which leaves a week for a focused re-review of those sections only before the board date. R4–R9 can land in rev. 16 without blocking approval, provided the tracking issues are filed and linked from the document header.</p>
+<p data-from="6879" data-to="7062">I am happy to co-author the backpressure subsection if that helps the timeline — I wrote the equivalent section for the Halberd pipeline last year and much of the reasoning transfers.</p>

@@ -1,0 +1,359 @@
+<h1 id="project-nightingale-predictive-maintenance-platform" data-from="0" data-to="54">Project Nightingale: Predictive Maintenance Platform</h1>
+<h2 id="executive-summary" data-from="56" data-to="76">Executive Summary</h2>
+<p data-from="78" data-to="570">Project Nightingale is a twelve-month initiative to design, build, and deploy a predictive maintenance platform for the fictional manufacturing conglomerate <strong data-from="235" data-to="263">Halberd Industrial Group</strong>. The platform will ingest sensor telemetry from factory-floor equipment, apply machine learning models to forecast failures, and surface actionable alerts to maintenance teams before breakdowns occur. This document outlines the phases, milestones, ownership structure, and risk register for the initiative.</p>
+<p data-from="572" data-to="828">The core hypothesis driving this project is that unplanned downtime can be reduced by at least 35% within the first two quarters of full deployment, translating to an estimated savings of $4.2M annually across the Ashwood and Correlon manufacturing plants.</p>
+<hr data-from="830" data-to="833">
+<h2 id="1-project-objectives" data-from="835" data-to="859">1. Project Objectives</h2>
+<ul data-from="861" data-to="1245">
+  <li data-from="861" data-to="935">Reduce unplanned equipment downtime by 35% within six months of go-live.</li>
+  <li data-from="936" data-to="1031">Build a scalable data ingestion pipeline capable of handling 50,000 sensor events per second.</li>
+  <li data-from="1032" data-to="1101">Deploy interpretable ML models with a false-positive rate below 8%.</li>
+  <li data-from="1102" data-to="1168">Train 120 maintenance technicians on the new alerting dashboard.</li>
+  <li data-from="1169" data-to="1245">Achieve ISO 55000-aligned asset management documentation by project close.</li>
+</ul>
+<hr data-from="1247" data-to="1250">
+<h2 id="2-team-ownership" data-from="1252" data-to="1274">2. Team &amp; Ownership</h2>
+<div class="mdr-table-wrap" data-from="1276" data-to="1870">
+  <table data-from="1276" data-to="1870">
+    <thead data-from="1276" data-to="1309">
+      <tr data-from="1276" data-to="1309">
+        <th data-from="1278" data-to="1282">Role</th>
+        <th data-from="1285" data-to="1290">Owner</th>
+        <th data-from="1293" data-to="1307">Responsibility</th>
+      </tr>
+    </thead>
+    <tbody data-from="1324" data-to="1870">
+      <tr data-from="1324" data-to="1419">
+        <td data-from="1326" data-to="1343">Executive Sponsor</td>
+        <td data-from="1346" data-to="1378">Marguerite Doyle (VP Operations)</td>
+        <td data-from="1381" data-to="1417">Budget approval, strategic alignment</td>
+      </tr>
+      <tr data-from="1420" data-to="1487">
+        <td data-from="1422" data-to="1434">Project Lead</td>
+        <td data-from="1437" data-to="1448">Tobias Renn</td>
+        <td data-from="1451" data-to="1485">Day-to-day coordination, reporting</td>
+      </tr>
+      <tr data-from="1488" data-to="1575">
+        <td data-from="1490" data-to="1511">Data Engineering Lead</td>
+        <td data-from="1514" data-to="1528">Priya Ashcombe</td>
+        <td data-from="1531" data-to="1573">Ingestion pipeline, data lake architecture</td>
+      </tr>
+      <tr data-from="1576" data-to="1648">
+        <td data-from="1578" data-to="1585">ML Lead</td>
+        <td data-from="1588" data-to="1607">Dr. Elias Fahnstrom</td>
+        <td data-from="1610" data-to="1646">Model design, validation, deployment</td>
+      </tr>
+      <tr data-from="1649" data-to="1726">
+        <td data-from="1651" data-to="1671">Platform/DevOps Lead</td>
+        <td data-from="1674" data-to="1688">Ngozi Baptiste</td>
+        <td data-from="1691" data-to="1724">Infrastructure, CI/CD, monitoring</td>
+      </tr>
+      <tr data-from="1727" data-to="1805">
+        <td data-from="1729" data-to="1751">Change Management Lead</td>
+        <td data-from="1754" data-to="1767">Callum Wexley</td>
+        <td data-from="1770" data-to="1803">Training, adoption, documentation</td>
+      </tr>
+      <tr data-from="1806" data-to="1870">
+        <td data-from="1808" data-to="1815">QA Lead</td>
+        <td data-from="1818" data-to="1835">Simone Achterberg</td>
+        <td data-from="1838" data-to="1868">Test planning, defect tracking</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="1872" data-to="1875">
+<h2 id="3-phases-and-milestones" data-from="1877" data-to="1904">3. Phases and Milestones</h2>
+<h3 id="phase-0-discovery-feasibility-weeks-14" data-from="1906" data-to="1955">Phase 0 — Discovery &amp; Feasibility (Weeks 1–4)</h3>
+<p data-from="1957" data-to="2064">Objectives: validate data availability, confirm sensor coverage, and align stakeholders on success metrics.</p>
+<p data-from="2066" data-to="2081"><strong data-from="2066" data-to="2081">Milestones:</strong></p>
+<ol data-from="2082" data-to="2243">
+  <li data-from="2082" data-to="2137">Sensor inventory audit completed across both plants.</li>
+  <li data-from="2138" data-to="2192">Feasibility report signed off by Executive Sponsor.</li>
+  <li data-from="2193" data-to="2243">Data governance agreement finalized with Legal.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="note" data-from="2245" data-to="2465">
+  <div class="mdr-callout-title" data-from="2247" data-to="2254">
+    Note
+  </div>
+  <p data-from="2257" data-to="2465">The feasibility report must explicitly document sensor sampling rates. Several legacy vibration sensors on the Correlon line report at 2 Hz, which may be insufficient for detecting early-stage bearing faults.</p>
+</blockquote>
+<hr data-from="2467" data-to="2470">
+<h3 id="phase-1-data-infrastructure-weeks-512" data-from="2472" data-to="2518">Phase 1 — Data Infrastructure (Weeks 5–12)</h3>
+<p data-from="2520" data-to="2623">Objectives: build the ingestion pipeline, establish the data lake, and set up streaming infrastructure.</p>
+<p data-from="2625" data-to="2640"><strong data-from="2625" data-to="2640">Milestones:</strong></p>
+<ol data-from="2641" data-to="2792">
+  <li data-from="2641" data-to="2684">Kafka-based ingestion layer operational.</li>
+  <li data-from="2685" data-to="2736">Raw-to-curated ETL pipeline deployed on staging.</li>
+  <li data-from="2737" data-to="2792">Data quality dashboards live for engineering review.</li>
+</ol>
+<p data-from="2794" data-to="2841">Sample configuration for the ingestion service:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="2843" data-to="3205"><code class="language-yaml" data-verbatim data-from="2851" data-to="3201">service: nightingale-ingest
+version: 1.4.0
+kafka:
+  brokers:
+    - broker01.halberd.internal:9092
+    - broker02.halberd.internal:9092
+  topics:
+    - name: sensor.vibration.raw
+      partitions: 24
+      retention_ms: 604800000
+    - name: sensor.thermal.raw
+      partitions: 12
+      retention_ms: 604800000
+throughput_target_events_per_sec: 50000</code></pre>
+<p data-from="3207" data-to="3238"><strong data-from="3207" data-to="3238">Task checklist for Phase 1:</strong></p>
+<ul data-from="3240" data-to="3554">
+  <li class="mdr-task" data-from="3240" data-to="3292"><input type="checkbox" disabled checked data-from="3242" data-to="3245">Provision Kafka cluster in staging environment</li>
+  <li class="mdr-task" data-from="3293" data-to="3344"><input type="checkbox" disabled checked data-from="3295" data-to="3298">Configure schema registry for sensor payloads</li>
+  <li class="mdr-task" data-from="3345" data-to="3395"><input type="checkbox" disabled checked data-from="3347" data-to="3350">Establish raw data retention policy (7 days)</li>
+  <li class="mdr-task" data-from="3396" data-to="3452"><input type="checkbox" disabled data-from="3398" data-to="3401">Load-test ingestion pipeline at 1.5x expected peak</li>
+  <li class="mdr-task" data-from="3453" data-to="3499"><input type="checkbox" disabled data-from="3455" data-to="3458">Finalize data lake partitioning strategy</li>
+  <li class="mdr-task" data-from="3500" data-to="3554"><input type="checkbox" disabled data-from="3502" data-to="3505">Sign off on data quality SLA with plant managers</li>
+</ul>
+<hr data-from="3556" data-to="3559">
+<h3 id="phase-2-model-development-weeks-1020-overlapping-phase-1" data-from="3561" data-to="3627">Phase 2 — Model Development (Weeks 10–20, overlapping Phase 1)</h3>
+<p data-from="3629" data-to="3700">Objectives: develop, validate, and benchmark predictive failure models.</p>
+<p data-from="3702" data-to="3717"><strong data-from="3702" data-to="3717">Milestones:</strong></p>
+<ol data-from="3718" data-to="3916">
+  <li data-from="3718" data-to="3787">Baseline statistical model established (moving average threshold).</li>
+  <li data-from="3788" data-to="3858">Gradient-boosted survival model trained on historical failure logs.</li>
+  <li data-from="3859" data-to="3916">Model achieves target precision/recall on holdout set.</li>
+</ol>
+<p data-from="3918" data-to="4131">The core failure-risk scoring function estimates the instantaneous hazard <span class="mdr-math" data-tex="h(t)" data-from="3992" data-to="3998">h(t)</span> for a given asset, where <span class="mdr-math" data-tex="t" data-from="4024" data-to="4027">t</span> represents operating hours since last maintenance. We model this using a Weibull-based hazard function:</p>
+<div class="mdr-math-block" data-tex="h(t) = \frac{\beta}{\eta} \left( \frac{t}{\eta} \right)^{\beta - 1}" data-from="4133" data-to="4206">
+  h(t) = \frac{\beta}{\eta} \left( \frac{t}{\eta} \right)^{\beta - 1}
+</div>
+<p data-from="4208" data-to="4505">Here, <span class="mdr-math" data-tex="\beta" data-from="4214" data-to="4221">\beta</span> is the shape parameter (estimated at 2.3 for Correlon stamping presses, indicating increasing failure rate over time) and <span class="mdr-math" data-tex="\eta" data-from="4344" data-to="4350">\eta</span> is the scale parameter (approximately 1,840 operating hours). Technicians receive an alert when the cumulative hazard exceeds a threshold <span class="mdr-math" data-tex="\theta = 0.65" data-from="4489" data-to="4504">\theta = 0.65</span>.</p>
+<p data-from="4507" data-to="4538"><strong data-from="4507" data-to="4538">Task checklist for Phase 2:</strong></p>
+<ul data-from="4540" data-to="4900">
+  <li class="mdr-task" data-from="4540" data-to="4607"><input type="checkbox" disabled checked data-from="4542" data-to="4545">Assemble labeled failure dataset (2019–2024 maintenance logs)</li>
+  <li class="mdr-task" data-from="4608" data-to="4661"><input type="checkbox" disabled checked data-from="4610" data-to="4613">Establish baseline model performance benchmarks</li>
+  <li class="mdr-task" data-from="4662" data-to="4728"><input type="checkbox" disabled data-from="4664" data-to="4667">Complete feature engineering for thermal degradation signals</li>
+  <li class="mdr-task" data-from="4729" data-to="4785"><input type="checkbox" disabled data-from="4731" data-to="4734">Run cross-validation across plant-specific subsets</li>
+  <li class="mdr-task" data-from="4786" data-to="4844"><input type="checkbox" disabled data-from="4788" data-to="4791">Document model interpretability report (SHAP values)</li>
+  <li class="mdr-task" data-from="4845" data-to="4900"><input type="checkbox" disabled data-from="4847" data-to="4850">Obtain sign-off from Reliability Engineering team</li>
+</ul>
+<p data-from="4902" data-to="4957">Nested breakdown of the feature engineering workstream:</p>
+<ul data-from="4959" data-to="5392">
+  <li data-from="4959" data-to="5143">Vibration features<ul data-from="4982" data-to="5143">
+      <li data-from="4982" data-to="5060">Time-domain statistics<ul data-from="5011" data-to="5060">
+          <li data-from="5011" data-to="5026">RMS amplitude</li>
+          <li data-from="5031" data-to="5041">Kurtosis</li>
+          <li data-from="5046" data-to="5060">Crest factor</li>
+        </ul></li>
+      <li data-from="5063" data-to="5143">Frequency-domain statistics<ul data-from="5097" data-to="5143">
+          <li data-from="5097" data-to="5122">Spectral peak frequency</li>
+          <li data-from="5127" data-to="5143">Harmonic ratio</li>
+        </ul></li>
+    </ul></li>
+  <li data-from="5144" data-to="5271">Thermal features<ul data-from="5165" data-to="5271">
+      <li data-from="5165" data-to="5240">Rolling average temperature<ul data-from="5199" data-to="5240">
+          <li data-from="5199" data-to="5217">15-minute window</li>
+          <li data-from="5222" data-to="5240">60-minute window</li>
+        </ul></li>
+      <li data-from="5243" data-to="5271">Rate of temperature change</li>
+    </ul></li>
+  <li data-from="5272" data-to="5392">Operational context features<ul data-from="5305" data-to="5392">
+      <li data-from="5305" data-to="5323">Shift identifier</li>
+      <li data-from="5326" data-to="5392">Load percentage<ul data-from="5348" data-to="5392">
+          <li data-from="5348" data-to="5366">Rated load ratio</li>
+          <li data-from="5371" data-to="5392">Peak load deviation</li>
+        </ul></li>
+    </ul></li>
+</ul>
+<hr data-from="5394" data-to="5397">
+<h3 id="phase-3-platform-integration-weeks-1828" data-from="5399" data-to="5447">Phase 3 — Platform Integration (Weeks 18–28)</h3>
+<p data-from="5449" data-to="5585">Objectives: integrate the ML scoring service with the alerting dashboard and existing CMMS (Computerized Maintenance Management System).</p>
+<p data-from="5587" data-to="5602"><strong data-from="5587" data-to="5602">Milestones:</strong></p>
+<ol data-from="5603" data-to="5797">
+  <li data-from="5603" data-to="5659">Scoring service deployed behind internal API gateway.</li>
+  <li data-from="5660" data-to="5725">Alert dashboard MVP available to pilot users at Ashwood plant.</li>
+  <li data-from="5726" data-to="5797">CMMS integration validated end-to-end (alert → work order creation).</li>
+</ol>
+<pre class="mdr-code" data-lang="python" data-from="5799" data-to="6111"><code class="language-python" data-verbatim data-from="5809" data-to="6107">def compute_alert(hazard_score: float, threshold: float = 0.65) -&gt; str:
+    """Return alert severity based on cumulative hazard score."""
+    if hazard_score &gt;= threshold:
+        return "CRITICAL"
+    elif hazard_score &gt;= threshold * 0.7:
+        return "WARNING"
+    else:
+        return "NORMAL"</code></pre>
+<p data-from="6113" data-to="6144"><strong data-from="6113" data-to="6144">Task checklist for Phase 3:</strong></p>
+<ul data-from="6146" data-to="6449">
+  <li class="mdr-task" data-from="6146" data-to="6201"><input type="checkbox" disabled checked data-from="6148" data-to="6151">Deploy scoring API to internal Kubernetes cluster</li>
+  <li class="mdr-task" data-from="6202" data-to="6259"><input type="checkbox" disabled data-from="6204" data-to="6207">Complete dashboard UI review with pilot technicians</li>
+  <li class="mdr-task" data-from="6260" data-to="6324"><input type="checkbox" disabled data-from="6262" data-to="6265">Integrate CMMS webhook for automatic work order generation</li>
+  <li class="mdr-task" data-from="6325" data-to="6369"><input type="checkbox" disabled data-from="6327" data-to="6330">Conduct security review of API gateway</li>
+  <li class="mdr-task" data-from="6370" data-to="6449"><input type="checkbox" disabled data-from="6372" data-to="6375">Run end-to-end latency test (target: under 3 seconds from event to alert)</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="warning" data-from="6451" data-to="6658">
+  <div class="mdr-callout-title" data-from="6453" data-to="6463">
+    Warning
+  </div>
+  <p data-from="6466" data-to="6658">The CMMS vendor, Fennimore Systems, has indicated their webhook API may deprecate the current authentication scheme in Q3. This must be tracked closely to avoid integration breakage mid-pilot.</p>
+</blockquote>
+<hr data-from="6660" data-to="6663">
+<h3 id="phase-4-pilot-deployment-weeks-2636" data-from="6665" data-to="6709">Phase 4 — Pilot Deployment (Weeks 26–36)</h3>
+<p data-from="6711" data-to="6816">Objectives: run a controlled pilot at the Ashwood plant with a subset of 18 machines before full rollout.</p>
+<p data-from="6818" data-to="6833"><strong data-from="6818" data-to="6833">Milestones:</strong></p>
+<ol data-from="6834" data-to="7038">
+  <li data-from="6834" data-to="6895">Pilot kickoff with 18 machines instrumented and monitored.</li>
+  <li data-from="6896" data-to="6968">Weekly review cadence established with plant maintenance supervisors.</li>
+  <li data-from="6969" data-to="7038">Pilot results report completed, including false-positive analysis.</li>
+</ol>
+<p data-from="7040" data-to="7117">Pilot success criteria include a false-positive rate below 8%, calculated as:</p>
+<div class="mdr-math-block" data-tex="FPR = \frac{FP}{FP + TN}" data-from="7119" data-to="7149">
+  FPR = \frac{FP}{FP + TN}
+</div>
+<p data-from="7151" data-to="7182"><strong data-from="7151" data-to="7182">Task checklist for Phase 4:</strong></p>
+<ul data-from="7184" data-to="7455">
+  <li class="mdr-task" data-from="7184" data-to="7240"><input type="checkbox" disabled data-from="7186" data-to="7189">Instrument 18 pilot machines with upgraded sensors</li>
+  <li class="mdr-task" data-from="7241" data-to="7295"><input type="checkbox" disabled data-from="7243" data-to="7246">Train pilot technicians (target: 12 technicians)</li>
+  <li class="mdr-task" data-from="7296" data-to="7347"><input type="checkbox" disabled data-from="7298" data-to="7301">Collect weekly feedback via structured survey</li>
+  <li class="mdr-task" data-from="7348" data-to="7405"><input type="checkbox" disabled data-from="7350" data-to="7353">Calculate pilot-phase downtime reduction percentage</li>
+  <li class="mdr-task" data-from="7406" data-to="7455"><input type="checkbox" disabled data-from="7408" data-to="7411">Present pilot findings to Executive Sponsor</li>
+</ul>
+<hr data-from="7457" data-to="7460">
+<h3 id="phase-5-full-rollout-handover-weeks-3448" data-from="7462" data-to="7513">Phase 5 — Full Rollout &amp; Handover (Weeks 34–48)</h3>
+<p data-from="7515" data-to="7647">Objectives: scale the platform to all 140 machines across both plants, complete training, and transition to steady-state operations.</p>
+<p data-from="7649" data-to="7664"><strong data-from="7649" data-to="7664">Milestones:</strong></p>
+<ol data-from="7665" data-to="7890">
+  <li data-from="7665" data-to="7726">Full sensor coverage achieved across Ashwood and Correlon.</li>
+  <li data-from="7727" data-to="7789">All 120 technicians trained and certified on the dashboard.</li>
+  <li data-from="7790" data-to="7848">Steady-state support model handed off to IT Operations.</li>
+  <li data-from="7849" data-to="7890">Final project retrospective conducted.</li>
+</ol>
+<p data-from="7892" data-to="7923"><strong data-from="7892" data-to="7923">Task checklist for Phase 5:</strong></p>
+<ul data-from="7925" data-to="8159">
+  <li class="mdr-task" data-from="7925" data-to="7982"><input type="checkbox" disabled data-from="7927" data-to="7930">Complete phased rollout schedule (10 machines/week)</li>
+  <li class="mdr-task" data-from="7983" data-to="8029"><input type="checkbox" disabled data-from="7985" data-to="7988">Deliver technician certification program</li>
+  <li class="mdr-task" data-from="8030" data-to="8062"><input type="checkbox" disabled data-from="8032" data-to="8035">Publish operations runbook</li>
+  <li class="mdr-task" data-from="8063" data-to="8113"><input type="checkbox" disabled data-from="8065" data-to="8068">Conduct 30-day post-rollout stability review</li>
+  <li class="mdr-task" data-from="8114" data-to="8159"><input type="checkbox" disabled data-from="8116" data-to="8119">Close out project budget reconciliation</li>
+</ul>
+<hr data-from="8161" data-to="8164">
+<h2 id="4-timeline-overview" data-from="8166" data-to="8189">4. Timeline Overview</h2>
+<div class="mdr-table-wrap" data-from="8191" data-to="8634">
+  <table data-from="8191" data-to="8634">
+    <thead data-from="8191" data-to="8222">
+      <tr data-from="8191" data-to="8222">
+        <th data-from="8193" data-to="8198">Phase</th>
+        <th data-from="8201" data-to="8206">Start</th>
+        <th data-from="8209" data-to="8212">End</th>
+        <th data-from="8215" data-to="8220">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="8241" data-to="8634">
+      <tr data-from="8241" data-to="8295">
+        <td data-from="8243" data-to="8261">Phase 0: Discovery</td>
+        <td data-from="8264" data-to="8270">Week 1</td>
+        <td data-from="8273" data-to="8279">Week 4</td>
+        <td data-from="8282" data-to="8293">Tobias Renn</td>
+      </tr>
+      <tr data-from="8296" data-to="8364">
+        <td data-from="8298" data-to="8326">Phase 1: Data Infrastructure</td>
+        <td data-from="8329" data-to="8335">Week 5</td>
+        <td data-from="8338" data-to="8345">Week 12</td>
+        <td data-from="8348" data-to="8362">Priya Ashcombe</td>
+      </tr>
+      <tr data-from="8365" data-to="8437">
+        <td data-from="8367" data-to="8393">Phase 2: Model Development</td>
+        <td data-from="8396" data-to="8403">Week 10</td>
+        <td data-from="8406" data-to="8413">Week 20</td>
+        <td data-from="8416" data-to="8435">Dr. Elias Fahnstrom</td>
+      </tr>
+      <tr data-from="8438" data-to="8508">
+        <td data-from="8440" data-to="8469">Phase 3: Platform Integration</td>
+        <td data-from="8472" data-to="8479">Week 18</td>
+        <td data-from="8482" data-to="8489">Week 28</td>
+        <td data-from="8492" data-to="8506">Ngozi Baptiste</td>
+      </tr>
+      <tr data-from="8509" data-to="8574">
+        <td data-from="8511" data-to="8536">Phase 4: Pilot Deployment</td>
+        <td data-from="8539" data-to="8546">Week 26</td>
+        <td data-from="8549" data-to="8556">Week 36</td>
+        <td data-from="8559" data-to="8572">Callum Wexley</td>
+      </tr>
+      <tr data-from="8575" data-to="8634">
+        <td data-from="8577" data-to="8598">Phase 5: Full Rollout</td>
+        <td data-from="8601" data-to="8608">Week 34</td>
+        <td data-from="8611" data-to="8618">Week 48</td>
+        <td data-from="8621" data-to="8632">Tobias Renn</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="8636" data-to="8639">
+<h2 id="5-risk-register" data-from="8641" data-to="8660">5. Risk Register</h2>
+<div class="mdr-table-wrap" data-from="8662" data-to="9978">
+  <table data-from="8662" data-to="9978">
+    <thead data-from="8662" data-to="8730">
+      <tr data-from="8662" data-to="8730">
+        <th data-from="8664" data-to="8666">ID</th>
+        <th data-from="8669" data-to="8685">Risk Description</th>
+        <th data-from="8688" data-to="8698">Likelihood</th>
+        <th data-from="8701" data-to="8707">Impact</th>
+        <th data-from="8710" data-to="8720">Mitigation</th>
+        <th data-from="8723" data-to="8728">Owner</th>
+      </tr>
+    </thead>
+    <tbody data-from="8757" data-to="9978">
+      <tr data-from="8757" data-to="8945">
+        <td data-from="8759" data-to="8763">R-01</td>
+        <td data-from="8766" data-to="8833">Legacy sensors insufficient sampling rate for early fault detection</td>
+        <td data-from="8836" data-to="8842">Medium</td>
+        <td data-from="8845" data-to="8849">High</td>
+        <td data-from="8852" data-to="8926">Prioritize sensor upgrade budget for critical assets identified in Phase 0</td>
+        <td data-from="8929" data-to="8943">Priya Ashcombe</td>
+      </tr>
+      <tr data-from="8946" data-to="9104">
+        <td data-from="8948" data-to="8952">R-02</td>
+        <td data-from="8955" data-to="9003">CMMS vendor API deprecation disrupts integration</td>
+        <td data-from="9006" data-to="9012">Medium</td>
+        <td data-from="9015" data-to="9021">Medium</td>
+        <td data-from="9024" data-to="9085">Maintain fallback manual work-order path; engage vendor early</td>
+        <td data-from="9088" data-to="9102">Ngozi Baptiste</td>
+      </tr>
+      <tr data-from="9105" data-to="9288">
+        <td data-from="9107" data-to="9111">R-03</td>
+        <td data-from="9114" data-to="9180">Model false-positive rate exceeds threshold, causing alert fatigue</td>
+        <td data-from="9183" data-to="9189">Medium</td>
+        <td data-from="9192" data-to="9196">High</td>
+        <td data-from="9199" data-to="9264">Iterative threshold tuning during pilot; technician feedback loop</td>
+        <td data-from="9267" data-to="9286">Dr. Elias Fahnstrom</td>
+      </tr>
+      <tr data-from="9289" data-to="9468">
+        <td data-from="9291" data-to="9295">R-04</td>
+        <td data-from="9298" data-to="9355">Technician adoption resistance due to workflow disruption</td>
+        <td data-from="9358" data-to="9362">High</td>
+        <td data-from="9365" data-to="9371">Medium</td>
+        <td data-from="9374" data-to="9450">Structured change management program, early involvement of floor supervisors</td>
+        <td data-from="9453" data-to="9466">Callum Wexley</td>
+      </tr>
+      <tr data-from="9469" data-to="9632">
+        <td data-from="9471" data-to="9475">R-05</td>
+        <td data-from="9478" data-to="9521">Budget overrun due to sensor hardware costs</td>
+        <td data-from="9524" data-to="9527">Low</td>
+        <td data-from="9530" data-to="9534">High</td>
+        <td data-from="9537" data-to="9611">Lock in hardware vendor pricing during Phase 1; contingency reserve of 12%</td>
+        <td data-from="9614" data-to="9630">Marguerite Doyle</td>
+      </tr>
+      <tr data-from="9633" data-to="9812">
+        <td data-from="9635" data-to="9639">R-06</td>
+        <td data-from="9642" data-to="9696">Data quality issues from inconsistent maintenance logs</td>
+        <td data-from="9699" data-to="9705">Medium</td>
+        <td data-from="9708" data-to="9714">Medium</td>
+        <td data-from="9717" data-to="9790">Data cleansing sprint in Phase 1; manual audit of top 200 failure records</td>
+        <td data-from="9793" data-to="9810">Simone Achterberg</td>
+      </tr>
+      <tr data-from="9813" data-to="9978">
+        <td data-from="9815" data-to="9819">R-07</td>
+        <td data-from="9822" data-to="9876">Key personnel attrition during model development phase</td>
+        <td data-from="9879" data-to="9882">Low</td>
+        <td data-from="9885" data-to="9889">High</td>
+        <td data-from="9892" data-to="9962">Cross-training within ML team; documentation of model design decisions</td>
+        <td data-from="9965" data-to="9978">Dr. Elias Fah</td>
+      </tr>
+    </tbody>
+  </table>
+</div>

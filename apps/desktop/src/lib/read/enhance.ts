@@ -1,0 +1,255 @@
+/**
+ * The three renderers Read mode hands work to after first paint: Shiki for
+ * fences, KaTeX for math, Mermaid for diagrams (design 6.2).
+ *
+ * All three are loaded on demand and applied per chunk, so a document with
+ * no code, no math and no diagrams never pays for them, and a slow diagram
+ * never delays the page. Every element is marked when it is done, so a
+ * second pass over the same chunk is free.
+ */
+
+const DONE = 'data-enhanced';
+
+type Highlighter = Awaited<ReturnType<typeof loadShiki>>;
+
+let shiki: Promise<Highlighter> | null = null;
+let katex: Promise<typeof import('katex').default> | null = null;
+let mermaid: Promise<typeof import('mermaid').default> | null = null;
+let mermaidCount = 0;
+
+/**
+ * The languages Read mode highlights, with the aliases documents use for
+ * them. Shiki's own bundle carries two hundred grammars; naming them all
+ * would put fourteen megabytes of TextMate JSON in the installer for
+ * languages nobody writes markdown about. A fence in an unlisted language
+ * renders as plain code, which is what every fence did before Shiki
+ * loaded. Adding one is one line.
+ */
+const LANGUAGES = {
+  bash: () => import('@shikijs/langs/bash'),
+  c: () => import('@shikijs/langs/c'),
+  cpp: () => import('@shikijs/langs/cpp'),
+  csharp: () => import('@shikijs/langs/csharp'),
+  css: () => import('@shikijs/langs/css'),
+  diff: () => import('@shikijs/langs/diff'),
+  docker: () => import('@shikijs/langs/docker'),
+  go: () => import('@shikijs/langs/go'),
+  graphql: () => import('@shikijs/langs/graphql'),
+  html: () => import('@shikijs/langs/html'),
+  ini: () => import('@shikijs/langs/ini'),
+  java: () => import('@shikijs/langs/java'),
+  javascript: () => import('@shikijs/langs/javascript'),
+  json: () => import('@shikijs/langs/json'),
+  kotlin: () => import('@shikijs/langs/kotlin'),
+  latex: () => import('@shikijs/langs/latex'),
+  lua: () => import('@shikijs/langs/lua'),
+  make: () => import('@shikijs/langs/make'),
+  markdown: () => import('@shikijs/langs/markdown'),
+  php: () => import('@shikijs/langs/php'),
+  powershell: () => import('@shikijs/langs/powershell'),
+  python: () => import('@shikijs/langs/python'),
+  r: () => import('@shikijs/langs/r'),
+  ruby: () => import('@shikijs/langs/ruby'),
+  rust: () => import('@shikijs/langs/rust'),
+  scala: () => import('@shikijs/langs/scala'),
+  sql: () => import('@shikijs/langs/sql'),
+  svelte: () => import('@shikijs/langs/svelte'),
+  swift: () => import('@shikijs/langs/swift'),
+  toml: () => import('@shikijs/langs/toml'),
+  tsx: () => import('@shikijs/langs/tsx'),
+  typescript: () => import('@shikijs/langs/typescript'),
+  vue: () => import('@shikijs/langs/vue'),
+  xml: () => import('@shikijs/langs/xml'),
+  yaml: () => import('@shikijs/langs/yaml'),
+  zig: () => import('@shikijs/langs/zig'),
+};
+
+type LanguageId = keyof typeof LANGUAGES;
+
+const ALIASES: Record<string, LanguageId> = {
+  'c++': 'cpp',
+  'c#': 'csharp',
+  cs: 'csharp',
+  dockerfile: 'docker',
+  golang: 'go',
+  htm: 'html',
+  js: 'javascript',
+  jsx: 'tsx',
+  makefile: 'make',
+  md: 'markdown',
+  mdx: 'markdown',
+  objc: 'c',
+  ps1: 'powershell',
+  py: 'python',
+  rb: 'ruby',
+  rs: 'rust',
+  sh: 'bash',
+  shell: 'bash',
+  tex: 'latex',
+  ts: 'typescript',
+  yml: 'yaml',
+  zsh: 'bash',
+};
+
+/** The grammar id for a fence's info string, if there is one. */
+function languageId(info: string): LanguageId | null {
+  const name = info.toLowerCase();
+  if (name in LANGUAGES) return name as LanguageId;
+  return ALIASES[name] ?? null;
+}
+
+async function loadShiki() {
+  const [core, engine, themes] = await Promise.all([
+    import('shiki/core'),
+    import('shiki/engine/javascript'),
+    import('shiki/themes'),
+  ]);
+  const highlighter = await core.createHighlighterCore({
+    themes: [themes.bundledThemes['github-light'](), themes.bundledThemes['github-dark']()],
+    langs: [],
+    // The JavaScript engine, not the WebAssembly one: a webview under a
+    // `default-src 'self'` policy cannot compile WebAssembly, and the
+    // grammars this app meets do not need what only Oniguruma can do.
+    engine: engine.createJavaScriptRegexEngine({ forgiving: true }),
+  });
+  return { highlighter, loaded: new Set<string>() };
+}
+
+async function loadKatex() {
+  const [module] = await Promise.all([import('katex'), import('katex/dist/katex.min.css')]);
+  return module.default;
+}
+
+async function loadMermaid() {
+  const module = await import('mermaid');
+  module.default.initialize({
+    startOnLoad: false,
+    // Untrusted input: a diagram in a document an agent wrote is not a
+    // reason to let it into the page as markup.
+    securityLevel: 'strict',
+    theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+  });
+  return module.default;
+}
+
+/** Move a rendered `<code>`'s children into the element that held the source. */
+function swapCode(code: HTMLElement, html: string): void {
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const rendered = template.content.querySelector('code');
+  if (!rendered) return;
+  code.replaceChildren(...Array.from(rendered.childNodes));
+  const pre = code.closest('pre');
+  const from = template.content.querySelector('pre');
+  if (pre && from) pre.style.cssText = from.style.cssText;
+}
+
+export interface Enhancer {
+  /** Enhance everything inside these elements. Returns immediately. */
+  run(roots: readonly HTMLElement[]): void;
+  destroy(): void;
+}
+
+export function createEnhancer(): Enhancer {
+  let alive = true;
+
+  function targets(roots: readonly HTMLElement[], selector: string): HTMLElement[] {
+    const found: HTMLElement[] = [];
+    for (const root of roots) {
+      if (root.matches(selector)) found.push(root);
+      for (const el of Array.from(root.querySelectorAll<HTMLElement>(selector))) found.push(el);
+    }
+    return found.filter((el) => !el.hasAttribute(DONE));
+  }
+
+  async function highlight(roots: readonly HTMLElement[]): Promise<void> {
+    const blocks = targets(roots, 'pre.mdr-code[data-lang] > code');
+    if (blocks.length === 0) return;
+    for (const block of blocks) block.setAttribute(DONE, '');
+    shiki ??= loadShiki();
+    const { highlighter, loaded } = await shiki;
+    for (const block of blocks) {
+      if (!alive || !block.isConnected) continue;
+      const id = languageId(block.closest('pre')?.dataset.lang ?? '');
+      if (id === null) continue;
+      if (!loaded.has(id)) {
+        await highlighter.loadLanguage(await LANGUAGES[id]());
+        loaded.add(id);
+      }
+      if (!alive || !block.isConnected) continue;
+      try {
+        swapCode(
+          block,
+          highlighter.codeToHtml(block.textContent ?? '', {
+            lang: id,
+            // Both themes at once as CSS variables, so the page follows the
+            // system without highlighting twice (WP 1.9 replaces the pair).
+            themes: { light: 'github-light', dark: 'github-dark' },
+            defaultColor: false,
+          }),
+        );
+      } catch {
+        // A grammar the JavaScript engine cannot run leaves plain code,
+        // which is what the block already shows.
+      }
+    }
+  }
+
+  async function math(roots: readonly HTMLElement[]): Promise<void> {
+    const nodes = targets(roots, '[data-tex]');
+    if (nodes.length === 0) return;
+    for (const node of nodes) node.setAttribute(DONE, '');
+    katex ??= loadKatex();
+    const render = await katex;
+    for (const node of nodes) {
+      if (!alive || !node.isConnected) continue;
+      try {
+        render.render(node.dataset.tex ?? '', node, {
+          displayMode: node.classList.contains('mdr-math-block'),
+          throwOnError: false,
+          // The document may come from a model; `\href` and friends stay off.
+          trust: false,
+          output: 'html',
+        });
+      } catch {
+        // Leave the TeX source in place: it is what the file says.
+      }
+    }
+  }
+
+  async function diagrams(roots: readonly HTMLElement[]): Promise<void> {
+    const nodes = targets(roots, '.mdr-mermaid');
+    if (nodes.length === 0) return;
+    for (const node of nodes) node.setAttribute(DONE, '');
+    mermaid ??= loadMermaid();
+    const engine = await mermaid;
+    for (const node of nodes) {
+      if (!alive || !node.isConnected) continue;
+      const source = node.textContent ?? '';
+      mermaidCount += 1;
+      try {
+        const { svg } = await engine.render(`mdr-diagram-${mermaidCount}`, source);
+        if (!alive || !node.isConnected) continue;
+        const template = document.createElement('template');
+        template.innerHTML = svg;
+        node.replaceChildren(template.content);
+        node.classList.add('mdr-mermaid-done');
+      } catch (error) {
+        node.classList.add('mdr-mermaid-failed');
+        node.setAttribute('title', error instanceof Error ? error.message : 'diagram failed');
+      }
+    }
+  }
+
+  return {
+    run(roots) {
+      if (!alive || roots.length === 0) return;
+      void highlight(roots);
+      void math(roots);
+      void diagrams(roots);
+    },
+    destroy() {
+      alive = false;
+    },
+  };
+}

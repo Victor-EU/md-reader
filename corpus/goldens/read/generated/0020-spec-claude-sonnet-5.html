@@ -1,0 +1,115 @@
+<h1 id="technical-specification-quantis-rate-limiter-service-qrls" data-from="0" data-to="66">Technical Specification: <strong data-from="27" data-to="66">Quantis Rate Limiter Service (QRLS)</strong></h1>
+<h2 id="1-overview" data-from="68" data-to="82">1. Overview</h2>
+<p data-from="84" data-to="380">The <strong data-from="88" data-to="120">Quantis Rate Limiter Service</strong> (QRLS) is a distributed token-bucket rate limiting library designed for high-throughput microservice meshes. It provides <em data-from="242" data-to="259">sub-millisecond</em> decision latency for request admission control, using a sliding window approximation algorithm called <strong data-from="362" data-to="379">Fenwick-Decay</strong>.</p>
+<p data-from="382" data-to="492">This document specifies the core algorithm, the public API surface, and deployment requirements for QRLS v2.3.</p>
+<hr data-from="494" data-to="497">
+<h2 id="2-goals-non-goals" data-from="499" data-to="522">2. Goals &amp; Non-Goals</h2>
+<ul data-from="524" data-to="856">
+  <li data-from="524" data-to="627">Provide deterministic rate limiting across distributed nodes with <em data-from="592" data-to="614">eventual consistency</em> of counters.</li>
+  <li data-from="628" data-to="687">Support per-tenant, per-endpoint, and global quota tiers.</li>
+  <li data-from="688" data-to="741">Maintain P99 latency under 2ms for local decisions.</li>
+  <li data-from="742" data-to="856"><strong data-from="744" data-to="751">Not</strong> a goal: exact global counting (QRLS trades strict accuracy for speed via probabilistic synchronization).</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="note" data-from="858" data-to="1065">
+  <div class="mdr-callout-title" data-from="860" data-to="867">
+    Note
+  </div>
+  <p data-from="870" data-to="1065">QRLS is optimized for <strong data-from="892" data-to="906">read-heavy</strong> admission checks. Write-heavy workloads (e.g., counter increments exceeding 500k/s per node) should consider the companion service, <em data-from="1039" data-to="1055">Quantis Ledger</em>, instead.</p>
+</blockquote>
+<hr data-from="1067" data-to="1070">
+<h2 id="3-algorithm-summary" data-from="1072" data-to="1095">3. Algorithm Summary</h2>
+<p data-from="1097" data-to="1333">The Fenwick-Decay algorithm approximates a sliding window by applying exponential decay to bucket weights. Given a decay constant <span class="mdr-math" data-tex="\lambda" data-from="1227" data-to="1236">\lambda</span> and elapsed time <span class="mdr-math" data-tex="\Delta t" data-from="1254" data-to="1264">\Delta t</span> since the last update, the effective token count <span class="mdr-math" data-tex="T" data-from="1314" data-to="1317">T</span> is computed as:</p>
+<div class="mdr-math-block" data-tex="T_{new} = T_{old} \cdot e^{-\lambda \Delta t} + r \cdot \Delta t" data-from="1335" data-to="1405">
+  T_{new} = T_{old} \cdot e^{-\lambda \Delta t} + r \cdot \Delta t
+</div>
+<p data-from="1407" data-to="1561">where <span class="mdr-math" data-tex="r" data-from="1413" data-to="1416">r</span> is the configured refill rate (tokens/sec). A request is admitted if <span class="mdr-math" data-tex="T_{new} \geq c" data-from="1486" data-to="1502">T_{new} \geq c</span>, where <span class="mdr-math" data-tex="c" data-from="1510" data-to="1513">c</span> is the cost of the request (typically <span class="mdr-math" data-tex="c = 1" data-from="1552" data-to="1559">c = 1</span>).</p>
+<p data-from="1563" data-to="1785">The choice of <span class="mdr-math" data-tex="\lambda" data-from="1577" data-to="1586">\lambda</span> determines how aggressively historical usage is forgotten; empirically, <span class="mdr-math" data-tex="\lambda \in [0.01, 0.05]" data-from="1659" data-to="1685">\lambda \in [0.01, 0.05]</span> produces acceptable smoothing for burst traffic patterns without over-penalizing legitimate spikes.</p>
+<hr data-from="1787" data-to="1790">
+<h2 id="4-requirements" data-from="1792" data-to="1810">4. Requirements</h2>
+<h3 id="41-functional-requirements" data-from="1812" data-to="1843">4.1 Functional Requirements</h3>
+<ol data-from="1845" data-to="2273">
+  <li data-from="1845" data-to="1937">The system <strong data-from="1859" data-to="1867">must</strong> support at least three quota scopes: <code data-from="1905" data-to="1913">global</code>, <code data-from="1915" data-to="1923">tenant</code>, and <code data-from="1929" data-to="1936">route</code>.</li>
+  <li data-from="1938" data-to="2017">The system <strong data-from="1952" data-to="1960">must</strong> allow dynamic reconfiguration of limits without restart.</li>
+  <li data-from="2018" data-to="2105">The system <strong data-from="2032" data-to="2042">should</strong> expose a metrics endpoint compatible with Prometheus scraping.</li>
+  <li data-from="2106" data-to="2202">The system <strong data-from="2120" data-to="2128">must</strong> reject malformed configuration payloads with a <code data-from="2176" data-to="2195">400 InvalidConfig</code> error.</li>
+  <li data-from="2203" data-to="2273">The system <em data-from="2217" data-to="2222">may</em> support soft-limit warnings before hard rejection.</li>
+</ol>
+<h3 id="42-non-functional-requirements" data-from="2275" data-to="2310">4.2 Non-Functional Requirements</h3>
+<ul data-from="2312" data-to="2475">
+  <li data-from="2312" data-to="2357">Availability target: 99.95% monthly uptime.</li>
+  <li data-from="2358" data-to="2417">Horizontal scalability to at least 200 nodes per cluster.</li>
+  <li data-from="2418" data-to="2475">All inter-node sync traffic must be encrypted via mTLS.</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="warning" data-from="2477" data-to="2675">
+  <div class="mdr-callout-title" data-from="2479" data-to="2489">
+    Warning
+  </div>
+  <p data-from="2492" data-to="2675">Disabling mTLS on the gossip sync channel (<code data-from="2535" data-to="2552">--insecure-sync</code>) is <strong data-from="2557" data-to="2581">strictly discouraged</strong> in production. It exposes tenant quota state to tampering and may allow quota bypass attacks.</p>
+</blockquote>
+<hr data-from="2677" data-to="2680">
+<h2 id="5-api-sketch" data-from="2682" data-to="2698">5. API Sketch</h2>
+<p data-from="2700" data-to="2768">Below is a simplified Go interface representing the core client API.</p>
+<pre class="mdr-code" data-lang="go" data-from="2770" data-to="3346"><code class="language-go" data-verbatim data-from="2776" data-to="3342">package qrls
+
+type Decision struct {
+    Allowed   bool
+    Remaining float64
+    ResetAt   int64
+}
+
+type Limiter interface {
+    // Check evaluates whether a request of given cost may proceed.
+    Check(ctx context.Context, key string, cost float64) (Decision, error)
+
+    // Configure updates limits for a given scope at runtime.
+    Configure(scope string, rate float64, burst float64) error
+
+    // Snapshot returns the current internal state for debugging.
+    Snapshot(key string) (map[string]float64, error)
+}
+
+func NewLimiter(opts ...Option) (Limiter, error)</code></pre>
+<p data-from="3348" data-to="3362">Example usage:</p>
+<pre class="mdr-code" data-lang="go" data-from="3364" data-to="3633"><code class="language-go" data-verbatim data-from="3370" data-to="3629">limiter, err := qrls.NewLimiter(
+    qrls.WithDecay(0.02),
+    qrls.WithRefillRate(150.0),
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+decision, err := limiter.Check(ctx, "tenant:acme-corp", 1)
+if !decision.Allowed {
+    return errors.New("rate limit exceeded")
+}</code></pre>
+<hr data-from="3635" data-to="3638">
+<h2 id="6-configuration-format" data-from="3640" data-to="3666">6. Configuration Format</h2>
+<p data-from="3668" data-to="3743">Configuration is expressed in YAML and loaded at startup or via hot-reload:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="3745" data-to="3942"><code class="language-yaml" data-verbatim data-from="3753" data-to="3938">scopes:
+  - name: global
+    rate: 10000
+    burst: 500
+  - name: tenant
+    rate: 200
+    burst: 50
+  - name: route
+    rate: 50
+    burst: 10
+decay_lambda: 0.025
+sync_interval_ms: 250</code></pre>
+<hr data-from="3944" data-to="3947">
+<h2 id="7-milestones" data-from="3949" data-to="3965">7. Milestones</h2>
+<ul data-from="3967" data-to="4196">
+  <li class="mdr-task" data-from="3967" data-to="4016"><input type="checkbox" disabled checked data-from="3969" data-to="3972">Core Fenwick-Decay algorithm implementation</li>
+  <li class="mdr-task" data-from="4017" data-to="4071"><input type="checkbox" disabled checked data-from="4019" data-to="4022">Single-node benchmark suite (target: 1M ops/sec)</li>
+  <li class="mdr-task" data-from="4072" data-to="4120"><input type="checkbox" disabled data-from="4074" data-to="4077">Multi-node gossip synchronization protocol</li>
+  <li class="mdr-task" data-from="4121" data-to="4154"><input type="checkbox" disabled data-from="4123" data-to="4126">Prometheus metrics exporter</li>
+  <li class="mdr-task" data-from="4155" data-to="4196"><input type="checkbox" disabled data-from="4157" data-to="4160">Admin CLI for live quota inspection</li>
+</ul>
+<hr data-from="4198" data-to="4201">
+<h2 id="8-open-questions" data-from="4203" data-to="4223">8. Open Questions</h2>
+<p data-from="4225" data-to="4263">As noted in an internal design review:</p>
+<blockquote data-from="4265" data-to="4394">
+  <p data-from="4267" data-to="4394">"The hardest part of distributed rate limiting isn't the math — it's deciding how <em data-from="4349" data-to="4356">wrong</em> you're willing to be for how <em data-from="4386" data-to="4392">long</em>."</p>
+</blockquote>
+<p data-from="4396" data-to="4699">This tension between consistency and latency remains the central design tradeoff for QRLS. Future revisions may introduce a <strong data-from="4520" data-to="4535">hybrid mode</strong> combining Fenwick-Decay with a strongly consistent fallback for critical tenant tiers, though this remains <mark data-from="4643" data-to="4670">under active discussion</mark> among the architecture team.</p>

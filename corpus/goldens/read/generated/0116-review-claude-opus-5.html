@@ -1,0 +1,133 @@
+<h1 id="review-summary-kestrel-unified-telemetry-ingestion-pipeline-design-draft-v09" data-from="0" data-to="85">Review Summary — <em data-from="19" data-to="66">Kestrel: Unified Telemetry Ingestion Pipeline</em>, Design Draft v0.9</h1>
+<p data-from="87" data-to="470"><strong data-from="87" data-to="113">Document under review:</strong> <code data-from="114" data-to="188">DES-2291 — Kestrel Unified Telemetry Ingestion Pipeline (v0.9, 41 pages)</code>
+<strong data-from="189" data-to="201">Authors:</strong> Marisol Trent (lead), Devan Okoro, Priya Raghunathan
+<strong data-from="255" data-to="268">Reviewer:</strong> Nils Barrowman, Platform Reliability
+<strong data-from="306" data-to="324">Review window:</strong> 14–21 March, 8.5 hours logged
+<strong data-from="355" data-to="371">Disposition:</strong> <mark data-from="372" data-to="405">Approve with required changes</mark> — not ready for architecture board sign-off in its current form.</p>
+<hr data-from="472" data-to="475">
+<h2 id="1-overall-assessment" data-from="477" data-to="501">1. Overall Assessment</h2>
+<p data-from="503" data-to="1106">The draft makes a persuasive case that our three parallel telemetry paths (the legacy <code data-from="589" data-to="601">HoloStream</code> agent, the Vector-based sidecar fleet, and the ad-hoc Lambda shippers used by Payments) impose a genuine and measurable cost: the authors estimate <strong data-from="749" data-to="766">$418,000/year</strong> in duplicated egress and storage, plus roughly 240 engineer-hours per quarter spent reconciling metric discrepancies. Those numbers are credible and align with what Finance reported in the Q4 infrastructure retrospective (their figure was $392,000, close enough that the gap is likely a schema-attribution difference rather than an error).</p>
+<p data-from="1108" data-to="1533">Where the document is strong, it is <em data-from="1144" data-to="1150">very</em> strong. Section 4 (Ingest Contract) is the clearest specification of a wire format I have read from this team. The decision to make the schema registry authoritative at write time rather than read time is correct, and the authors defend it well against the obvious objection that it slows the hot path. Section 7's failure-mode taxonomy is thorough and honest about the sharp edges.</p>
+<p data-from="1535" data-to="1853">Where it is weak, the weakness is concentrated in three places: <strong data-from="1599" data-to="1699">the migration story, the multi-tenant isolation model, and the cost projections beyond year one.</strong> These are not cosmetic gaps. Each one, left unresolved, could produce an outcome where Kestrel ships successfully as a technology and fails as a program.</p>
+<blockquote data-from="1855" data-to="2242">
+  <p data-from="1857" data-to="2242">The pattern I want to avoid is the one we lived through with the storage consolidation effort in 2022: an elegant new system that ran alongside the old system for nineteen months because nobody owned the decommissioning work, and the promised savings never materialized because we paid for both. The design document is the right place to name the owner and the date. This one does not.</p>
+</blockquote>
+<hr data-from="2244" data-to="2247">
+<h2 id="2-findings" data-from="2249" data-to="2263">2. Findings</h2>
+<h3 id="21-major-findings-must-be-resolved-before-board-review" data-from="2265" data-to="2326">2.1 Major findings (must be resolved before board review)</h3>
+<ul data-from="2328" data-to="4306">
+  <li data-from="2328" data-to="3193"><strong data-from="2330" data-to="2408">F-1: The migration plan has no decommissioning owner or trigger condition.</strong>
+  Section 9 describes a "dual-write period" but never says who decides it has ended.<ul data-from="2496" data-to="3193">
+      <li data-from="2496" data-to="2594">The document says dual-write will last "approximately two quarters." That is a hope, not a plan.</li>
+      <li data-from="2597" data-to="3193">There is no defined <strong data-from="2619" data-to="2640">cutover criterion</strong> — no metric threshold, no parity test, no acceptance gate.<ul data-from="2704" data-to="3193">
+          <li data-from="2704" data-to="3193">Suggested criterion: sustained 99.95% record-level parity across all four tenant classes for 14 consecutive days, measured by the reconciler described in §6.3.<ul data-from="2872" data-to="3193">
+              <li data-from="2872" data-to="3089">Parity should be computed on a <em data-from="2905" data-to="2914">sampled</em> basis (1-in-2000) to keep the reconciler's own cost bounded; the document currently implies full-stream comparison, which would roughly double ingest cost during the overlap.</li>
+              <li data-from="3096" data-to="3193">The sampler must be deterministic on <code data-from="3135" data-to="3145">trace_id</code> so the same records are compared on both sides.</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="3194" data-to="3860"><strong data-from="3196" data-to="3282">F-2: Tenant isolation relies on a shared partition pool with no quota enforcement.</strong>
+  §5.2 assigns partitions by hash of <code data-from="3320" data-to="3331">tenant_id</code>, which means one noisy tenant can starve neighbors on the same partition. The draft acknowledges this in a footnote and defers it to "a future rate-limiting layer." That is unacceptable for a system that will carry Payments traffic.<ul data-from="3567" data-to="3860">
+      <li data-from="3567" data-to="3705">At minimum the design needs per-tenant admission control at the edge, with a token bucket sized from the tenant's contracted throughput.</li>
+      <li data-from="3708" data-to="3860">The document should state what happens when a tenant exceeds quota: shed, queue, or degrade to sampled ingestion. <em data-from="3824" data-to="3860">These are very different products.</em></li>
+    </ul></li>
+  <li data-from="3861" data-to="4306"><strong data-from="3863" data-to="3928">F-3: Cost model stops at month 12 and omits retention growth.</strong>
+  Table 8.1 projects steady-state cost as flat after the migration completes. Telemetry volume at Northwind has grown <strong data-from="4047" data-to="4072">31–44% year over year</strong> for four consecutive years. A flat projection is not defensible.<ul data-from="4140" data-to="4306">
+      <li data-from="4140" data-to="4215">The three-year model should include at least a low/base/high volume band.</li>
+      <li data-from="4218" data-to="4306">Retention tiering (hot 7d / warm 90d / cold 400d) is mentioned in §3 but never priced.</li>
+    </ul></li>
+</ul>
+<h3 id="22-moderate-findings" data-from="4308" data-to="4333">2.2 Moderate findings</h3>
+<ul data-from="4335" data-to="5382">
+  <li data-from="4335" data-to="4609"><strong data-from="4337" data-to="4345">F-4:</strong> The schema evolution rules (§4.4) permit adding optional fields but are silent on <em data-from="4428" data-to="4438">removing</em> deprecated ones. Without a removal path, the registry accumulates dead fields indefinitely. Propose a two-release deprecation window with automated consumer-usage checks.</li>
+  <li data-from="4610" data-to="4862"><strong data-from="4612" data-to="4620">F-5:</strong> The backpressure design propagates pressure from storage to the collector but not from the collector to the agent. Agents will buffer to local disk until they fill it. §7.2 should specify the disk high-water mark and the agent's shed policy.</li>
+  <li data-from="4863" data-to="5129"><strong data-from="4865" data-to="4873">F-6:</strong> Exactly-once semantics are claimed in the abstract but §6.1 actually describes at-least-once delivery with idempotent writes keyed on <code data-from="5008" data-to="5042">(tenant_id, source_id, sequence)</code>. That is a fine design; the abstract overstates it. <strong data-from="5095" data-to="5129">Fix the claim, not the design.</strong></li>
+  <li data-from="5130" data-to="5382"><strong data-from="5132" data-to="5140">F-7:</strong> No discussion of PII handling. Telemetry payloads from the mobile SDK have historically contained user emails in error strings. The design needs a redaction stage or an explicit statement that redaction remains the producer's responsibility.</li>
+</ul>
+<h3 id="23-minor-findings" data-from="5384" data-to="5406">2.3 Minor findings</h3>
+<ul data-from="5408" data-to="5872">
+  <li data-from="5408" data-to="5509"><strong data-from="5410" data-to="5418">F-8:</strong> Figures 3 and 5 use inconsistent arrow direction conventions (data flow vs. control flow).</li>
+  <li data-from="5510" data-to="5669"><strong data-from="5512" data-to="5520">F-9:</strong> The term "collector" is used for two different components — the edge process and the aggregation tier. Rename the latter to "aggregator" throughout.</li>
+  <li data-from="5670" data-to="5772"><strong data-from="5672" data-to="5681">F-10:</strong> Appendix B references a benchmark harness that is not linked and appears not to exist yet.</li>
+  <li data-from="5773" data-to="5872"><strong data-from="5775" data-to="5784">F-11:</strong> Several latency figures are quoted without percentile labels (§5.4: "latency of 40ms").</li>
+</ul>
+<hr data-from="5874" data-to="5877">
+<h2 id="3-suggested-concrete-artifact" data-from="5879" data-to="5912">3. Suggested Concrete Artifact</h2>
+<p data-from="5914" data-to="6086">To make F-1 and F-2 actionable, I suggest the design include a normative configuration example. Something along these lines would resolve most of my ambiguity about intent:</p>
+<pre class="mdr-code" data-lang="yaml" data-from="6088" data-to="7106"><code class="language-yaml" data-verbatim data-from="6096" data-to="7102"># kestrel/tenancy/quotas.yaml — proposed normative example
+apiVersion: kestrel.northwind.internal/v1
+kind: TenantQuotaPolicy
+metadata:
+  name: default-quota-policy
+  revision: 7
+spec:
+  defaults:
+    ingestRateRps: 2500
+    burstMultiplier: 3.0
+    maxPayloadBytes: 262144
+    onExceed: sample          # one of: shed | queue | sample
+    sampleRetainRatio: 0.05
+  classes:
+    - name: critical          # Payments, Auth, Fraud
+      ingestRateRps: 40000
+      burstMultiplier: 4.0
+      onExceed: queue
+      queueDepthRecords: 500000
+      isolation:
+        dedicatedPartitions: true
+        minPartitions: 24
+    - name: standard
+      ingestRateRps: 8000
+      onExceed: sample
+      isolation:
+        dedicatedPartitions: false
+    - name: experimental
+      ingestRateRps: 500
+      onExceed: shed
+  cutoverGate:
+    parityWindowDays: 14
+    parityThreshold: 0.9995
+    samplingRate: 0.0005
+    samplingKey: trace_id
+    owner: platform-reliability@northwind.internal
+    hardStopDate: "2026-02-27"</code></pre>
+<p data-from="7108" data-to="7286">The <code data-from="7112" data-to="7126">hardStopDate</code> field is the important one. If dual-write has not ended by that date, the program should escalate to the architecture board automatically rather than drifting.</p>
+<hr data-from="7288" data-to="7291">
+<h2 id="4-questions-for-the-authors" data-from="7293" data-to="7324">4. Questions for the Authors</h2>
+<ol data-from="7326" data-to="8386">
+  <li data-from="7326" data-to="7481">What is the intended behavior when the schema registry is unavailable? §4.2 implies writes are rejected. Is that correct, and has Payments agreed to it?</li>
+  <li data-from="7482" data-to="7639">Has anyone measured the actual p99 cost of registry validation on the hot path, or is the quoted 1.8ms an estimate? Appendix B suggests it is an estimate.</li>
+  <li data-from="7640" data-to="7809">Why was Redpanda ruled out in §2.3? The stated reason ("operational unfamiliarity") seems weak given that two engineers on the team ran it at their previous employer.</li>
+  <li data-from="7810" data-to="7929">Who owns agent rollout to the ~11,000 hosts still running HoloStream 2.x? Fleet Ops was not listed as a stakeholder.</li>
+  <li data-from="7930" data-to="8069">Does the 400-day cold retention figure come from a compliance requirement or from convention? If the former, please cite the control ID.</li>
+  <li data-from="8070" data-to="8168">What is the rollback plan if a Kestrel deployment corrupts the aggregation tier's offset state?</li>
+  <li data-from="8169" data-to="8281">Are the four "tenant classes" in §5.1 the same as the three "service tiers" in §8? The mapping is not stated.</li>
+  <li data-from="8282" data-to="8386">Is there a plan for cross-region replication, or is Kestrel single-region by design? §3 is ambiguous.</li>
+</ol>
+<hr data-from="8388" data-to="8391">
+<h2 id="5-recommended-changes" data-from="8393" data-to="8418">5. Recommended Changes</h2>
+<p data-from="8420" data-to="8464"><strong data-from="8420" data-to="8464">Required before board review (blocking):</strong></p>
+<ul data-from="8466" data-to="8968">
+  <li class="mdr-task" data-from="8466" data-to="8576"><input type="checkbox" disabled data-from="8468" data-to="8471">Add §9.5 "Decommissioning" with named owner, cutover criteria, and a hard-stop date (addresses <strong data-from="8567" data-to="8574">F-1</strong>).</li>
+  <li class="mdr-task" data-from="8577" data-to="8680"><input type="checkbox" disabled data-from="8579" data-to="8582">Add per-tenant admission control to §5, including the exceed-behavior matrix (addresses <strong data-from="8671" data-to="8678">F-2</strong>).</li>
+  <li class="mdr-task" data-from="8681" data-to="8796"><input type="checkbox" disabled data-from="8683" data-to="8686">Extend Table 8.1 to 36 months with low/base/high volume bands and priced retention tiers (addresses <strong data-from="8787" data-to="8794">F-3</strong>).</li>
+  <li class="mdr-task" data-from="8797" data-to="8870"><input type="checkbox" disabled data-from="8799" data-to="8802">Correct the exactly-once claim in the abstract (addresses <strong data-from="8861" data-to="8868">F-6</strong>).</li>
+  <li class="mdr-task" data-from="8871" data-to="8968"><input type="checkbox" disabled data-from="8873" data-to="8876">Add a PII section, even if the conclusion is "producer responsibility" (addresses <strong data-from="8959" data-to="8966">F-7</strong>).</li>
+</ul>
+<p data-from="8970" data-to="9010"><strong data-from="8970" data-to="9010">Strongly recommended (non-blocking):</strong></p>
+<ul data-from="9012" data-to="9235">
+  <li class="mdr-task" data-from="9012" data-to="9078"><input type="checkbox" disabled data-from="9014" data-to="9017">Specify field-removal rules in the schema evolution section.</li>
+  <li class="mdr-task" data-from="9079" data-to="9140"><input type="checkbox" disabled data-from="9081" data-to="9084">Define agent-side disk high-water mark and shed policy.</li>
+  <li class="mdr-task" data-from="9141" data-to="9235"><input type="checkbox" disabled data-from="9143" data-to="9146">Answer the Redpanda question in the alternatives section rather than in review comments.</li>
+</ul>
+<p data-from="9237" data-to="9251"><strong data-from="9237" data-to="9251">Editorial:</strong></p>
+<ul data-from="9253" data-to="9457">
+  <li class="mdr-task" data-from="9253" data-to="9311"><input type="checkbox" disabled data-from="9255" data-to="9258">Disambiguate <em data-from="9272" data-to="9283">collector</em> / <em data-from="9286" data-to="9298">aggregator</em> terminology.</li>
+  <li class="mdr-task" data-from="9312" data-to="9361"><input type="checkbox" disabled data-from="9314" data-to="9317">Label all latency figures with percentiles.</li>
+  <li class="mdr-task" data-from="9362" data-to="9421"><input type="checkbox" disabled data-from="9364" data-to="9367">Publish or remove the Appendix B benchmark reference.</li>
+  <li class="mdr-task" data-from="9422" data-to="9457"><input type="checkbox" disabled data-from="9424" data-to="9427">Normalize figure conventions.</li>
+</ul>
+<hr data-from="9459" data-to="9462">
+<h2 id="6-closing-note" data-from="9464" data-to="9482">6. Closing Note</h2>
+<p data-from="9484" data-to="9912">I want to be clear that my objections are about <em data-from="9532" data-to="9546">program risk</em>, not <em data-from="9552" data-to="9569">technical merit</em>. The core architecture is sound, the ingest contract is well specified, and I would be comfortable running Payments traffic through this design once isolation is addressed. My estimate is that the required changes represent <strong data-from="9794" data-to="9834">three to five days of authoring work</strong>, not a redesign. I would be glad to co-write §9.5 if that accelerates things.</p>
+<p data-from="9914" data-to="9959">Recommend re-review on or before <strong data-from="9947" data-to="9958">4 April</strong>.</p>

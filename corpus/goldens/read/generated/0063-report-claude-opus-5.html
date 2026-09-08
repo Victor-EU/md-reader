@@ -1,0 +1,122 @@
+<h1 id="project-halyard-status-report" data-from="0" data-to="33">Project Halyard — Status Report</h1>
+<p data-from="35" data-to="189"><strong data-from="35" data-to="56">Reporting period:</strong> March 3 – March 14
+<strong data-from="76" data-to="92">Prepared by:</strong> Dana Vestergaard, Platform Engineering
+<strong data-from="132" data-to="143">Status:</strong> <mark data-from="144" data-to="189">At risk — schedule slip of 4 working days</mark></p>
+<hr data-from="191" data-to="194">
+<h2 id="summary" data-from="196" data-to="206">Summary</h2>
+<p data-from="208" data-to="522">Halyard is the replacement ingestion pipeline for our telemetry backend, migrating from the legacy <code data-from="307" data-to="315">sluice</code> collector to a streaming architecture built on partitioned queues. This sprint we completed the shadow-write phase for three of five tenant shards and began load validation against production-scale traffic.</p>
+<p data-from="524" data-to="705">The core throughput target has been met ahead of schedule. However, <em data-from="592" data-to="616">schema drift detection</em> remains incomplete, and this is now the critical path item blocking the April 7 cutover.</p>
+<blockquote data-from="707" data-to="983">
+  <p data-from="709" data-to="983">The shadow traffic results were better than we modeled, but the drift detector is catching roughly 1 in 900 events it shouldn't. Until that false-positive rate drops below 1 in 50,000, we cannot safely enable auto-quarantine in production.
+ — Marcus Ohlin, Reliability Lead</p>
+</blockquote>
+<h2 id="key-metrics" data-from="985" data-to="999">Key Metrics</h2>
+<div class="mdr-table-wrap" data-from="1001" data-to="1408">
+  <table data-from="1001" data-to="1408">
+    <thead data-from="1001" data-to="1050">
+      <tr data-from="1001" data-to="1050">
+        <th data-from="1003" data-to="1009">Metric</th>
+        <th data-from="1012" data-to="1029">Baseline (legacy)</th>
+        <th data-from="1032" data-to="1038">Target</th>
+        <th data-from="1041" data-to="1048">Current</th>
+      </tr>
+    </thead>
+    <tbody data-from="1069" data-to="1408">
+      <tr data-from="1069" data-to="1151">
+        <td data-from="1071" data-to="1092">Sustained ingest rate</td>
+        <td data-from="1095" data-to="1109">42k events/sec</td>
+        <td data-from="1112" data-to="1127">120k events/sec</td>
+        <td data-from="1130" data-to="1149"><strong data-from="1130" data-to="1149">147k events/sec</strong></td>
+      </tr>
+      <tr data-from="1152" data-to="1202">
+        <td data-from="1154" data-to="1171">p99 write latency</td>
+        <td data-from="1174" data-to="1180">810 ms</td>
+        <td data-from="1183" data-to="1191">&lt; 250 ms</td>
+        <td data-from="1194" data-to="1200">194 ms</td>
+      </tr>
+      <tr data-from="1203" data-to="1252">
+        <td data-from="1205" data-to="1218">Replay window</td>
+        <td data-from="1221" data-to="1228">6 hours</td>
+        <td data-from="1231" data-to="1239">72 hours</td>
+        <td data-from="1242" data-to="1250">72 hours</td>
+      </tr>
+      <tr data-from="1253" data-to="1307">
+        <td data-from="1255" data-to="1280">Drift false-positive rate</td>
+        <td data-from="1283" data-to="1286">n/a</td>
+        <td data-from="1289" data-to="1297">&lt; 0.002%</td>
+        <td data-from="1300" data-to="1305">0.11%</td>
+      </tr>
+      <tr data-from="1308" data-to="1351">
+        <td data-from="1310" data-to="1325">Shards migrated</td>
+        <td data-from="1328" data-to="1333">0 / 5</td>
+        <td data-from="1336" data-to="1341">5 / 5</td>
+        <td data-from="1344" data-to="1349">3 / 5</td>
+      </tr>
+      <tr data-from="1352" data-to="1408">
+        <td data-from="1354" data-to="1377">Cost per billion events</td>
+        <td data-from="1380" data-to="1386">$61.40</td>
+        <td data-from="1389" data-to="1397">&lt; $40.00</td>
+        <td data-from="1400" data-to="1406">$37.85</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="completed-and-outstanding-work" data-from="1410" data-to="1443">Completed and Outstanding Work</h2>
+<ul data-from="1445" data-to="2001">
+  <li class="mdr-task" data-from="1445" data-to="1517"><input type="checkbox" disabled checked data-from="1447" data-to="1450">Provision partitioned queue cluster in <code data-from="1490" data-to="1500">eu-north</code> and <code data-from="1505" data-to="1517">us-central</code></li>
+  <li class="mdr-task" data-from="1518" data-to="1591"><input type="checkbox" disabled checked data-from="1520" data-to="1523">Implement backpressure signaling between collector and writer tiers</li>
+  <li class="mdr-task" data-from="1592" data-to="1660"><input type="checkbox" disabled checked data-from="1594" data-to="1597">Shadow-write validation for shards <code data-from="1633" data-to="1640">alpha</code>, <code data-from="1642" data-to="1649">bravo</code>, <code data-from="1651" data-to="1660">charlie</code></li>
+  <li class="mdr-task" data-from="1661" data-to="1720"><input type="checkbox" disabled checked data-from="1663" data-to="1666">Cost modeling review with Finance (approved March 11)</li>
+  <li class="mdr-task" data-from="1721" data-to="1902"><input type="checkbox" disabled data-from="1723" data-to="1726">Reduce drift detector false-positive rate<ul data-from="1771" data-to="1902">
+      <li class="mdr-task" data-from="1771" data-to="1815"><input type="checkbox" disabled checked data-from="1773" data-to="1776">Instrument per-field mismatch counters</li>
+      <li class="mdr-task" data-from="1818" data-to="1869"><input type="checkbox" disabled data-from="1820" data-to="1823">Rebuild type coercion table from live samples</li>
+      <li class="mdr-task" data-from="1872" data-to="1902"><input type="checkbox" disabled data-from="1874" data-to="1877">Re-run 48-hour soak test</li>
+    </ul></li>
+  <li class="mdr-task" data-from="1903" data-to="1959"><input type="checkbox" disabled data-from="1905" data-to="1908">Shadow-write validation for shards <code data-from="1944" data-to="1951">delta</code>, <code data-from="1953" data-to="1959">echo</code></li>
+  <li class="mdr-task" data-from="1960" data-to="2001"><input type="checkbox" disabled data-from="1962" data-to="1965">Runbook handoff to on-call rotation</li>
+</ul>
+<h2 id="technical-detail-drift-detector-fix" data-from="2003" data-to="2042">Technical Detail: Drift Detector Fix</h2>
+<p data-from="2044" data-to="2217">The current comparator treats a widened integer field as a breaking change. The revised logic classifies changes by compatibility tier before deciding whether to quarantine:</p>
+<pre class="mdr-code" data-lang="python" data-from="2219" data-to="2787"><code class="language-python" data-verbatim data-from="2229" data-to="2783">COMPATIBLE_WIDENINGS = {
+    ("int32", "int64"),
+    ("float32", "float64"),
+    ("string", "text"),
+}
+
+def classify(old_type, new_type):
+    if old_type == new_type:
+        return "identical"
+    if (old_type, new_type) in COMPATIBLE_WIDENINGS:
+        return "safe_widening"
+    if new_type == "null":
+        return "field_dropped"
+    return "breaking"
+
+
+def should_quarantine(old_type, new_type, strict=False):
+    verdict = classify(old_type, new_type)
+    if verdict == "breaking":
+        return True
+    return strict and verdict != "identical"</code></pre>
+<h2 id="risks" data-from="2789" data-to="2797">Risks</h2>
+<ul data-from="2799" data-to="3364">
+  <li data-from="2799" data-to="3259"><strong data-from="2801" data-to="2826">Schedule risk — high.</strong> The soak test cannot start until the coercion table is rebuilt, and the test itself consumes 48 hours of wall time.<ul data-from="2945" data-to="3259">
+      <li data-from="2945" data-to="3259">Mitigation options:<ul data-from="2971" data-to="3259">
+          <li data-from="2971" data-to="3259">Run an abbreviated 12-hour soak against synthetic traffic<ul data-from="3037" data-to="3259">
+              <li data-from="3037" data-to="3083">Pros: unblocks <code data-from="3054" data-to="3061">delta</code> migration immediately</li>
+              <li data-from="3090" data-to="3259">Cons: <em data-from="3098" data-to="3147">does not exercise the long-tail schema variants</em> we see on weekends<ul data-from="3175" data-to="3259">
+                  <li data-from="3175" data-to="3259">Historical data shows weekend traffic carries 3.2× the schema variance of weekdays</li>
+                </ul></li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+  <li data-from="3260" data-to="3364"><strong data-from="3262" data-to="3289">Staffing risk — medium.</strong> Marcus is on leave March 24–28, overlapping the planned cutover rehearsal.</li>
+</ul>
+<h2 id="next-steps" data-from="3366" data-to="3379">Next Steps</h2>
+<ol data-from="3381" data-to="3723">
+  <li data-from="3381" data-to="3474">Rebuild coercion table from a 7-day production sample — <em data-from="3440" data-to="3474">owner: Priya Anand, due March 18</em></li>
+  <li data-from="3475" data-to="3541">Launch full soak test — <em data-from="3502" data-to="3541">owner: Dana Vestergaard, due March 20</em></li>
+  <li data-from="3542" data-to="3600">Migrate shard <code data-from="3559" data-to="3566">delta</code> under shadow-write — due March 24</li>
+  <li data-from="3601" data-to="3656">Cutover rehearsal with rollback drill — due March 31</li>
+  <li data-from="3657" data-to="3723">Production cutover — target <strong data-from="3688" data-to="3700">April 11</strong> (revised from April 7)</li>
+</ol>

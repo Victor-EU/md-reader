@@ -1,8 +1,8 @@
+import { corpusFiles } from '@mdreader/markdown';
 import { describe, expect, it } from 'vitest';
 import { nodeActions } from './actions.ts';
 import { checkIdentity } from './invariants.ts';
 import { formatFailures, runNode } from './runner.ts';
-import { corpusFiles } from './sources.ts';
 
 /**
  * The round-trip corpus (design section 10, plan WP 0.5), Node runner:

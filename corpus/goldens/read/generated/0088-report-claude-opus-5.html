@@ -1,0 +1,89 @@
+<h1 id="project-halyard-status-report" data-from="0" data-to="33">Project Halyard — Status Report</h1>
+<p data-from="35" data-to="182"><strong data-from="35" data-to="56">Reporting period:</strong> Week 34 (Aug 18–24)
+<strong data-from="77" data-to="87">Owner:</strong> Priya Raghunathan, Platform Engineering
+<strong data-from="128" data-to="139">Status:</strong> 🟡 At risk (schedule), 🟢 On track (scope)</p>
+<h2 id="summary" data-from="184" data-to="194">Summary</h2>
+<p data-from="196" data-to="535">Halyard is the replacement ingestion pipeline for our telemetry backend. This week we completed the shadow-traffic cutover for the <code data-from="327" data-to="338">events-v2</code> topic and closed the last two blockers on schema validation. Latency targets are being met, but the backfill job is running roughly nine days behind plan due to throttling on the legacy datastore.</p>
+<h2 id="metrics" data-from="537" data-to="547">Metrics</h2>
+<div class="mdr-table-wrap" data-from="549" data-to="826">
+  <table data-from="549" data-to="826">
+    <thead data-from="549" data-to="586">
+      <tr data-from="549" data-to="586">
+        <th data-from="551" data-to="557">Metric</th>
+        <th data-from="560" data-to="566">Target</th>
+        <th data-from="569" data-to="576">Current</th>
+        <th data-from="579" data-to="584">Trend</th>
+      </tr>
+    </thead>
+    <tbody data-from="605" data-to="826">
+      <tr data-from="605" data-to="655">
+        <td data-from="607" data-to="625">p99 ingest latency</td>
+        <td data-from="628" data-to="636">&lt; 250 ms</td>
+        <td data-from="639" data-to="645">187 ms</td>
+        <td data-from="648" data-to="653">↓ 12%</td>
+      </tr>
+      <tr data-from="656" data-to="699">
+        <td data-from="658" data-to="675">Events/sec (peak)</td>
+        <td data-from="678" data-to="684">40,000</td>
+        <td data-from="687" data-to="693">46,300</td>
+        <td data-from="696" data-to="697">↑</td>
+      </tr>
+      <tr data-from="700" data-to="746">
+        <td data-from="702" data-to="723">Schema rejection rate</td>
+        <td data-from="726" data-to="732">&lt; 0.5%</td>
+        <td data-from="735" data-to="740">0.31%</td>
+        <td data-from="743" data-to="744">↓</td>
+      </tr>
+      <tr data-from="747" data-to="789">
+        <td data-from="749" data-to="768">Backfill completion</td>
+        <td data-from="771" data-to="774">60%</td>
+        <td data-from="777" data-to="780">38%</td>
+        <td data-from="783" data-to="787">flat</td>
+      </tr>
+      <tr data-from="790" data-to="826">
+        <td data-from="792" data-to="810">Open Sev-2 defects</td>
+        <td data-from="813" data-to="814">0</td>
+        <td data-from="817" data-to="818">3</td>
+        <td data-from="821" data-to="824">↑ 1</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="architecture-notes" data-from="828" data-to="849">Architecture Notes</h2>
+<p data-from="851" data-to="934">The validator now short-circuits on unknown envelope versions rather than throwing:</p>
+<pre class="mdr-code" data-lang="python" data-from="936" data-to="1219"><code class="language-python" data-verbatim data-from="946" data-to="1215">def route(envelope):
+    handler = HANDLERS.get(envelope.version)
+    if handler is None:
+        metrics.increment("halyard.envelope.unknown", tags=[envelope.version])
+        return DeadLetter(reason="unsupported_version")
+    return handler.process(envelope.payload)</code></pre>
+<h2 id="workstreams" data-from="1221" data-to="1235">Workstreams</h2>
+<ul data-from="1237" data-to="1669">
+  <li data-from="1237" data-to="1509"><strong data-from="1239" data-to="1249">Ingest</strong><ul data-from="1252" data-to="1509">
+      <li data-from="1252" data-to="1466">Shadow traffic<ul data-from="1273" data-to="1466">
+          <li data-from="1273" data-to="1297"><code data-from="1275" data-to="1286">events-v2</code> — complete</li>
+          <li data-from="1302" data-to="1326"><code data-from="1304" data-to="1315">events-v1</code> — complete</li>
+          <li data-from="1331" data-to="1466"><code data-from="1333" data-to="1347">audit-stream</code> — pending capacity review<ul data-from="1380" data-to="1466">
+              <li data-from="1380" data-to="1432">Blocked on quota grant from Infra (ticket HAL-812)</li>
+              <li data-from="1439" data-to="1466">Estimated unblock: Aug 29</li>
+            </ul></li>
+        </ul></li>
+      <li data-from="1469" data-to="1509">Dead-letter replay tooling — in review</li>
+    </ul></li>
+  <li data-from="1510" data-to="1598"><strong data-from="1512" data-to="1523">Storage</strong><ul data-from="1526" data-to="1598">
+      <li data-from="1526" data-to="1558">Partition rebalance — complete</li>
+      <li data-from="1561" data-to="1598">Retention policy rewrite — drafting</li>
+    </ul></li>
+  <li data-from="1599" data-to="1669"><strong data-from="1601" data-to="1618">Observability</strong><ul data-from="1621" data-to="1669">
+      <li data-from="1621" data-to="1669">Dashboards migrated to the new tracing backend</li>
+    </ul></li>
+</ul>
+<h2 id="next-steps" data-from="1671" data-to="1684">Next Steps</h2>
+<ol data-from="1686" data-to="2020">
+  <li data-from="1686" data-to="1802">Raise the legacy datastore read quota and restart the backfill with a larger parallelism factor (target: Aug 27).</li>
+  <li data-from="1803" data-to="1899">Triage the three open Sev-2 defects; two appear to share a root cause in the retry decorator.</li>
+  <li data-from="1900" data-to="1956">Ship dead-letter replay tooling to staging by Aug 30.</li>
+  <li data-from="1957" data-to="2020">Schedule the production cutover readiness review for Sept 4.</li>
+</ol>
+<h2 id="risks" data-from="2022" data-to="2030">Risks</h2>
+<p data-from="2032" data-to="2137">Backfill slippage may push the cutover into Sprint 19. A decision on partial cutover is needed by Aug 29.</p>

@@ -1,0 +1,96 @@
+<h1 id="project-athena-distributed-cache-optimization-status-report" data-from="0" data-to="64">Project Athena: Distributed Cache Optimization — Status Report</h1>
+<p data-from="66" data-to="160"><strong data-from="66" data-to="110">Week 14 | Reporting Period: Oct 21–Nov 1</strong>
+<strong data-from="111" data-to="122">Author:</strong> Priya Nandakumar, Infrastructure Team</p>
+<h2 id="executive-summary" data-from="162" data-to="182">Executive Summary</h2>
+<p data-from="184" data-to="461">The distributed caching layer overhaul for the Helios data platform continues to progress ahead of schedule. Our primary objective—reducing p99 latency below <span class="mdr-math" data-tex="50\text{ms}" data-from="342" data-to="355">50\text{ms}</span> under peak load—has been achieved in staging environments, though production validation is still pending.</p>
+<hr data-from="463" data-to="466">
+<h2 id="current-metrics" data-from="468" data-to="486">Current Metrics</h2>
+<div class="mdr-table-wrap" data-from="488" data-to="764">
+  <table data-from="488" data-to="764">
+    <thead data-from="488" data-to="537">
+      <tr data-from="488" data-to="537">
+        <th data-from="490" data-to="496">Metric</th>
+        <th data-from="499" data-to="516">Baseline (Sept 1)</th>
+        <th data-from="519" data-to="526">Current</th>
+        <th data-from="529" data-to="535">Target</th>
+      </tr>
+    </thead>
+    <tbody data-from="556" data-to="764">
+      <tr data-from="556" data-to="592">
+        <td data-from="558" data-to="569">p50 latency</td>
+        <td data-from="572" data-to="576">22ms</td>
+        <td data-from="579" data-to="583">11ms</td>
+        <td data-from="586" data-to="590">10ms</td>
+      </tr>
+      <tr data-from="593" data-to="630">
+        <td data-from="595" data-to="606">p99 latency</td>
+        <td data-from="609" data-to="614">187ms</td>
+        <td data-from="617" data-to="621">46ms</td>
+        <td data-from="624" data-to="628">50ms</td>
+      </tr>
+      <tr data-from="631" data-to="672">
+        <td data-from="633" data-to="648">Cache hit ratio</td>
+        <td data-from="651" data-to="656">71.2%</td>
+        <td data-from="659" data-to="664">89.6%</td>
+        <td data-from="667" data-to="670">90%</td>
+      </tr>
+      <tr data-from="673" data-to="714">
+        <td data-from="675" data-to="691">Memory footprint</td>
+        <td data-from="694" data-to="698">48GB</td>
+        <td data-from="701" data-to="705">39GB</td>
+        <td data-from="708" data-to="712">40GB</td>
+      </tr>
+      <tr data-from="715" data-to="764">
+        <td data-from="717" data-to="735">Throughput (req/s)</td>
+        <td data-from="738" data-to="744">12,400</td>
+        <td data-from="747" data-to="753">21,800</td>
+        <td data-from="756" data-to="762">20,000</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<blockquote class="mdr-callout" data-callout="note" data-from="766" data-to="945">
+  <div class="mdr-callout-title" data-from="768" data-to="775">
+    Note
+  </div>
+  <p data-from="778" data-to="945">All latency figures were captured using the internal <code data-from="831" data-to="846">bench-harness</code> tool across a synthetic workload mimicking production traffic patterns from the last two quarters.</p>
+</blockquote>
+<p data-from="947" data-to="1189">The hit ratio improvement stems primarily from the switch to a segmented LRU-K eviction policy, replacing the previous naive LRU implementation. The eviction probability for an item with access recency <span class="mdr-math" data-tex="r" data-from="1149" data-to="1152">r</span> and frequency <span class="mdr-math" data-tex="f" data-from="1167" data-to="1170">f</span> is now modeled as:</p>
+<div class="mdr-math-block" data-tex="P_{\text{evict}}(r, f) = \frac{1}{1 + \alpha \cdot f} \cdot e^{-\lambda r}" data-from="1191" data-to="1271">
+  P_{\text{evict}}(r, f) = \frac{1}{1 + \alpha \cdot f} \cdot e^{-\lambda r}
+</div>
+<p data-from="1273" data-to="1367">where <span class="mdr-math" data-tex="\alpha = 0.35" data-from="1279" data-to="1294">\alpha = 0.35</span> and <span class="mdr-math" data-tex="\lambda = 0.02" data-from="1299" data-to="1315">\lambda = 0.02</span> were tuned empirically over the last three sprints.</p>
+<hr data-from="1369" data-to="1372">
+<h2 id="engineering-highlights" data-from="1374" data-to="1399">Engineering Highlights</h2>
+<p data-from="1401" data-to="1579">The new consistent-hashing ring implementation reduced rebalancing overhead when nodes join or leave the cluster. A simplified version of the core placement logic is shown below:</p>
+<pre class="mdr-code" data-lang="python" data-from="1581" data-to="1754"><code class="language-python" data-verbatim data-from="1591" data-to="1750">def get_node(key: str, ring: list[int], hash_fn) -&gt; int:
+    h = hash_fn(key) % (2**32)
+    idx = bisect.bisect_right(ring, h) % len(ring)
+    return ring[idx]</code></pre>
+<p data-from="1756" data-to="1920">This function now handles roughly 1.4 million lookups per second on a single core during load tests, a 3.1x improvement over the prior modulo-based sharding scheme.</p>
+<p data-from="1922" data-to="2069">We also introduced a warm-up mechanism for newly provisioned nodes, gradually increasing traffic share <span class="mdr-math" data-tex="w(t)" data-from="2025" data-to="2031">w(t)</span> over a 10-minute window according to:</p>
+<div class="mdr-math-block" data-tex="w(t) = \min\left(1, \frac{t}{600}\right)" data-from="2071" data-to="2115">
+  w(t) = \min\left(1, \frac{t}{600}\right)
+</div>
+<p data-from="2117" data-to="2220">This has eliminated the latency spikes previously observed immediately after horizontal scaling events.</p>
+<hr data-from="2222" data-to="2225">
+<h2 id="risks-and-blockers" data-from="2227" data-to="2248">Risks and Blockers</h2>
+<blockquote class="mdr-callout" data-callout="warning" data-from="2250" data-to="2495">
+  <div class="mdr-callout-title" data-from="2252" data-to="2262">
+    Warning
+  </div>
+  <p data-from="2265" data-to="2495">The staging cluster's network fabric does not fully replicate production's cross-AZ latency characteristics. There is moderate risk that our p99 gains will not translate 1:1 once deployed to us-east-2 and us-west-1 simultaneously.</p>
+</blockquote>
+<p data-from="2497" data-to="2702">Additionally, the team identified a memory fragmentation issue in the slab allocator under sustained high-churn workloads. A patch is in review (PR #2291) but requires additional soak testing before merge.</p>
+<hr data-from="2704" data-to="2707">
+<h2 id="next-steps" data-from="2709" data-to="2722">Next Steps</h2>
+<ol data-from="2724" data-to="3357">
+  <li data-from="2724" data-to="2845"><strong data-from="2727" data-to="2756">Production canary rollout</strong> — Deploy to 5% of us-east-2 traffic by Nov 8, monitoring for regression in tail latency.</li>
+  <li data-from="2846" data-to="2986"><strong data-from="2849" data-to="2877">Cross-AZ benchmark suite</strong> — Build a more representative staging topology using traffic-shaping rules to simulate 12–18ms inter-AZ RTT.</li>
+  <li data-from="2987" data-to="3083"><strong data-from="2990" data-to="3012">Slab allocator fix</strong> — Complete review of PR #2291 and run 72-hour soak test before Nov 12.</li>
+  <li data-from="3084" data-to="3190"><strong data-from="3087" data-to="3104">Documentation</strong> — Update the internal runbook covering failover procedures for the new ring topology.</li>
+  <li data-from="3191" data-to="3357"><strong data-from="3194" data-to="3215">Capacity planning</strong> — Model projected Q1 traffic growth against current node count to determine if additional shards are needed before the holiday traffic surge.</li>
+</ol>
+<hr data-from="3359" data-to="3362">
+<h2 id="team-notes" data-from="3364" data-to="3377">Team Notes</h2>
+<p data-from="3379" data-to="3603">Special thanks to the observability squad for the updated Grafana dashboards, which cut incident triage time from an average of 34 minutes to under 12 minutes this reporting period. Next sync scheduled for Nov 4 at 10:00 AM.</p>

@@ -1,0 +1,148 @@
+<h1 id="review-summary-adaptive-thermal-regulation-in-modular-reactor-cores-internal-draft-v32" data-from="0" data-to="94">Review Summary: "Adaptive Thermal Regulation in Modular Reactor Cores" (Internal Draft v3.2)</h1>
+<h2 id="overview" data-from="96" data-to="107">Overview</h2>
+<p data-from="109" data-to="620">This review covers the internal draft technical report submitted by the Vantor Applied Systems group, authored under the working title <em data-from="244" data-to="298">Adaptive Thermal Regulation in Modular Reactor Cores</em>. The document proposes a control-theoretic framework for managing heat dissipation in a hypothetical modular reactor design (the "Corvenite MRX-7" configuration). The overall structure is sound, but several sections require clarification, additional evidence, and revised notation before this can move to external review.</p>
+<p data-from="622" data-to="876">The reviewer team (three assigned readers: <strong data-from="665" data-to="677">Priya N.</strong>, <strong data-from="679" data-to="692">Declan O.</strong>, and <strong data-from="698" data-to="712">Marisol T.</strong>) spent approximately fourteen hours across two sessions evaluating the manuscript. This summary consolidates their independent notes into a single set of findings.</p>
+<hr data-from="878" data-to="881">
+<h2 id="1-general-findings" data-from="883" data-to="905">1. General Findings</h2>
+<ol data-from="907" data-to="1844">
+  <li data-from="907" data-to="1105">The document's <em data-from="925" data-to="940">core argument</em>—that a dual-loop feedback controller outperforms the legacy single-loop design under variable load—is well motivated and supported by simulation data in Appendix C.</li>
+  <li data-from="1106" data-to="1324">The <strong data-from="1113" data-to="1134">literature review</strong> section (pp. 4–9) is thorough but leans heavily on secondary sources rather than primary experimental data. Reviewers recommend at least two additional citations from first-party test logs.</li>
+  <li data-from="1325" data-to="1489">The <em data-from="1332" data-to="1342">notation</em> used for thermal flux vectors is inconsistent between Section 2 and Section 5, which caused confusion during the derivation review (see §3 below).</li>
+  <li data-from="1490" data-to="1678">Simulation results appear reproducible in principle, but the random seed values used for the Monte Carlo runs (Section 6.3) are not disclosed, making independent verification difficult.</li>
+  <li data-from="1679" data-to="1844"><mark data-from="1682" data-to="1781">The safety margin calculations in Table 4 appear to use outdated thermal conductivity constants</mark>, which should be corrected before this draft proceeds further.</li>
+</ol>
+<blockquote class="mdr-callout" data-callout="note" data-from="1846" data-to="2071">
+  <div class="mdr-callout-title" data-from="1848" data-to="1855">
+    Note
+  </div>
+  <p data-from="1858" data-to="2071">The reviewers unanimously agree that the <em data-from="1899" data-to="1911">conceptual</em> contribution of this work is strong. Most concerns below are about <strong data-from="1979" data-to="2038">presentation, reproducibility, and internal consistency</strong>, not the underlying methodology.</p>
+</blockquote>
+<hr data-from="2073" data-to="2076">
+<h2 id="2-section-by-section-notes" data-from="2078" data-to="2108">2. Section-by-Section Notes</h2>
+<h3 id="21-introduction-pp-13" data-from="2110" data-to="2140">2.1 Introduction (pp. 1–3)</h3>
+<p data-from="2142" data-to="2526">The introduction motivates the problem well but overstates the novelty of the dual-loop approach. Reviewer Declan O. noted that similar architectures have been discussed in internal memos from the Halberd Project (2019), though not published externally. The authors should acknowledge this precedent, even informally, to avoid claims of originality that cannot be fully substantiated.</p>
+<h3 id="22-background-and-related-work-pp-49" data-from="2528" data-to="2573">2.2 Background and Related Work (pp. 4–9)</h3>
+<p data-from="2575" data-to="2617">This section is generally strong. However:</p>
+<ul data-from="2619" data-to="2997">
+  <li data-from="2619" data-to="2755">The comparison table (Table 1) omits response-time data for the Kestrel-IV baseline system, which is referenced elsewhere in the text.</li>
+  <li data-from="2756" data-to="2902">Several paragraphs describing prior control schemes could be condensed; the current length dilutes the focus on the paper's actual contribution.</li>
+  <li data-from="2903" data-to="2997">The transition into Section 3 is abrupt — a short bridging paragraph would help readability.</li>
+</ul>
+<h3 id="23-mathematical-model-pp-1017" data-from="2999" data-to="3037">2.3 Mathematical Model (pp. 10–17)</h3>
+<p data-from="3039" data-to="3124">This is the most technically dense part of the report and received the most scrutiny.</p>
+<p data-from="3126" data-to="3346">The authors define the core temperature deviation as a function of time, <span class="mdr-math" data-tex="\theta(t)" data-from="3199" data-to="3210">\theta(t)</span>, governed by a first-order relaxation term plus a control input <span class="mdr-math" data-tex="u(t)" data-from="3275" data-to="3281">u(t)</span>. The basic governing relation, as presented in Equation 3.1, is:</p>
+<div class="mdr-math-block" data-tex="\frac{d\theta(t)}{dt} = -\alpha\,\theta(t) + \beta\,u(t) + \gamma\,\eta(t)" data-from="3348" data-to="3428">
+  \frac{d\theta(t)}{dt} = -\alpha\,\theta(t) + \beta\,u(t) + \gamma\,\eta(t)
+</div>
+<p data-from="3430" data-to="3585">where <span class="mdr-math" data-tex="\alpha" data-from="3436" data-to="3444">\alpha</span> is the passive cooling coefficient, <span class="mdr-math" data-tex="\beta" data-from="3481" data-to="3488">\beta</span> is the control gain, and <span class="mdr-math" data-tex="\eta(t)" data-from="3514" data-to="3523">\eta(t)</span> represents stochastic thermal noise with variance <span class="mdr-math" data-tex="\sigma^2" data-from="3574" data-to="3584">\sigma^2</span>.</p>
+<p data-from="3587" data-to="3981">Reviewer Priya N. flagged that the derivation from Equation 3.1 to Equation 3.4 skips at least one intermediate step involving the Laplace transform of <span class="mdr-math" data-tex="\eta(t)" data-from="3739" data-to="3748">\eta(t)</span>. While the final result appears correct, a reader unfamiliar with the transform trick used here (essentially assuming <span class="mdr-math" data-tex="\eta(t)" data-from="3867" data-to="3876">\eta(t)</span> is wide-sense stationary) could easily get lost. We recommend adding a short derivation box or footnote.</p>
+<p data-from="3983" data-to="4270">Additionally, the claim that the <em data-from="4016" data-to="4070">closed-loop system is asymptotically stable whenever</em> <span class="mdr-math" data-tex="\alpha &gt; \beta k_p" data-from="4071" data-to="4091">\alpha &gt; \beta k_p</span> (where <span class="mdr-math" data-tex="k_p" data-from="4099" data-to="4104">k_p</span> is the proportional gain) is stated without proof. A one-paragraph stability argument, perhaps via a Lyapunov candidate function, would strengthen this considerably.</p>
+<blockquote class="mdr-callout" data-callout="warning" data-from="4272" data-to="4538">
+  <div class="mdr-callout-title" data-from="4274" data-to="4284">
+    Warning
+  </div>
+  <p data-from="4287" data-to="4538">The report asserts stability guarantees that are not fully derived in the current draft. This is a <strong data-from="4386" data-to="4405">significant gap</strong> for a document that may eventually support safety-relevant design decisions. This should be resolved before any external submission.</p>
+</blockquote>
+<h3 id="24-simulation-setup-pp-1824" data-from="4540" data-to="4576">2.4 Simulation Setup (pp. 18–24)</h3>
+<p data-from="4578" data-to="4672">The simulation environment is described only at a high level. The reviewers would like to see:</p>
+<ol data-from="4674" data-to="5024">
+  <li data-from="4674" data-to="4767">The exact solver used (implicit vs. explicit Euler, or a higher-order Runge–Kutta method).</li>
+  <li data-from="4768" data-to="4819">Time-step size and any adaptive step-size logic.</li>
+  <li data-from="4820" data-to="4876">Boundary conditions applied to the reactor core mesh.</li>
+  <li data-from="4877" data-to="4959">Hardware/software environment (e.g., cluster specifications, library versions).</li>
+  <li data-from="4960" data-to="5024">Random seed handling for stochastic runs, as mentioned above.</li>
+</ol>
+<p data-from="5026" data-to="5269">A minimal code snippet illustrating the update rule would greatly help readers understand the discretization scheme. For example, something resembling the following (invented for illustration, not taken from the actual codebase) would suffice:</p>
+<pre class="mdr-code" data-lang="python" data-from="5271" data-to="5730"><code class="language-python" data-verbatim data-from="5281" data-to="5726">def update_temperature(theta, u, eta, alpha, beta, gamma, dt):
+    """Single Euler step for core temperature deviation."""
+    dtheta = -alpha * theta + beta * u + gamma * eta
+    return theta + dtheta * dt
+
+# Example simulation loop
+theta = theta_0
+for step in range(num_steps):
+    u = controller(theta, setpoint)
+    eta = noise_generator(sigma)
+    theta = update_temperature(theta, u, eta, alpha, beta, gamma, dt)
+    log_state(step, theta)</code></pre>
+<p data-from="5732" data-to="5842">Including something like this in an appendix (with actual parameters) would substantially aid reproducibility.</p>
+<h3 id="25-results-and-discussion-pp-2533" data-from="5844" data-to="5886">2.5 Results and Discussion (pp. 25–33)</h3>
+<p data-from="5888" data-to="6160">The results are presented clearly through a series of plots, though axis labels in Figures 5.2 and 5.4 are too small to read at normal print resolution. The discussion of <em data-from="6059" data-to="6080">transient overshoot</em> under sudden load changes is well written and matches intuition from the model.</p>
+<p data-from="6162" data-to="6454">One concern: the authors claim a <strong data-from="6195" data-to="6238">42% reduction in peak thermal deviation</strong> compared to baseline, but the confidence interval for this number is not reported. Given the stochastic nature of the simulations, an interval estimate (even a rough one) is necessary to support this claim credibly.</p>
+<p data-from="6456" data-to="6708">Marisol T. also noted that the discussion section does not address failure modes — what happens if one of the two control loops degrades or drops out entirely? This seems like an important robustness question that current readers would immediately ask.</p>
+<h3 id="26-appendices" data-from="6710" data-to="6728">2.6 Appendices</h3>
+<p data-from="6730" data-to="7024">Appendix A (parameter tables) is fine. Appendix B (derivation details) partially addresses the stability gap mentioned above but does not fully close it. Appendix C (raw simulation logs) is extensive but lacks a summary index, making it hard to locate specific runs referenced in the main text.</p>
+<hr data-from="7026" data-to="7029">
+<h2 id="3-notational-inconsistencies" data-from="7031" data-to="7063">3. Notational Inconsistencies</h2>
+<p data-from="7065" data-to="7125">The following inconsistencies were catalogued during review:</p>
+<div class="mdr-table-wrap" data-from="7127" data-to="7622">
+  <table data-from="7127" data-to="7622">
+    <thead data-from="7127" data-to="7197">
+      <tr data-from="7127" data-to="7197">
+        <th data-from="7129" data-to="7137">Location</th>
+        <th data-from="7140" data-to="7151">Symbol Used</th>
+        <th data-from="7154" data-to="7179">Alternate Usage Elsewhere</th>
+        <th data-from="7182" data-to="7195">Suggested Fix</th>
+      </tr>
+    </thead>
+    <tbody data-from="7216" data-to="7622">
+      <tr data-from="7216" data-to="7336">
+        <td data-from="7218" data-to="7229">Section 2.1</td>
+        <td data-from="7232" data-to="7266"><span class="mdr-math" data-tex="\theta" data-from="7232" data-to="7240">\theta</span> for temperature deviation</td>
+        <td data-from="7269" data-to="7294">Section 5 uses <span class="mdr-math" data-tex="\Delta T" data-from="7284" data-to="7294">\Delta T</span></td>
+        <td data-from="7297" data-to="7334">Standardize on <span class="mdr-math" data-tex="\theta(t)" data-from="7312" data-to="7323">\theta(t)</span> throughout</td>
+      </tr>
+      <tr data-from="7337" data-to="7428">
+        <td data-from="7339" data-to="7350">Section 3.2</td>
+        <td data-from="7353" data-to="7380"><span class="mdr-math" data-tex="k_p" data-from="7353" data-to="7358">k_p</span> for proportional gain</td>
+        <td data-from="7383" data-to="7404">Appendix A uses <span class="mdr-math" data-tex="K_P" data-from="7399" data-to="7404">K_P</span></td>
+        <td data-from="7407" data-to="7426">Use consistent case</td>
+      </tr>
+      <tr data-from="7429" data-to="7523">
+        <td data-from="7431" data-to="7442">Section 4.4</td>
+        <td data-from="7445" data-to="7464"><span class="mdr-math" data-tex="\eta(t)" data-from="7445" data-to="7454">\eta(t)</span> for noise</td>
+        <td data-from="7467" data-to="7490">Section 6 uses <span class="mdr-math" data-tex="\xi(t)" data-from="7482" data-to="7490">\xi(t)</span></td>
+        <td data-from="7493" data-to="7521">Pick one symbol, define once</td>
+      </tr>
+      <tr data-from="7524" data-to="7622">
+        <td data-from="7526" data-to="7533">Table 4</td>
+        <td data-from="7536" data-to="7562"><span class="mdr-math" data-tex="\lambda" data-from="7536" data-to="7545">\lambda</span> for conductivity</td>
+        <td data-from="7565" data-to="7588">Section 2 uses <span class="mdr-math" data-tex="\kappa" data-from="7580" data-to="7588">\kappa</span></td>
+        <td data-from="7591" data-to="7620">Standardize per SI convention</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="7624" data-to="7833">This kind of inconsistency, while minor individually, accumulates and slows down careful readers considerably. A single symbol glossary at the start of Section 2 would resolve most of these issues in one pass.</p>
+<hr data-from="7835" data-to="7838">
+<h2 id="4-questions-for-the-authors" data-from="7840" data-to="7871">4. Questions for the Authors</h2>
+<ul data-from="7873" data-to="8748">
+  <li data-from="7873" data-to="8059">What justifies the choice of a <em data-from="7906" data-to="7919">first-order</em> relaxation model over a higher-order thermal lag model, especially given that the physical core likely has multiple thermal time constants?</li>
+  <li data-from="8060" data-to="8168">Is the noise term <span class="mdr-math" data-tex="\eta(t)" data-from="8080" data-to="8089">\eta(t)</span> assumed Gaussian? If so, this should be stated explicitly rather than implied.</li>
+  <li data-from="8169" data-to="8335">How sensitive are the final performance numbers (the 42% figure, in particular) to the choice of <span class="mdr-math" data-tex="\alpha" data-from="8268" data-to="8276">\alpha</span> and <span class="mdr-math" data-tex="\beta" data-from="8281" data-to="8288">\beta</span>? A sensitivity plot would be very informative.</li>
+  <li data-from="8336" data-to="8437">Was any hardware-in-the-loop testing performed, or is this purely a simulation study at this stage?</li>
+  <li data-from="8438" data-to="8616">The report mentions a "secondary safety loop" in passing (p. 29) but never defines its role formally — is this an intended feature of the final design or a placeholder concept?</li>
+  <li data-from="8617" data-to="8748">Are the Monte Carlo runs independent across trials, or is there some shared random state that could introduce subtle correlation?</li>
+</ul>
+<hr data-from="8750" data-to="8753">
+<h2 id="5-recommended-changes" data-from="8755" data-to="8780">5. Recommended Changes</h2>
+<p data-from="8782" data-to="8874">The following changes are recommended before the document proceeds to the next review stage:</p>
+<ul data-from="8876" data-to="9655">
+  <li class="mdr-task" data-from="8876" data-to="8941"><input type="checkbox" disabled checked data-from="8878" data-to="8881">Standardize notation across all sections (see table in §3).</li>
+  <li class="mdr-task" data-from="8942" data-to="9051"><input type="checkbox" disabled checked data-from="8944" data-to="8947">Add a stability proof or reference to an established theorem justifying the asymptotic stability claim.</li>
+  <li class="mdr-task" data-from="9052" data-to="9128"><input type="checkbox" disabled data-from="9054" data-to="9057">Disclose simulation environment details (solver, time step, hardware).</li>
+  <li class="mdr-task" data-from="9129" data-to="9200"><input type="checkbox" disabled data-from="9131" data-to="9134">Report confidence intervals for all headline performance numbers.</li>
+  <li class="mdr-task" data-from="9201" data-to="9268"><input type="checkbox" disabled data-from="9203" data-to="9206">Add a discussion of failure modes for degraded control loops.</li>
+  <li class="mdr-task" data-from="9269" data-to="9333"><input type="checkbox" disabled data-from="9271" data-to="9274">Increase font size in Figures 5.2 and 5.4 for readability.</li>
+  <li class="mdr-task" data-from="9334" data-to="9412"><input type="checkbox" disabled data-from="9336" data-to="9339">Add a summary index to Appendix C for locating specific simulation runs.</li>
+  <li class="mdr-task" data-from="9413" data-to="9486"><input type="checkbox" disabled data-from="9415" data-to="9418">Clarify the role of the "secondary safety loop" mentioned on p. 29.</li>
+  <li class="mdr-task" data-from="9487" data-to="9570"><input type="checkbox" disabled data-from="9489" data-to="9492">Update thermal conductivity constants in Table 4 to current reference values.</li>
+  <li class="mdr-task" data-from="9571" data-to="9655"><input type="checkbox" disabled data-from="9573" data-to="9576">Add at least two primary-source citations to strengthen the literature review.</li>
+</ul>
+<p data-from="9657" data-to="9879">Items marked complete above reflect changes already made in a partial revision circulated separately by the authors on the Tuesday prior to this review session; the remaining items are still outstanding as of this writing.</p>
+<hr data-from="9881" data-to="9884">
+<h2 id="6-overall-assessment" data-from="9886" data-to="9910">6. Overall Assessment</h2>
+<p data-from="9912" data-to="10360">This is a <em data-from="9922" data-to="9933">promising</em> draft with a genuinely useful contribution to modular reactor thermal control theory. The core mathematical framework is reasonable, and the simulation results — modulo the missing confidence intervals — are compelling. However, the document is not yet ready for external circulation. The stability gap identified in §2.3 is the single most important issue to resolve, followed closely by the reproducibility concerns in §2.4.</p>
+<p data-from="10362" data-to="10713">Our overall recommendation is <strong data-from="10392" data-to="10420">major revision requested</strong>, with a follow-up review expected once the outstanding task list items are addressed. We estimate this would require two to three additional weeks of author effort, assuming the stability proof can be completed relatively quickly by referencing existing internal work from the controls group.</p>
+<p data-from="10715" data-to="10952">Reviewers are willing to reconvene for a follow-up session once a revised draft (v3.3 or later) is available. Please route any clarifying questions to the review coordinator rather than individual reviewers, to keep feedback centralized.</p>
+<p data-from="10954" data-to="10978"><em data-from="10954" data-to="10978">End of review summary.</em></p>

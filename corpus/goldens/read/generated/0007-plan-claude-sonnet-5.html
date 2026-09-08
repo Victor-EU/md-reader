@@ -1,0 +1,115 @@
+<h1 id="project-phoenix-predictive-maintenance-platform" data-from="0" data-to="50">Project Phoenix: Predictive Maintenance Platform</h1>
+<h2 id="overview" data-from="52" data-to="63">Overview</h2>
+<p data-from="65" data-to="317">Project Phoenix aims to build a machine-learning-driven predictive maintenance system for industrial pumps across the Meridian Manufacturing plant network. The system will ingest sensor telemetry and output failure probability scores in near real-time.</p>
+<blockquote class="mdr-callout" data-callout="note" data-from="319" data-to="444">
+  <div class="mdr-callout-title" data-from="321" data-to="328">
+    Note
+  </div>
+  <p data-from="331" data-to="444">This plan covers the initial 9-month build cycle. A separate operations plan will govern post-launch maintenance.</p>
+</blockquote>
+<h2 id="objectives" data-from="446" data-to="459">Objectives</h2>
+<p data-from="461" data-to="618">The core objective is to reduce unplanned downtime by at least 30% within the first year of deployment, while keeping false-positive alert rates below <span class="mdr-math" data-tex="5\%" data-from="612" data-to="617">5\%</span>.</p>
+<h2 id="phases-and-milestones" data-from="620" data-to="644">Phases and Milestones</h2>
+<h3 id="phase-1-discovery-data-audit-weeks-16" data-from="646" data-to="694">Phase 1 — Discovery &amp; Data Audit (Weeks 1–6)</h3>
+<ul data-from="695" data-to="1111">
+  <li data-from="695" data-to="755">Milestone 1.1: Sensor inventory completed across 14 plants</li>
+  <li data-from="756" data-to="1111">Milestone 1.2: Data quality report signed off<ul data-from="806" data-to="1111">
+      <li data-from="806" data-to="855">Owner: Priya Nandakumar (Data Engineering Lead)</li>
+      <li data-from="858" data-to="1111">Sub-tasks:<ul data-from="875" data-to="1111">
+          <li data-from="875" data-to="1016">Audit historical vibration logs<ul data-from="915" data-to="1016">
+              <li data-from="915" data-to="1016">Cross-check timestamps against maintenance tickets<ul data-from="976" data-to="1016">
+                  <li data-from="976" data-to="1016">Flag mismatches exceeding 2-hour drift</li>
+                </ul></li>
+            </ul></li>
+          <li data-from="1021" data-to="1111">Validate temperature sensor calibration<ul data-from="1069" data-to="1111">
+              <li data-from="1069" data-to="1111">Compare against manufacturer spec sheets</li>
+            </ul></li>
+        </ul></li>
+    </ul></li>
+</ul>
+<h3 id="phase-2-model-prototyping-weeks-716" data-from="1113" data-to="1157">Phase 2 — Model Prototyping (Weeks 7–16)</h3>
+<ul data-from="1158" data-to="1314">
+  <li data-from="1158" data-to="1216">Milestone 2.1: Baseline failure-prediction model trained</li>
+  <li data-from="1217" data-to="1314">Milestone 2.2: Feature importance review completed<ul data-from="1272" data-to="1314">
+      <li data-from="1272" data-to="1314">Owner: Dr. Aiden Voss (ML Research Lead)</li>
+    </ul></li>
+</ul>
+<p data-from="1316" data-to="1482">We model the probability of failure within a rolling window using a logistic function of aggregated sensor features <span class="mdr-math" data-tex="x_i" data-from="1432" data-to="1437">x_i</span>, weighted by learned coefficients <span class="mdr-math" data-tex="\beta_i" data-from="1472" data-to="1481">\beta_i</span>:</p>
+<div class="mdr-math-block" data-tex="P(\text{failure} \mid x) = \frac{1}{1 + e^{-\left(\beta_0 + \sum_{i=1}^{n} \beta_i x_i\right)}}" data-from="1484" data-to="1585">
+  P(\text{failure} \mid x) = \frac{1}{1 + e^{-\left(\beta_0 + \sum_{i=1}^{n} \beta_i x_i\right)}}
+</div>
+<p data-from="1587" data-to="1678">The team will iterate until the area under the ROC curve exceeds <span class="mdr-math" data-tex="0.87" data-from="1652" data-to="1658">0.87</span> on the holdout set.</p>
+<pre class="mdr-code" data-lang="python" data-from="1680" data-to="1840"><code class="language-python" data-verbatim data-from="1690" data-to="1836">def compute_risk_score(features, weights, bias):
+    z = bias + sum(w * f for w, f in zip(weights, features))
+    return 1 / (1 + 2.71828 ** (-z))</code></pre>
+<h3 id="phase-3-pipeline-integration-weeks-1724" data-from="1842" data-to="1890">Phase 3 — Pipeline Integration (Weeks 17–24)</h3>
+<ul data-from="1891" data-to="2036">
+  <li data-from="1891" data-to="1945">Milestone 3.1: Streaming ingestion pipeline deployed</li>
+  <li data-from="1946" data-to="2036">Milestone 3.2: Model served via inference API<ul data-from="1996" data-to="2036">
+      <li data-from="1996" data-to="2036">Owner: Tomas Reyes (Platform Engineer)</li>
+    </ul></li>
+</ul>
+<blockquote class="mdr-callout" data-callout="warning" data-from="2038" data-to="2218">
+  <div class="mdr-callout-title" data-from="2040" data-to="2050">
+    Warning
+  </div>
+  <p data-from="2053" data-to="2218">Latency budget for the inference endpoint must not exceed 250ms at the 95th percentile. Exceeding this threshold risks violating the SLA with plant operations teams.</p>
+</blockquote>
+<h3 id="phase-4-pilot-deployment-weeks-2532" data-from="2220" data-to="2264">Phase 4 — Pilot Deployment (Weeks 25–32)</h3>
+<ul data-from="2265" data-to="2416">
+  <li data-from="2265" data-to="2320">Milestone 4.1: Live pilot at Plant 7 (Ostrander site)</li>
+  <li data-from="2321" data-to="2416">Milestone 4.2: Operator feedback loop established<ul data-from="2375" data-to="2416">
+      <li data-from="2375" data-to="2416">Owner: Naomi Ferreira (Product Manager)</li>
+    </ul></li>
+</ul>
+<h3 id="phase-5-full-rollout-weeks-3336" data-from="2418" data-to="2458">Phase 5 — Full Rollout (Weeks 33–36)</h3>
+<ul data-from="2459" data-to="2564">
+  <li data-from="2459" data-to="2509">Milestone 5.1: Deployment to remaining 13 plants</li>
+  <li data-from="2510" data-to="2564">Milestone 5.2: Post-launch review and handoff to Ops</li>
+</ul>
+<h2 id="risks" data-from="2566" data-to="2574">Risks</h2>
+<div class="mdr-table-wrap" data-from="2576" data-to="3059">
+  <table data-from="2576" data-to="3059">
+    <thead data-from="2576" data-to="2618">
+      <tr data-from="2576" data-to="2618">
+        <th data-from="2578" data-to="2582">Risk</th>
+        <th data-from="2585" data-to="2595">Likelihood</th>
+        <th data-from="2598" data-to="2603">Owner</th>
+        <th data-from="2606" data-to="2616">Mitigation</th>
+      </tr>
+    </thead>
+    <tbody data-from="2637" data-to="3059">
+      <tr data-from="2637" data-to="2762">
+        <td data-from="2639" data-to="2672">Sensor data gaps at legacy plants</td>
+        <td data-from="2675" data-to="2681">Medium</td>
+        <td data-from="2684" data-to="2700">Priya Nandakumar</td>
+        <td data-from="2703" data-to="2760">Backfill using interpolation, flag low-confidence windows</td>
+      </tr>
+      <tr data-from="2763" data-to="2862">
+        <td data-from="2765" data-to="2799">Model drift after seasonal changes</td>
+        <td data-from="2802" data-to="2806">High</td>
+        <td data-from="2809" data-to="2823">Dr. Aiden Voss</td>
+        <td data-from="2826" data-to="2860">Scheduled retraining every 6 weeks</td>
+      </tr>
+      <tr data-from="2863" data-to="2965">
+        <td data-from="2865" data-to="2894">API latency spikes under load</td>
+        <td data-from="2897" data-to="2903">Medium</td>
+        <td data-from="2906" data-to="2917">Tomas Reyes</td>
+        <td data-from="2920" data-to="2963">Add caching layer, autoscale inference pods</td>
+      </tr>
+      <tr data-from="2966" data-to="3059">
+        <td data-from="2968" data-to="2995">Operator distrust of alerts</td>
+        <td data-from="2998" data-to="3001">Low</td>
+        <td data-from="3004" data-to="3018">Naomi Ferreira</td>
+        <td data-from="3021" data-to="3057">Transparent explainability dashboard</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="governance-note" data-from="3061" data-to="3079">Governance Note</h2>
+<p data-from="3081" data-to="3114">As stated in the project charter:</p>
+<blockquote data-from="3116" data-to="3307">
+  <p data-from="3118" data-to="3307">"No model shall be promoted to production without a documented review by both the ML Research Lead and the Platform Engineering Lead, regardless of performance metrics achieved in staging."</p>
+</blockquote>
+<h2 id="budget-summary" data-from="3309" data-to="3326">Budget Summary</h2>
+<p data-from="3328" data-to="3503">Estimated total budget is <span class="mdr-math" data-tex="412,000, allocated roughly as $45\%" data-from="3354" data-to="3391">412,000, allocated roughly as $45\%</span> to engineering salaries, <span class="mdr-math" data-tex="30\%" data-from="3417" data-to="3423">30\%</span> to cloud infrastructure, and the remainder to hardware sensors and contingency.</p>

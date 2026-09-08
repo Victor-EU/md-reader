@@ -1,0 +1,144 @@
+<h1 id="research-notes-streaming-covariance-estimation-strategies" data-from="0" data-to="60">Research Notes: Streaming Covariance Estimation Strategies</h1>
+<p data-from="62" data-to="275"><strong data-from="62" data-to="73">Author:</strong> M. Ostrander
+<strong data-from="87" data-to="96">Date:</strong> internal draft, project <em data-from="121" data-to="132">Halcyon-7</em>
+<strong data-from="133" data-to="145">Context:</strong> evaluating candidate algorithms for real-time covariance tracking on the Kestrel sensor array (14 channels, ~2 kHz sampling rate)</p>
+<h2 id="1-problem-statement" data-from="277" data-to="300">1. Problem Statement</h2>
+<p data-from="302" data-to="799">We need to maintain an online estimate of the covariance matrix <span class="mdr-math" data-tex="\Sigma_t \in \mathbb{R}^{d \times d}" data-from="366" data-to="404">\Sigma_t \in \mathbb{R}^{d \times d}</span> for a stream of vector observations <span class="mdr-math" data-tex="x_1, x_2, \dots, x_t \in \mathbb{R}^d" data-from="441" data-to="480">x_1, x_2, \dots, x_t \in \mathbb{R}^d</span>, where <span class="mdr-math" data-tex="d = 14" data-from="488" data-to="496">d = 14</span>. The estimator must run under a strict <em data-from="536" data-to="548">per-sample</em> compute budget of 40 microseconds on the embedded Kestrel controller, must be numerically stable over runs lasting several days, and should gracefully track slow drift in the underlying signal statistics (e.g., thermal effects on the sensor housing).</p>
+<p data-from="801" data-to="1245">Three candidate approaches were prototyped this quarter: (A) an <strong data-from="865" data-to="901">exponential moving average (EMA)</strong> covariance tracker, (B) a <strong data-from="928" data-to="957">Welford-style incremental</strong> estimator generalized to matrices, and (C) a <strong data-from="1003" data-to="1030">randomized sketch-based</strong> covariance approximation using Johnson–Lindenstrauss-style projections. This note summarizes their derivations, tradeoffs, and benchmark results on the synthetic "Aurelia-9" dataset we generated for stress-testing.</p>
+<hr data-from="1247" data-to="1250">
+<h2 id="2-approach-a-exponential-moving-average-covariance" data-from="1252" data-to="1308">2. Approach A — Exponential Moving Average Covariance</h2>
+<p data-from="1310" data-to="1430">The EMA approach updates a running mean <span class="mdr-math" data-tex="\mu_t" data-from="1350" data-to="1357">\mu_t</span> and covariance <span class="mdr-math" data-tex="\Sigma_t" data-from="1373" data-to="1383">\Sigma_t</span> using a fixed decay factor <span class="mdr-math" data-tex="\alpha \in (0,1)" data-from="1411" data-to="1429">\alpha \in (0,1)</span>:</p>
+<div class="mdr-math-block" data-tex="\mu_t = (1-\alpha)\mu_{t-1} + \alpha x_t, \qquad
+\Sigma_t = (1-\alpha)\Sigma_{t-1} + \alpha (x_t - \mu_t)(x_t - \mu_t)^\top" data-from="1432" data-to="1561">
+  \mu_t = (1-\alpha)\mu_{t-1} + \alpha x_t, \qquad
+\Sigma_t = (1-\alpha)\Sigma_{t-1} + \alpha (x_t - \mu_t)(x_t - \mu_t)^\top
+</div>
+<p data-from="1563" data-to="1777">The parameter <span class="mdr-math" data-tex="\alpha" data-from="1577" data-to="1585">\alpha</span> controls the <em data-from="1599" data-to="1624">effective window length</em>, roughly <span class="mdr-math" data-tex="1/\alpha" data-from="1634" data-to="1644">1/\alpha</span> samples. Small <span class="mdr-math" data-tex="\alpha" data-from="1660" data-to="1668">\alpha</span> gives smooth, stable estimates but reacts slowly to drift; large <span class="mdr-math" data-tex="\alpha" data-from="1734" data-to="1742">\alpha</span> tracks drift quickly but is noisy.</p>
+<p data-from="1779" data-to="1961">This method is extremely cheap — a single rank-one update per sample, <span class="mdr-math" data-tex="O(d^2)" data-from="1849" data-to="1857">O(d^2)</span> multiply-adds — and requires no stored history. It was our default baseline going into this evaluation.</p>
+<p data-from="1963" data-to="1976"><strong data-from="1963" data-to="1976">Strengths</strong></p>
+<ul data-from="1978" data-to="2183">
+  <li data-from="1978" data-to="2026">Trivial to implement in fixed-point arithmetic</li>
+  <li data-from="2027" data-to="2091">Constant memory: only <span class="mdr-math" data-tex="\mu_t" data-from="2051" data-to="2058">\mu_t</span> and <span class="mdr-math" data-tex="\Sigma_t" data-from="2063" data-to="2073">\Sigma_t</span> need to be stored</li>
+  <li data-from="2092" data-to="2183">Naturally forgets stale data, which is <em data-from="2133" data-to="2144">desirable</em> for the Kestrel's slowly drifting bias</li>
+</ul>
+<p data-from="2185" data-to="2199"><strong data-from="2185" data-to="2199">Weaknesses</strong></p>
+<ul data-from="2201" data-to="2566">
+  <li data-from="2201" data-to="2331">Choosing <span class="mdr-math" data-tex="\alpha" data-from="2212" data-to="2220">\alpha</span> is a fragile hyperparameter search; wrong choice can bias variance estimates by 15–20% in our synthetic trials</li>
+  <li data-from="2332" data-to="2460">Not a <em data-from="2340" data-to="2352">consistent</em> estimator of stationary covariance — it always carries some bias-variance tradeoff baked in by construction</li>
+  <li data-from="2461" data-to="2566">Sensitive to outliers, since a single large <span class="mdr-math" data-tex="x_t" data-from="2507" data-to="2512">x_t</span> can distort <span class="mdr-math" data-tex="\Sigma_t" data-from="2525" data-to="2535">\Sigma_t</span> for several subsequent samples</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="warning" data-from="2568" data-to="2848">
+  <div class="mdr-callout-title" data-from="2570" data-to="2580">
+    Warning
+  </div>
+  <p data-from="2583" data-to="2848">During the Aurelia-9 stress test, an <span class="mdr-math" data-tex="\alpha = 0.05" data-from="2620" data-to="2635">\alpha = 0.05</span> EMA tracker lost synchronization for <strong data-from="2673" data-to="2687">11 seconds</strong> after a simulated sensor glitch injected a single 40<span class="mdr-math" data-tex="\sigma" data-from="2740" data-to="2748">\sigma</span> outlier. Any deployment of Approach A must include a robust clipping or Huberization step upstream.</p>
+</blockquote>
+<hr data-from="2850" data-to="2853">
+<h2 id="3-approach-b-welford-generalized-incremental-covariance" data-from="2855" data-to="2916">3. Approach B — Welford-Generalized Incremental Covariance</h2>
+<p data-from="2918" data-to="3108">The classical <em data-from="2932" data-to="2941">Welford</em> algorithm for scalar variance generalizes cleanly to the matrix case. Maintaining a running mean <span class="mdr-math" data-tex="\mu_t" data-from="3039" data-to="3046">\mu_t</span> and an unnormalized scatter matrix <span class="mdr-math" data-tex="M_t" data-from="3082" data-to="3087">M_t</span>, the update rule is:</p>
+<pre class="mdr-code" data-lang="python" data-from="3110" data-to="3360"><code class="language-python" data-verbatim data-from="3120" data-to="3356">def welford_update(mean, M, n, x):
+    n += 1
+    delta = x - mean
+    mean += delta / n
+    delta2 = x - mean
+    M += outer(delta, delta2)
+    return mean, M, n
+
+def covariance(M, n):
+    return M / (n - 1) if n &gt; 1 else zeros_like(M)</code></pre>
+<p data-from="3362" data-to="3642">Here <code data-from="3367" data-to="3380">outer(a, b)</code> denotes the outer product <span class="mdr-math" data-tex="a b^\top" data-from="3407" data-to="3417">a b^\top</span>. This is <em data-from="3427" data-to="3449">numerically superior</em> to the naive sum-of-squares formula because it avoids catastrophic cancellation when <span class="mdr-math" data-tex="\mu_t" data-from="3535" data-to="3542">\mu_t</span> is large relative to the variance — a known failure mode we've hit before on the Aurelia-6 dataset.</p>
+<p data-from="3644" data-to="3944">Unlike Approach A, this is an <em data-from="3674" data-to="3691">unbiased, exact</em> running estimator of covariance over the entire observed history — every sample counts equally, with no forgetting. That is both its main asset and its main liability for our use case, since the Kestrel array genuinely experiences non-stationary drift.</p>
+<p data-from="3946" data-to="4091">A drift-aware variant introduces a sliding window of length <span class="mdr-math" data-tex="W" data-from="4006" data-to="4009">W</span>, discarding the oldest sample's contribution via a corresponding "downdate" rule:</p>
+<div class="mdr-math-block" data-tex="M_t^{(W)} = M_{t-1}^{(W)} + \frac{n}{n-1}\,\delta_t \delta_t^\top - \frac{n}{n-1}\,\delta_{t-W}\delta_{t-W}^\top" data-from="4093" data-to="4211">
+  M_t^{(W)} = M_{t-1}^{(W)} + \frac{n}{n-1}\,\delta_t \delta_t^\top - \frac{n}{n-1}\,\delta_{t-W}\delta_{t-W}^\top
+</div>
+<p data-from="4213" data-to="4364">where <span class="mdr-math" data-tex="\delta_t = x_t - \mu_t" data-from="4219" data-to="4243">\delta_t = x_t - \mu_t</span>. This restores the ability to track drift, at the cost of storing the last <span class="mdr-math" data-tex="W" data-from="4319" data-to="4322">W</span> raw samples — a <span class="mdr-math" data-tex="O(Wd)" data-from="4339" data-to="4346">O(Wd)</span> memory footprint.</p>
+<p data-from="4366" data-to="4406"><strong data-from="4366" data-to="4406">Task list for Approach B validation:</strong></p>
+<ul data-from="4408" data-to="4784">
+  <li class="mdr-task" data-from="4408" data-to="4488"><input type="checkbox" disabled checked data-from="4410" data-to="4413">Implement scalar Welford update and confirm against NumPy <code data-from="4472" data-to="4479">var()</code> baseline</li>
+  <li class="mdr-task" data-from="4489" data-to="4530"><input type="checkbox" disabled checked data-from="4491" data-to="4494">Generalize to matrix scatter update</li>
+  <li class="mdr-task" data-from="4531" data-to="4608"><input type="checkbox" disabled checked data-from="4533" data-to="4536">Verify numerical stability under large mean offset (<span class="mdr-math" data-tex="\mu \approx 10^6" data-from="4589" data-to="4607">\mu \approx 10^6</span>)</li>
+  <li class="mdr-task" data-from="4609" data-to="4648"><input type="checkbox" disabled checked data-from="4611" data-to="4614">Implement sliding-window downdate</li>
+  <li class="mdr-task" data-from="4649" data-to="4708"><input type="checkbox" disabled data-from="4651" data-to="4654">Profile downdate cost on Kestrel fixed-point hardware</li>
+  <li class="mdr-task" data-from="4709" data-to="4784"><input type="checkbox" disabled data-from="4711" data-to="4714">Stress-test under injected outliers (comparable to Approach A's test)</li>
+</ul>
+<p data-from="4786" data-to="5034">So far, results are <em data-from="4806" data-to="4817">promising</em>: the windowed Welford variant matched batch covariance to within <span class="mdr-math" data-tex="10^{-6}" data-from="4883" data-to="4892">10^{-6}</span> relative error on all synthetic trials completed to date, and it appears robust to the mean-shift pathologies that plague naive accumulation.</p>
+<hr data-from="5036" data-to="5039">
+<h2 id="4-approach-c-randomized-sketch-based-covariance" data-from="5041" data-to="5094">4. Approach C — Randomized Sketch-Based Covariance</h2>
+<p data-from="5096" data-to="5432">The third approach avoids materializing <span class="mdr-math" data-tex="\Sigma_t" data-from="5136" data-to="5146">\Sigma_t</span> at all. Instead we maintain a random projection <span class="mdr-math" data-tex="Y_t = x_t^\top S \in \mathbb{R}^{k}" data-from="5195" data-to="5232">Y_t = x_t^\top S \in \mathbb{R}^{k}</span>, where <span class="mdr-math" data-tex="S \in \mathbb{R}^{d \times k}" data-from="5240" data-to="5271">S \in \mathbb{R}^{d \times k}</span> is a fixed random Gaussian matrix with <span class="mdr-math" data-tex="k \ll d" data-from="5311" data-to="5320">k \ll d</span> (we used <span class="mdr-math" data-tex="k = 6" data-from="5330" data-to="5337">k = 6</span> for <span class="mdr-math" data-tex="d = 14" data-from="5342" data-to="5350">d = 14</span>). A rolling second-moment matrix is tracked in the reduced <span class="mdr-math" data-tex="k" data-from="5410" data-to="5413">k</span>-dimensional space:</p>
+<div class="mdr-math-block" data-tex="\Sigma_t \approx S \, \hat{\Sigma}^{(k)}_t \, S^\top, \qquad \hat{\Sigma}^{(k)}_t = \frac{1}{t}\sum_{i=1}^{t} y_i y_i^\top" data-from="5434" data-to="5562">
+  \Sigma_t \approx S \, \hat{\Sigma}^{(k)}_t \, S^\top, \qquad \hat{\Sigma}^{(k)}_t = \frac{1}{t}\sum_{i=1}^{t} y_i y_i^\top
+</div>
+<p data-from="5564" data-to="5879">By the Johnson–Lindenstrauss lemma, pairwise distances (and hence second-moment structure) are approximately preserved with high probability when <span class="mdr-math" data-tex="k = O(\varepsilon^{-2} \log d)" data-from="5710" data-to="5742">k = O(\varepsilon^{-2} \log d)</span>, though in practice we tuned <span class="mdr-math" data-tex="k" data-from="5772" data-to="5775">k</span> empirically rather than via the theoretical bound, which was overly conservative for our <span class="mdr-math" data-tex="d=14" data-from="5865" data-to="5871">d=14</span> regime.</p>
+<p data-from="5881" data-to="6426">This is attractive because the per-sample update cost drops from <span class="mdr-math" data-tex="O(d^2)" data-from="5946" data-to="5954">O(d^2)</span> to <span class="mdr-math" data-tex="O(dk + k^2)" data-from="5958" data-to="5971">O(dk + k^2)</span>, a meaningful savings when <span class="mdr-math" data-tex="d" data-from="5999" data-to="6002">d</span> grows (we anticipate a future Kestrel-II array with <span class="mdr-math" data-tex="d = 64" data-from="6055" data-to="6063">d = 64</span>). However, reconstructing the full <span class="mdr-math" data-tex="\Sigma_t" data-from="6099" data-to="6109">\Sigma_t</span> for downstream consumers (e.g., a Kalman filter expecting a full covariance) requires the projection-back step <span class="mdr-math" data-tex="S \hat\Sigma^{(k)}_t S^\top" data-from="6221" data-to="6250">S \hat\Sigma^{(k)}_t S^\top</span>, which reintroduces <span class="mdr-math" data-tex="O(d^2 k)" data-from="6271" data-to="6281">O(d^2 k)</span> cost whenever the full matrix is actually needed — so savings only materialize if downstream consumers can operate directly in the sketch space.</p>
+<p data-from="6428" data-to="6441"><strong data-from="6428" data-to="6441">Strengths</strong></p>
+<ul data-from="6443" data-to="6732">
+  <li data-from="6443" data-to="6498">Scales gracefully to high-dimensional future hardware</li>
+  <li data-from="6499" data-to="6585">Memory footprint is <span class="mdr-math" data-tex="O(k^2)" data-from="6521" data-to="6529">O(k^2)</span> instead of <span class="mdr-math" data-tex="O(d^2)" data-from="6541" data-to="6549">O(d^2)</span> — a genuine win once <span class="mdr-math" data-tex="d &gt; 40" data-from="6571" data-to="6579">d &gt; 40</span> or so</li>
+  <li data-from="6586" data-to="6732"><mark data-from="6588" data-to="6646">Naturally regularizes against small-sample overfitting</mark> in the early "burn-in" period, since <span class="mdr-math" data-tex="\hat\Sigma^{(k)}" data-from="6684" data-to="6702">\hat\Sigma^{(k)}</span> has far fewer free parameters</li>
+</ul>
+<p data-from="6734" data-to="6748"><strong data-from="6734" data-to="6748">Weaknesses</strong></p>
+<ul data-from="6750" data-to="7146">
+  <li data-from="6750" data-to="6903">Introduces irreducible approximation error even at convergence — measured empirically around 6–9% relative Frobenius error for <span class="mdr-math" data-tex="k=6, d=14" data-from="6879" data-to="6890">k=6, d=14</span> on Aurelia-9</li>
+  <li data-from="6904" data-to="7035">Reconstructed covariance is <em data-from="6934" data-to="6955">low-rank plus noise</em>, not full-rank, which can confuse consumers expecting a well-conditioned matrix</li>
+  <li data-from="7036" data-to="7146">Debugging is harder: errors are diffuse across the projection rather than attributable to a specific channel</li>
+</ul>
+<blockquote class="mdr-callout" data-callout="note" data-from="7148" data-to="7445">
+  <div class="mdr-callout-title" data-from="7150" data-to="7157">
+    Note
+  </div>
+  <p data-from="7160" data-to="7445">For the current Kestrel-I hardware (<span class="mdr-math" data-tex="d=14" data-from="7196" data-to="7202">d=14</span>), the sketch-based approach is <em data-from="7234" data-to="7239">not</em> clearly justified — the dimensionality is too low for the asymptotic memory/compute wins to outweigh the approximation error. It becomes attractive primarily as a <strong data-from="7403" data-to="7422">forward-looking</strong> option for Kestrel-II.</p>
+</blockquote>
+<hr data-from="7447" data-to="7450">
+<h2 id="5-summary-comparison" data-from="7452" data-to="7476">5. Summary Comparison</h2>
+<div class="mdr-table-wrap" data-from="7478" data-to="8003">
+  <table data-from="7478" data-to="8003">
+    <thead data-from="7478" data-to="7540">
+      <tr data-from="7478" data-to="7540">
+        <th data-from="7480" data-to="7489">Criterion</th>
+        <th data-from="7492" data-to="7498">A: EMA</th>
+        <th data-from="7501" data-to="7520">B: Windowed Welford</th>
+        <th data-from="7523" data-to="7538">C: Sketch-based</th>
+      </tr>
+    </thead>
+    <tbody data-from="7559" data-to="8003">
+      <tr data-from="7559" data-to="7653">
+        <td data-from="7561" data-to="7579">Compute per sample</td>
+        <td data-from="7582" data-to="7609"><span class="mdr-math" data-tex="O(d^2)" data-from="7582" data-to="7590">O(d^2)</span>, very low constant</td>
+        <td data-from="7612" data-to="7637"><span class="mdr-math" data-tex="O(d^2)" data-from="7612" data-to="7620">O(d^2)</span>, higher constant</td>
+        <td data-from="7640" data-to="7651"><span class="mdr-math" data-tex="O(dk+k^2)" data-from="7640" data-to="7651">O(dk+k^2)</span></td>
+      </tr>
+      <tr data-from="7654" data-to="7702">
+        <td data-from="7656" data-to="7662">Memory</td>
+        <td data-from="7665" data-to="7673"><span class="mdr-math" data-tex="O(d^2)" data-from="7665" data-to="7673">O(d^2)</span></td>
+        <td data-from="7676" data-to="7689"><span class="mdr-math" data-tex="O(d^2 + Wd)" data-from="7676" data-to="7689">O(d^2 + Wd)</span></td>
+        <td data-from="7692" data-to="7700"><span class="mdr-math" data-tex="O(k^2)" data-from="7692" data-to="7700">O(k^2)</span></td>
+      </tr>
+      <tr data-from="7703" data-to="7780">
+        <td data-from="7705" data-to="7719">Drift tracking</td>
+        <td data-from="7722" data-to="7737">native, tunable</td>
+        <td data-from="7740" data-to="7754">via window <span class="mdr-math" data-tex="W" data-from="7751" data-to="7754">W</span></td>
+        <td data-from="7757" data-to="7778">via window (untested)</td>
+      </tr>
+      <tr data-from="7781" data-to="7852">
+        <td data-from="7783" data-to="7802">Numerical stability</td>
+        <td data-from="7805" data-to="7813">moderate</td>
+        <td data-from="7816" data-to="7824"><em data-from="7816" data-to="7824">strong</em></td>
+        <td data-from="7827" data-to="7850">strong (bounded by <span class="mdr-math" data-tex="k" data-from="7846" data-to="7849">k</span>)</td>
+      </tr>
+      <tr data-from="7853" data-to="7905">
+        <td data-from="7855" data-to="7874">Outlier sensitivity</td>
+        <td data-from="7877" data-to="7881">high</td>
+        <td data-from="7884" data-to="7892">moderate</td>
+        <td data-from="7895" data-to="7903">moderate</td>
+      </tr>
+      <tr data-from="7906" data-to="8003">
+        <td data-from="7908" data-to="7923">Best suited for</td>
+        <td data-from="7926" data-to="7943">quick prototyping</td>
+        <td data-from="7946" data-to="7974">current Kestrel-I deployment</td>
+        <td data-from="7977" data-to="8001">future high-<span class="mdr-math" data-tex="d" data-from="7989" data-to="7992">d</span> hardware</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p data-from="8005" data-to="8434"><strong data-from="8005" data-to="8024">Recommendation:</strong> adopt Approach B (windowed Welford) as the production candidate for the Kestrel-I deployment, pending completion of the outstanding profiling and outlier-robustness tasks above. Approach C should remain an active research thread for the Kestrel-II design cycle, and Approach A should be retained only as a lightweight fallback for contexts where compute is more constrained than the 40 μs budget assumed here.</p>

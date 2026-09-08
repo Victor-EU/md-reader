@@ -1,0 +1,255 @@
+<h1 id="research-notes-caching-strategies-for-real-time-data-processing" data-from="0" data-to="66">Research Notes: Caching Strategies for Real-Time Data Processing</h1>
+<h2 id="overview" data-from="68" data-to="79">Overview</h2>
+<p data-from="81" data-to="429">This document compares three distinct approaches to managing cache coherency in distributed systems processing real-time telemetry data. Our team at DataFlow Systems has been investigating optimal solutions for our time-series analytics platform, which currently handles approximately 2.3 million data points per second across 47 regional clusters.</p>
+<h2 id="problem-statement" data-from="431" data-to="451">Problem Statement</h2>
+<p data-from="453" data-to="556">Our primary challenge involves maintaining data consistency while minimizing latency in a system where:</p>
+<ul data-from="558" data-to="871">
+  <li data-from="558" data-to="624">Multiple microservices request identical datasets simultaneously</li>
+  <li data-from="625" data-to="728">Data freshness requirements vary by consumer (ranging from sub-100ms to 5-minute staleness tolerance)</li>
+  <li data-from="729" data-to="788">Network bandwidth constraints limit broadcast replication</li>
+  <li data-from="789" data-to="871">Computational costs increase with cache misses beyond threshold value <span class="mdr-math" data-tex="t &gt; 0.15" data-from="861" data-to="871">t &gt; 0.15</span></li>
+</ul>
+<p data-from="873" data-to="955">The mathematical relationship governing our system efficiency can be expressed as:</p>
+<div class="mdr-math-block" data-tex="E = \frac{H \cdot w_h + (1-H) \cdot (-w_m)}{C_{network} + C_{compute}}" data-from="957" data-to="1031">
+  E = \frac{H \cdot w_h + (1-H) \cdot (-w_m)}{C_{network} + C_{compute}}
+</div>
+<p data-from="1033" data-to="1194">where <span class="mdr-math" data-tex="E" data-from="1039" data-to="1042">E</span> represents efficiency, <span class="mdr-math" data-tex="H" data-from="1066" data-to="1069">H</span> is cache hit ratio, <span class="mdr-math" data-tex="w_h" data-from="1090" data-to="1095">w_h</span> and <span class="mdr-math" data-tex="w_m" data-from="1100" data-to="1105">w_m</span> are weights for hits and misses respectively, and <span class="mdr-math" data-tex="C" data-from="1156" data-to="1159">C</span> values represent associated costs.</p>
+<h2 id="approach-1-write-through-invalidation-wti" data-from="1196" data-to="1243">Approach 1: Write-Through Invalidation (WTI)</h2>
+<h3 id="description" data-from="1245" data-to="1260">Description</h3>
+<p data-from="1262" data-to="1430">The Write-Through Invalidation strategy implements immediate cache invalidation upon any data modification. When a producer service updates a record, it simultaneously:</p>
+<ol data-from="1432" data-to="1595">
+  <li data-from="1432" data-to="1467">Persists data to primary storage</li>
+  <li data-from="1468" data-to="1528">Broadcasts invalidation messages to all known cache nodes</li>
+  <li data-from="1529" data-to="1595">Waits for acknowledgment before returning control to the caller</li>
+</ol>
+<h3 id="implementation-details" data-from="1597" data-to="1623">Implementation Details</h3>
+<p data-from="1625" data-to="1795">This approach uses a publish-subscribe model where invalidation messages are prioritized in the message queue. Our prototype implementation used the following core logic:</p>
+<pre class="mdr-code" data-lang="python" data-from="1797" data-to="2738"><code class="language-python" data-verbatim data-from="1807" data-to="2734">class WriteThroughCache:
+    def __init__(self, ttl_seconds=300):
+        self.cache_store = {}
+        self.ttl_seconds = ttl_seconds
+        self.invalidation_channel = RedisChannel("cache.invalidate")
+    
+    def write_and_invalidate(self, key, value, affected_keys):
+        try:
+            self._persist_to_storage(key, value)
+            invalidation_msg = {
+                "timestamp": time.time(),
+                "keys": affected_keys,
+                "source": self.node_id
+            }
+            self.invalidation_channel.publish(invalidation_msg)
+            self._wait_for_acks(affected_keys, timeout=5.0)
+        except TimeoutError:
+            self._log_partial_invalidation(key, affected_keys)
+    
+    def get(self, key):
+        if key in self.cache_store:
+            return self.cache_store[key]
+        value = self._fetch_from_storage(key)
+        self.cache_store[key] = value
+        return value</code></pre>
+<h3 id="advantages" data-from="2740" data-to="2754">Advantages</h3>
+<ul data-from="2756" data-to="2972">
+  <li data-from="2756" data-to="2810">Guarantees strong consistency across all cache nodes</li>
+  <li data-from="2811" data-to="2863">Simpler debugging and reasoning about system state</li>
+  <li data-from="2864" data-to="2926">Eliminates stale data issues that plague distributed systems</li>
+  <li data-from="2927" data-to="2972">Well-understood operational characteristics</li>
+</ul>
+<h3 id="disadvantages" data-from="2974" data-to="2991">Disadvantages</h3>
+<ul data-from="2993" data-to="3237">
+  <li data-from="2993" data-to="3047">Increased latency due to acknowledgment requirements</li>
+  <li data-from="3048" data-to="3110">Network overhead scales linearly with invalidation frequency</li>
+  <li data-from="3111" data-to="3180">Vulnerable to acknowledgment failures causing partial inconsistency</li>
+  <li data-from="3181" data-to="3237">Resource-intensive for high-frequency update workloads</li>
+</ul>
+<h2 id="approach-2-time-based-expiration-with-lazy-updates-tbeu" data-from="3239" data-to="3300">Approach 2: Time-Based Expiration with Lazy Updates (TBEU)</h2>
+<h3 id="description-1" data-from="3302" data-to="3317">Description</h3>
+<p data-from="3319" data-to="3609">Rather than active invalidation, the TBEU strategy assigns time-to-live (TTL) values to cached entries. Each cache entry becomes automatically invalid after expiration, and clients refetch from source on subsequent access. This passive approach eliminates coordinated invalidation entirely.</p>
+<h3 id="key-features" data-from="3611" data-to="3627">Key Features</h3>
+<p data-from="3629" data-to="3678">The TBEU method incorporates several refinements:</p>
+<ul data-from="3680" data-to="4707">
+  <li data-from="3680" data-to="3970"><p data-from="3682" data-to="3772"><strong data-from="3682" data-to="3709">Adaptive TTL Assignment</strong>: TTL values adjust based on observed update frequency patterns</p><ul data-from="3775" data-to="3970">
+      <li data-from="3775" data-to="3813">Base TTL: <span class="mdr-math" data-tex="TTL_{base} = 120" data-from="3787" data-to="3805">TTL_{base} = 120</span> seconds</li>
+      <li data-from="3816" data-to="3916">Adjustment factor: <span class="mdr-math" data-tex="TTL_{adaptive} = TTL_{base} \cdot \left(1 + \frac{1}{update\_rate + 1}\right)" data-from="3837" data-to="3916">TTL_{adaptive} = TTL_{base} \cdot \left(1 + \frac{1}{update\_rate + 1}\right)</span></li>
+      <li data-from="3919" data-to="3970">Minimum TTL: 30 seconds, Maximum TTL: 600 seconds</li>
+    </ul></li>
+  <li data-from="3972" data-to="4707"><p data-from="3974" data-to="4011"><strong data-from="3974" data-to="4010">Hierarchical expiration tracking</strong>:</p><ol data-from="4014" data-to="4707">
+      <li data-from="4014" data-to="4194">Global TTL registry<ul data-from="4042" data-to="4194">
+          <li data-from="4042" data-to="4086">Maintains cluster-wide expiration schedule</li>
+          <li data-from="4092" data-to="4143">Processes expirations in batches every 10 seconds</li>
+          <li data-from="4149" data-to="4194">Synchronizes with authoritative time source</li>
+        </ul></li>
+      <li data-from="4197" data-to="4499">Node-local cache layers<ul data-from="4229" data-to="4499">
+          <li data-from="4229" data-to="4447">Application-level cache with aggressive eviction<ul data-from="4287" data-to="4447">
+              <li data-from="4287" data-to="4337">Implements LRU (Least Recently Used) replacement</li>
+              <li data-from="4345" data-to="4390">Target utilization: 85% of available memory</li>
+              <li data-from="4398" data-to="4447">Eviction triggers background garbage collection</li>
+            </ul></li>
+          <li data-from="4453" data-to="4499">System-level cache with permissive retention</li>
+        </ul></li>
+      <li data-from="4502" data-to="4707">Distributed consistency checkpoints<ul data-from="4546" data-to="4707">
+          <li data-from="4546" data-to="4593">Periodic verification against source of truth</li>
+          <li data-from="4599" data-to="4658">Triggered when staleness threshold <span class="mdr-math" data-tex="s &gt; 0.08" data-from="4636" data-to="4646">s &gt; 0.08</span> is exceeded</li>
+          <li data-from="4664" data-to="4707">Corrective refetches populate local cache</li>
+        </ul></li>
+    </ol></li>
+</ul>
+<h3 id="prototype-code" data-from="4709" data-to="4727">Prototype Code</h3>
+<pre class="mdr-code" data-lang="javascript" data-from="4729" data-to="5933"><code class="language-javascript" data-verbatim data-from="4743" data-to="5929">class TimeBasedExpirationCache {
+    constructor(baseGcInterval = 10000) {
+        this.cache = new Map();
+        this.expirationTimes = new Map();
+        this.baseGcInterval = baseGcInterval;
+        this.startGarbageCollection();
+    }
+    
+    set(key, value, ttlSeconds) {
+        const expirationTime = Date.now() + (ttlSeconds * 1000);
+        this.cache.set(key, value);
+        this.expirationTimes.set(key, expirationTime);
+    }
+    
+    get(key) {
+        if (!this.cache.has(key)) {
+            return null;
+        }
+        
+        const expirationTime = this.expirationTimes.get(key);
+        if (Date.now() &gt; expirationTime) {
+            this.cache.delete(key);
+            this.expirationTimes.delete(key);
+            return null;
+        }
+        
+        return this.cache.get(key);
+    }
+    
+    startGarbageCollection() {
+        setInterval(() =&gt; {
+            const now = Date.now();
+            for (const [key, expTime] of this.expirationTimes) {
+                if (now &gt; expTime) {
+                    this.cache.delete(key);
+                    this.expirationTimes.delete(key);
+                }
+            }
+        }, this.baseGcInterval);
+    }
+}</code></pre>
+<h3 id="advantages-1" data-from="5935" data-to="5949">Advantages</h3>
+<ul data-from="5951" data-to="6160">
+  <li data-from="5951" data-to="6007">Minimal network overhead with no coordination messages</li>
+  <li data-from="6008" data-to="6044">Dramatically reduced write latency</li>
+  <li data-from="6045" data-to="6119">Elegant handling of node failures (no acknowledgment mechanism required)</li>
+  <li data-from="6120" data-to="6160">Scales well to hundreds of cache nodes</li>
+</ul>
+<h3 id="disadvantages-1" data-from="6162" data-to="6179">Disadvantages</h3>
+<ul data-from="6181" data-to="6446">
+  <li data-from="6181" data-to="6225">Temporary data inconsistency is inevitable</li>
+  <li data-from="6226" data-to="6287">Difficult to control maximum staleness across all consumers</li>
+  <li data-from="6288" data-to="6366">Cold starts generate traffic spikes when cache entries expire simultaneously</li>
+  <li data-from="6367" data-to="6446">Requires careful TTL tuning; suboptimal values harm performance significantly</li>
+</ul>
+<h2 id="approach-3-event-driven-conditional-propagation-edcp" data-from="6448" data-to="6506">Approach 3: Event-Driven Conditional Propagation (EDCP)</h2>
+<h3 id="description-2" data-from="6508" data-to="6523">Description</h3>
+<p data-from="6525" data-to="6767">The EDCP strategy combines selective invalidation with time-based fallback mechanisms. Updates are propagated only when they exceed a significance threshold, and clients track which events they've already processed to avoid duplicate updates.</p>
+<h2 id="comparative-analysis" data-from="6769" data-to="6792">Comparative Analysis</h2>
+<div class="mdr-table-wrap" data-from="6794" data-to="7292">
+  <table data-from="6794" data-to="7292">
+    <thead data-from="6794" data-to="6832">
+      <tr data-from="6794" data-to="6832">
+        <th data-from="6796" data-to="6810">Characteristic</th>
+        <th data-from="6813" data-to="6816">WTI</th>
+        <th data-from="6819" data-to="6823">TBEU</th>
+        <th data-from="6826" data-to="6830">EDCP</th>
+      </tr>
+    </thead>
+    <tbody data-from="6851" data-to="7292">
+      <tr data-from="6851" data-to="6921">
+        <td data-from="6853" data-to="6878"><strong data-from="6853" data-to="6878">Consistency Guarantee</strong></td>
+        <td data-from="6881" data-to="6887">Strong</td>
+        <td data-from="6890" data-to="6898">Eventual</td>
+        <td data-from="6901" data-to="6919">Strong with window</td>
+      </tr>
+      <tr data-from="6922" data-to="6982">
+        <td data-from="6924" data-to="6950"><strong data-from="6924" data-to="6950">Maximum Staleness (ms)</strong></td>
+        <td data-from="6953" data-to="6956">&lt;10</td>
+        <td data-from="6959" data-to="6973">30,000–600,000</td>
+        <td data-from="6976" data-to="6980">&lt;500</td>
+      </tr>
+      <tr data-from="6983" data-to="7034">
+        <td data-from="6985" data-to="7008"><strong data-from="6985" data-to="7008">Write Latency (p99)</strong></td>
+        <td data-from="7011" data-to="7017">145 ms</td>
+        <td data-from="7020" data-to="7024">8 ms</td>
+        <td data-from="7027" data-to="7032">22 ms</td>
+      </tr>
+      <tr data-from="7035" data-to="7083">
+        <td data-from="7037" data-to="7065"><strong data-from="7037" data-to="7065">Network Bandwidth (MB/s)</strong></td>
+        <td data-from="7068" data-to="7071">340</td>
+        <td data-from="7074" data-to="7076">12</td>
+        <td data-from="7079" data-to="7081">78</td>
+      </tr>
+      <tr data-from="7084" data-to="7136">
+        <td data-from="7086" data-to="7112"><strong data-from="7086" data-to="7112">Operational Complexity</strong></td>
+        <td data-from="7115" data-to="7121">Medium</td>
+        <td data-from="7124" data-to="7127">Low</td>
+        <td data-from="7130" data-to="7134">High</td>
+      </tr>
+      <tr data-from="7137" data-to="7208">
+        <td data-from="7139" data-to="7164"><strong data-from="7139" data-to="7164">Failure Recovery Time</strong></td>
+        <td data-from="7167" data-to="7179">8–15 seconds</td>
+        <td data-from="7182" data-to="7191">Automatic</td>
+        <td data-from="7194" data-to="7206">5–10 seconds</td>
+      </tr>
+      <tr data-from="7209" data-to="7292">
+        <td data-from="7211" data-to="7228"><strong data-from="7211" data-to="7228">Best Use Case</strong></td>
+        <td data-from="7231" data-to="7253">Financial transactions</td>
+        <td data-from="7256" data-to="7271">Sensor readings</td>
+        <td data-from="7274" data-to="7290">User preferences</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="experimental-results-summary" data-from="7294" data-to="7325">Experimental Results Summary</h2>
+<p data-from="7327" data-to="7448">Our testing evaluated each approach under realistic production load using the DataFlow telemetry simulator. Key findings:</p>
+<h3 id="latency-performance" data-from="7450" data-to="7473">Latency Performance</h3>
+<ul data-from="7475" data-to="7742">
+  <li data-from="7475" data-to="7562"><strong data-from="7477" data-to="7484">WTI</strong>: 145ms average write latency; 95th percentile reaches 310ms during peak hours</li>
+  <li data-from="7563" data-to="7648"><strong data-from="7565" data-to="7573">TBEU</strong>: 8ms average; 18ms at 95th percentile; no performance degradation observed</li>
+  <li data-from="7649" data-to="7742"><strong data-from="7651" data-to="7659">EDCP</strong>: 22ms average; scales linearly with data change frequency; 64ms at 95th percentile</li>
+</ul>
+<h3 id="consistency-metrics" data-from="7744" data-to="7767">Consistency Metrics</h3>
+<p data-from="7769" data-to="7822">Under network partition simulation lasting 5 seconds:</p>
+<ul data-from="7823" data-to="8004">
+  <li data-from="7823" data-to="7861">WTI: 100% consistency after recovery</li>
+  <li data-from="7862" data-to="7936">TBEU: Maximum 600-second stale reads; 87% of queries returned fresh data</li>
+  <li data-from="7937" data-to="8004">EDCP: Maximum 480-millisecond stale reads; 99.4% fresh query rate</li>
+</ul>
+<h3 id="resource-consumption" data-from="8006" data-to="8030">Resource Consumption</h3>
+<p data-from="8032" data-to="8082">Testing on 16-node cluster with 500GB total cache:</p>
+<ul data-from="8083" data-to="8254">
+  <li data-from="8083" data-to="8143">WTI consumed 24% additional bandwidth compared to baseline</li>
+  <li data-from="8144" data-to="8205">TBEU reduced bandwidth by 94% against invalidation approach</li>
+  <li data-from="8206" data-to="8254">EDCP balanced approach used 31% above baseline</li>
+</ul>
+<h2 id="recommendation" data-from="8256" data-to="8273">Recommendation</h2>
+<p data-from="8275" data-to="8345">For DataFlow's telemetry platform, we recommend <strong data-from="8323" data-to="8344">hybrid deployment</strong>:</p>
+<ol data-from="8347" data-to="8991">
+  <li data-from="8347" data-to="8552"><p data-from="8350" data-to="8421"><strong data-from="8350" data-to="8366">Primary tier</strong>: TBEU for general-purpose sensor data (90% of traffic)</p><ul data-from="8425" data-to="8552">
+      <li data-from="8425" data-to="8453">Tolerates higher staleness</li>
+      <li data-from="8457" data-to="8493">Consumes minimal network resources</li>
+      <li data-from="8497" data-to="8552">Operational simplicity reduces incident response time</li>
+    </ul></li>
+  <li data-from="8554" data-to="8769"><p data-from="8557" data-to="8624"><strong data-from="8557" data-to="8575">Secondary tier</strong>: EDCP for user-facing dashboards (8% of traffic)</p><ul data-from="8628" data-to="8769">
+      <li data-from="8628" data-to="8666">Balances consistency and performance</li>
+      <li data-from="8670" data-to="8719">Event filtering reduces unnecessary propagation</li>
+      <li data-from="8723" data-to="8769">Scales to accommodate dashboard interactions</li>
+    </ul></li>
+  <li data-from="8771" data-to="8991"><p data-from="8774" data-to="8837"><strong data-from="8774" data-to="8791">Tertiary tier</strong>: WTI for restricted analytics (2% of traffic)</p><ul data-from="8841" data-to="8991">
+      <li data-from="8841" data-to="8894">Financial calculations requiring strong consistency</li>
+      <li data-from="8898" data-to="8934">Regulatory compliance requirements</li>
+      <li data-from="8938" data-to="8991">Accept latency penalties for correctness guarantees</li>
+    </ul></li>
+</ol>
+<p data-from="8993" data-to="9277">This strategy allocates resources efficiently while meeting distinct consistency requirements of different consumer classes. The approach anticipates future scaling to 150 million data points per second with projected 12% infrastructure cost reduction compared to pure WTI deployment.</p>

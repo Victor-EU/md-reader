@@ -1,0 +1,119 @@
+<h1 id="research-notes-duplicate-suppression-at-ingest-project-marlin" data-from="0" data-to="67">Research Notes — Duplicate Suppression at Ingest (Project Marlin)</h1>
+<p data-from="69" data-to="222"><strong data-from="69" data-to="80">Author:</strong> D. Ferreira-Lang
+<strong data-from="98" data-to="112">Reviewers:</strong> R. Okonjo, L. Vandersteen
+<strong data-from="139" data-to="150">Doc ID:</strong> MRL-NOTE-0142 · Revision 3
+<strong data-from="178" data-to="189">Status:</strong> Draft for design review, cycle 7</p>
+<h2 id="problem-statement" data-from="224" data-to="244">Problem statement</h2>
+<p data-from="246" data-to="598">The Marlin ingest tier receives telemetry from roughly 62,000 edge agents. Agents retry aggressively on any non-2xx response, and our load balancer occasionally replays a request after a backend timeout. Measured duplicate rate over a two-week capture window was <strong data-from="509" data-to="517">2.7%</strong> of all events, spiking to <strong data-from="544" data-to="553">11.4%</strong> during the regional failover drill on day 9.</p>
+<p data-from="600" data-to="865">Downstream billing aggregation is not idempotent. Our target is to suppress duplicates before the aggregation stage, at sustained <strong data-from="730" data-to="752">480,000 events/sec</strong> with a p99 added latency budget of <strong data-from="788" data-to="796">8 ms</strong> and a false-suppression (data loss) ceiling of <strong data-from="844" data-to="857">1 in 10^9</strong> events.</p>
+<p data-from="867" data-to="959">Three candidate approaches were prototyped in the <code data-from="917" data-to="936">marlin-dedupe-lab</code> harness. Notes follow.</p>
+<hr data-from="961" data-to="964">
+<h2 id="approach-a-sharded-in-memory-bloom-filters" data-from="966" data-to="1013">Approach A — Sharded in-memory Bloom filters</h2>
+<p data-from="1015" data-to="1206">Each ingest node keeps a rotating pair of Bloom filters covering a 10-minute window. Event IDs hash to a shard by consistent hashing; shards are pinned to cores to avoid cross-socket traffic.</p>
+<p data-from="1208" data-to="1309"><strong data-from="1208" data-to="1221">Measured:</strong> 41 ns median lookup, 1.9 GB resident per node at a 0.4% configured false-positive rate.</p>
+<p data-from="1311" data-to="1321"><strong data-from="1311" data-to="1321">Notes:</strong></p>
+<ul data-from="1323" data-to="1821">
+  <li data-from="1323" data-to="1363">Fastest of the three by a wide margin.</li>
+  <li data-from="1364" data-to="1587">False positives mean <em data-from="1387" data-to="1405">silent data loss</em>, which is the wrong direction for billing. A 0.4% FPR is catastrophic here; getting to 10^-9 inflates memory to roughly 6.8 GB per node, which exceeds our container ceiling of 4 GB.</li>
+  <li data-from="1588" data-to="1821">No cross-node coordination, so a duplicate that lands on a different ingest node is not caught. During the failover drill, agent reconnects redistributed traffic and cross-node duplicates rose to an estimated 38% of all duplicates.</li>
+</ul>
+<h2 id="approach-b-durable-key-value-ledger-with-ttl" data-from="1823" data-to="1872">Approach B — Durable key-value ledger with TTL</h2>
+<p data-from="1874" data-to="2065">A dedicated cluster (working name <strong data-from="1908" data-to="1919">Kestrel</strong>) stores <code data-from="1928" data-to="1957">event_id → ingest_timestamp</code> with a 30-minute TTL. Ingest nodes perform a conditional insert; a rejected insert means "duplicate, drop."</p>
+<p data-from="2067" data-to="2212"><strong data-from="2067" data-to="2080">Measured:</strong> p50 1.4 ms, p99 6.1 ms at 480k ops/sec across 12 Kestrel nodes. No false suppressions observed across 4.1 billion synthetic events.</p>
+<pre class="mdr-code" data-lang="python" data-from="2214" data-to="2785"><code class="language-python" data-verbatim data-from="2224" data-to="2781"># harness/kestrel_probe.py — conditional-insert path under test
+def admit(event, ledger, ttl_seconds=1800):
+    key = f"mrl:{event.tenant}:{event.event_id}"
+    inserted = ledger.set_if_absent(key, event.ingest_ts, ttl=ttl_seconds)
+    if inserted:
+        return Verdict.ADMIT
+    prior_ts = ledger.get(key)
+    drift = abs(event.ingest_ts - prior_ts)
+    if drift &gt; ttl_seconds:
+        # Clock skew or TTL boundary; fail open and let the
+        # downstream reconciler resolve it out of band.
+        return Verdict.ADMIT_FLAGGED
+    return Verdict.DROP</code></pre>
+<p data-from="2787" data-to="3036">The <code data-from="2791" data-to="2806">ADMIT_FLAGGED</code> escape hatch matters. In the drift experiments, 1 in 220,000 events landed within 40 ms of its own TTL expiry; failing open there is cheaper than failing closed, because the reconciler is already required for the cold-start case.</p>
+<p data-from="3038" data-to="3048"><strong data-from="3038" data-to="3048">Notes:</strong></p>
+<ul data-from="3050" data-to="3321">
+  <li data-from="3050" data-to="3213">Meets the correctness bar, but adds a hard dependency on a stateful cluster during ingest. If Kestrel is down, we either drop traffic or disable dedupe entirely.</li>
+  <li data-from="3214" data-to="3321">Cost estimate: <strong data-from="3231" data-to="3248">$14,800/month</strong> for the 12-node cluster at current pricing, before replication overhead.</li>
+</ul>
+<h2 id="approach-c-deterministic-windowed-sort-merge" data-from="3323" data-to="3372">Approach C — Deterministic windowed sort-merge</h2>
+<p data-from="3374" data-to="3581">Skip online dedupe. Partition the stream by <code data-from="3418" data-to="3428">event_id</code> hash into 256 partitions, buffer each partition for a 90-second tumbling window, sort by <code data-from="3518" data-to="3541">(event_id, ingest_ts)</code>, and emit the first occurrence per key.</p>
+<p data-from="3583" data-to="3784"><strong data-from="3583" data-to="3596">Measured:</strong> throughput was never the constraint — the harness sustained 710k events/sec. Added latency is bounded by the window: <strong data-from="3714" data-to="3726">90 s p99</strong>, which blows the 8 ms budget by four orders of magnitude.</p>
+<p data-from="3786" data-to="3796"><strong data-from="3786" data-to="3796">Notes:</strong></p>
+<ul data-from="3798" data-to="4153">
+  <li data-from="3798" data-to="3922">Correctness is exact within the window, and the implementation is stateless between windows, which makes recovery trivial.</li>
+  <li data-from="3923" data-to="4027">Only viable if we accept that billing aggregation is a batch consumer. Product has not agreed to that.</li>
+  <li data-from="4028" data-to="4153">Worth revisiting if the latency requirement is ever renegotiated; it is by far the cheapest to operate at <strong data-from="4136" data-to="4152">$2,100/month</strong>.</li>
+</ul>
+<hr data-from="4155" data-to="4158">
+<h2 id="comparison-summary" data-from="4160" data-to="4181">Comparison summary</h2>
+<div class="mdr-table-wrap" data-from="4183" data-to="4453">
+  <table data-from="4183" data-to="4453">
+    <thead data-from="4183" data-to="4267">
+      <tr data-from="4183" data-to="4267">
+        <th data-from="4185" data-to="4193">Approach</th>
+        <th data-from="4196" data-to="4213">p99 added latency</th>
+        <th data-from="4216" data-to="4225">Loss risk</th>
+        <th data-from="4228" data-to="4240">Monthly cost</th>
+        <th data-from="4243" data-to="4265">Cross-node correctness</th>
+      </tr>
+    </thead>
+    <tbody data-from="4290" data-to="4453">
+      <tr data-from="4290" data-to="4332">
+        <td data-from="4292" data-to="4301">A — Bloom</td>
+        <td data-from="4304" data-to="4311">0.04 ms</td>
+        <td data-from="4314" data-to="4318">High</td>
+        <td data-from="4321" data-to="4325">$900</td>
+        <td data-from="4328" data-to="4330">No</td>
+      </tr>
+      <tr data-from="4333" data-to="4393">
+        <td data-from="4335" data-to="4353">B — Kestrel ledger</td>
+        <td data-from="4356" data-to="4362">6.1 ms</td>
+        <td data-from="4365" data-to="4375">Negligible</td>
+        <td data-from="4378" data-to="4385">$14,800</td>
+        <td data-from="4388" data-to="4391">Yes</td>
+      </tr>
+      <tr data-from="4394" data-to="4453">
+        <td data-from="4396" data-to="4410">C — Sort-merge</td>
+        <td data-from="4413" data-to="4417">90 s</td>
+        <td data-from="4420" data-to="4436">None (in-window)</td>
+        <td data-from="4439" data-to="4445">$2,100</td>
+        <td data-from="4448" data-to="4451">Yes</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h2 id="open-questions" data-from="4455" data-to="4472">Open questions</h2>
+<ul data-from="4474" data-to="4738">
+  <li data-from="4474" data-to="4640">Can Kestrel replication be reduced from 3x to 2x given the TTL is only 30 minutes? Preliminary answer from R. Okonjo: probably, if we accept fail-open on node loss.</li>
+  <li data-from="4641" data-to="4738">Does the reconciler's current throughput (~90k events/sec) cover the worst-case flagged volume?</li>
+</ul>
+<h2 id="next-steps" data-from="4740" data-to="4753">Next steps</h2>
+<ul data-from="4755" data-to="5559">
+  <li class="mdr-task" data-from="4755" data-to="4828"><input type="checkbox" disabled checked data-from="4757" data-to="4760">Build the <code data-from="4771" data-to="4790">marlin-dedupe-lab</code> harness with replayable capture files</li>
+  <li class="mdr-task" data-from="4829" data-to="4879"><input type="checkbox" disabled checked data-from="4831" data-to="4834">Measure baseline duplicate rate over 14 days</li>
+  <li class="mdr-task" data-from="4880" data-to="4944"><input type="checkbox" disabled checked data-from="4882" data-to="4885">Prototype all three approaches against the 480k/sec target</li>
+  <li class="mdr-task" data-from="4945" data-to="5026"><input type="checkbox" disabled checked data-from="4947" data-to="4950">Confirm Approach A cannot reach the 10^-9 loss ceiling within memory budget</li>
+  <li class="mdr-task" data-from="5027" data-to="5157"><input type="checkbox" disabled data-from="5029" data-to="5032">Run Approach B under simulated Kestrel partial outage<ul data-from="5089" data-to="5157">
+      <li class="mdr-task" data-from="5089" data-to="5111"><input type="checkbox" disabled data-from="5091" data-to="5094">Single-node loss</li>
+      <li class="mdr-task" data-from="5114" data-to="5157"><input type="checkbox" disabled data-from="5116" data-to="5119">Split-brain across availability zones</li>
+    </ul></li>
+  <li class="mdr-task" data-from="5158" data-to="5204"><input type="checkbox" disabled data-from="5160" data-to="5163">Cost model for Kestrel at 2x replication</li>
+  <li class="mdr-task" data-from="5205" data-to="5268"><input type="checkbox" disabled data-from="5207" data-to="5210">Ask product whether a 90-second billing lag is acceptable</li>
+  <li class="mdr-task" data-from="5269" data-to="5559"><input type="checkbox" disabled data-from="5271" data-to="5274">Write up the failure-mode taxonomy:<ul data-from="5313" data-to="5559">
+      <li data-from="5313" data-to="5474">Transport-layer causes<ul data-from="5342" data-to="5474">
+          <li data-from="5342" data-to="5444">Load balancer replay<ul data-from="5371" data-to="5444">
+              <li data-from="5371" data-to="5396">Timeout-triggered retry</li>
+              <li data-from="5403" data-to="5444">Health-check-triggered connection reset</li>
+            </ul></li>
+          <li data-from="5449" data-to="5474">Agent-side retry storms</li>
+        </ul></li>
+      <li data-from="5477" data-to="5559">Application-layer causes<ul data-from="5508" data-to="5559">
+          <li data-from="5508" data-to="5559">Non-unique <code data-from="5521" data-to="5531">event_id</code> generation on agent restart</li>
+        </ul></li>
+    </ul></li>
+</ul>
+<p data-from="5561" data-to="5760"><strong data-from="5561" data-to="5588">Working recommendation:</strong> Approach B, with the flagged-admit path and a hard requirement that ingest degrades to fail-open rather than dropping traffic. Revisit C at the next latency-budget review.</p>

@@ -1,0 +1,60 @@
+<h1 id="research-notes-deduplicating-ingest-events-at-the-kestrel-gateway" data-from="0" data-to="69">Research Notes — Deduplicating Ingest Events at the Kestrel Gateway</h1>
+<p data-from="71" data-to="142"><strong data-from="71" data-to="82">Author:</strong> M. Ravensworth · <strong data-from="100" data-to="109">Date:</strong> 2024-03-19 · <strong data-from="123" data-to="134">Ticket:</strong> KG-4471</p>
+<h2 id="problem-statement" data-from="144" data-to="164">Problem statement</h2>
+<p data-from="166" data-to="480">The Kestrel ingest tier receives ~118k events/sec across 24 shards. Upstream producers retry aggressively, so roughly <strong data-from="284" data-to="292">4.2%</strong> of events are exact duplicates arriving within a 90-second window. Downstream billing aggregation is not idempotent, so duplicates inflate invoices. We need a per-shard dedup filter that:</p>
+<ol data-from="482" data-to="683">
+  <li data-from="482" data-to="514">Holds a 120s lookback window,</li>
+  <li data-from="515" data-to="572">Fits in <strong data-from="526" data-to="542">under 512 MB</strong> of resident memory per shard,</li>
+  <li data-from="573" data-to="623">Adds no more than <em data-from="594" data-to="600">2 ms</em> to p99 ingest latency,</li>
+  <li data-from="624" data-to="683">Tolerates at most 1 false-positive drop per 10^6 events.</li>
+</ol>
+<p data-from="685" data-to="792">Three candidate approaches were prototyped against the <code data-from="740" data-to="754">march-replay</code> corpus (41.6 GB, 9.2 billion events).</p>
+<hr data-from="794" data-to="797">
+<h2 id="approach-a-exact-hash-set-with-lru-eviction" data-from="799" data-to="847">Approach A — Exact hash set with LRU eviction</h2>
+<p data-from="849" data-to="934">A <code data-from="851" data-to="871">RobinHashSet&lt;u128&gt;</code> of truncated SipHash digests, backed by an intrusive LRU list.</p>
+<ul data-from="936" data-to="1152">
+  <li data-from="936" data-to="1026"><strong data-from="938" data-to="949">Memory:</strong> 1.31 GB per shard at steady state. <em data-from="985" data-to="1026">Fails requirement 3 by a factor of 2.6.</em></li>
+  <li data-from="1027" data-to="1064"><strong data-from="1029" data-to="1045">p99 latency:</strong> 0.4 ms. Excellent.</li>
+  <li data-from="1065" data-to="1152"><strong data-from="1067" data-to="1087">False positives:</strong> effectively zero (only from 128-bit digest collisions, ~10^-14).</li>
+</ul>
+<p data-from="1154" data-to="1440">The LRU pointer overhead is the killer: 32 bytes of payload becomes 56 bytes after list links and bucket metadata. We tried a slab-allocated variant that dropped to 0.94 GB, but the compaction pause hit <strong data-from="1357" data-to="1366">41 ms</strong> every 12 minutes, which blows the latency budget during the pause window.</p>
+<blockquote data-from="1442" data-to="1652">
+  <p data-from="1444" data-to="1652">Note from the design review (T. Okonjo): "Exact semantics are seductive, but we are already lossy at the network edge. Paying 2.6× the memory budget for a guarantee we cannot make end-to-end is a poor trade."</p>
+</blockquote>
+<h2 id="approach-b-cascading-bloom-filter-pairs" data-from="1654" data-to="1698">Approach B — Cascading Bloom filter pairs</h2>
+<p data-from="1700" data-to="1811">Two Bloom filters, <code data-from="1719" data-to="1727">active</code> and <code data-from="1732" data-to="1742">retiring</code>, rotated every 60s. Lookups probe both; inserts go only to <code data-from="1802" data-to="1810">active</code>.</p>
+<ul data-from="1813" data-to="2059">
+  <li data-from="1813" data-to="1871"><strong data-from="1815" data-to="1826">Memory:</strong> 214 MB per shard at a target FPR of 8×10^-7.</li>
+  <li data-from="1872" data-to="1936"><strong data-from="1874" data-to="1890">p99 latency:</strong> 1.1 ms (14 hash probes, poor cache locality).</li>
+  <li data-from="1937" data-to="2059"><strong data-from="1939" data-to="1959">False positives:</strong> measured 6.9×10^-7 — <mark data-from="1981" data-to="2058">within budget, but with no headroom if traffic grows past 140k events/sec</mark>.</li>
+</ul>
+<p data-from="2061" data-to="2339">The rotation boundary is the weak point: an event seen at t=59.8s and repeated at t=61.1s is caught, but the effective window oscillates between 60s and 120s rather than sitting at a stable 120s. We measured a <strong data-from="2271" data-to="2280">0.31%</strong> duplicate leak concentrated in the seconds after rotation.</p>
+<h2 id="approach-c-sharded-rolling-cuckoo-filter" data-from="2341" data-to="2386">Approach C — Sharded rolling cuckoo filter</h2>
+<p data-from="2388" data-to="2529">Twelve cuckoo filter segments per shard, each covering a 10-second bucket, retired round-robin. Fingerprints are 14 bits at load factor 0.94.</p>
+<ul data-from="2531" data-to="2683">
+  <li data-from="2531" data-to="2562"><strong data-from="2533" data-to="2544">Memory:</strong> 187 MB per shard.</li>
+  <li data-from="2563" data-to="2589"><strong data-from="2565" data-to="2581">p99 latency:</strong> 0.7 ms.</li>
+  <li data-from="2590" data-to="2623"><strong data-from="2592" data-to="2612">False positives:</strong> 2.4×10^-7.</li>
+  <li data-from="2624" data-to="2683"><strong data-from="2626" data-to="2647">Window stability:</strong> true 120s ± 10s, no rotation cliff.</li>
+</ul>
+<pre class="mdr-code" data-lang="python" data-from="2685" data-to="3066"><code class="language-python" data-verbatim data-from="2695" data-to="3062">def probe(key: bytes, now_ms: int) -&gt; bool:
+    fp = fingerprint14(key)
+    i1 = bucket_index(key)
+    i2 = i1 ^ mix14(fp)
+    live = (now_ms // 10_000) % 12
+    for offset in range(12):
+        seg = SEGMENTS[(live - offset) % 12]
+        if seg.contains(fp, i1) or seg.contains(fp, i2):
+            return True
+    SEGMENTS[live].insert(fp, i1, i2)
+    return False</code></pre>
+<p data-from="3068" data-to="3306">Insert failures (cuckoo kickout exhaustion) occurred <strong data-from="3121" data-to="3131">0.004%</strong> of the time at load factor 0.94; we treat those as "not a duplicate" and let the event through, which is the safe direction for correctness of <em data-from="3275" data-to="3285">delivery</em> if not of <em data-from="3296" data-to="3305">billing</em>.</p>
+<hr data-from="3308" data-to="3311">
+<h2 id="recommendation" data-from="3313" data-to="3330">Recommendation</h2>
+<p data-from="3332" data-to="3469">Adopt <strong data-from="3338" data-to="3352">Approach C</strong>. It is the only candidate meeting all four requirements simultaneously, and its memory profile leaves ~63% headroom.</p>
+<p data-from="3471" data-to="3490"><strong data-from="3471" data-to="3490">Open questions:</strong></p>
+<ul data-from="3491" data-to="3810">
+  <li data-from="3491" data-to="3592">Does the kickout failure rate degrade non-linearly above load factor 0.96? Needs a dedicated sweep.</li>
+  <li data-from="3593" data-to="3698">Can we drop to 8 segments of 15s to save another 24 MB without widening the window jitter unacceptably?</li>
+  <li data-from="3699" data-to="3810">Segment retirement currently zeroes memory synchronously (3.2 ms spike). Move to a background reclaim thread.</li>
+</ul>

@@ -1,0 +1,92 @@
+<h1 id="research-notes-deduplicating-the-telemetry-ingest-path" data-from="0" data-to="58">Research Notes — Deduplicating the Telemetry Ingest Path</h1>
+<p data-from="60" data-to="240"><strong data-from="60" data-to="72">Project:</strong> Harborlight (ingest v4)
+<strong data-from="97" data-to="108">Author:</strong> R. Okonjo-Vance, Platform Reliability
+<strong data-from="147" data-to="156">Date:</strong> 2025-03-11
+<strong data-from="168" data-to="179">Status:</strong> <em data-from="180" data-to="240">Draft — circulated to the Ingest Working Group for comment</em></p>
+<hr data-from="242" data-to="245">
+<h2 id="1-problem-statement" data-from="247" data-to="270">1. Problem statement</h2>
+<p data-from="272" data-to="690">Harborlight's edge collectors retry aggressively on any non-2xx response, which means the ingest tier sees the same event body two or more times in roughly <strong data-from="428" data-to="454">3.1% of all deliveries</strong> during normal operation and up to <strong data-from="489" data-to="496">18%</strong> during a regional failover. Downstream, the aggregation jobs assume at-most-once semantics, so duplicates inflate counters and corrupt the rolling percentiles that the alerting rules depend on.</p>
+<p data-from="692" data-to="985">Current peak load: <strong data-from="711" data-to="733">412,000 events/sec</strong> across 96 ingest pods. Median event size 1.4 KB. Duplicate window observed in production: 99.7% of duplicates arrive within <strong data-from="858" data-to="872">90 seconds</strong> of the original; the long tail stretches to about 40 minutes when a collector recovers from a wedged disk queue.</p>
+<p data-from="987" data-to="1029">Constraint set agreed at the 02-27 review:</p>
+<ol data-from="1031" data-to="1288">
+  <li data-from="1031" data-to="1082">Added p99 latency budget for dedupe: <strong data-from="1071" data-to="1081">≤ 8 ms</strong>.</li>
+  <li data-from="1083" data-to="1157">False-drop rate (a unique event incorrectly discarded): <strong data-from="1142" data-to="1156">≤ 1 in 10⁹</strong>.</li>
+  <li data-from="1158" data-to="1229">Must survive a full ingest-pod restart without replaying duplicates.</li>
+  <li data-from="1230" data-to="1288">Operational cost ceiling: <strong data-from="1259" data-to="1275">$4,200/month</strong> incremental.</li>
+</ol>
+<blockquote data-from="1290" data-to="1539">
+  <p data-from="1292" data-to="1539">The working group's position, restated from the 02-27 minutes: a false <em data-from="1363" data-to="1369">drop</em> is a data-loss incident and is categorically worse than a false <em data-from="1434" data-to="1440">keep</em>. We would rather pass through ten thousand duplicates than silently delete one unique measurement.</p>
+</blockquote>
+<hr data-from="1541" data-to="1544">
+<h2 id="2-approach-a-in-process-rotating-bloom-filter" data-from="1546" data-to="1597">2. Approach A — In-process rotating Bloom filter</h2>
+<p data-from="1599" data-to="1778">Each ingest pod maintains four Bloom filters rotated on a 30-second cadence, giving a 120-second effective memory window. A lookup checks all four; an insert writes to the newest.</p>
+<pre class="mdr-code" data-lang="python" data-from="1780" data-to="2276"><code class="language-python" data-verbatim data-from="1790" data-to="2272">class RotatingBloom:
+    def __init__(self, slices=4, capacity=2_000_000, fp_rate=1e-4):
+        self.rings = [BloomFilter(capacity, fp_rate) for _ in range(slices)]
+        self.head = 0
+
+    def rotate(self):
+        self.head = (self.head + 1) % len(self.rings)
+        self.rings[self.head].clear()
+
+    def seen(self, digest: bytes) -&gt; bool:
+        if any(digest in r for r in self.rings):
+            return True
+        self.rings[self.head].add(digest)
+        return False</code></pre>
+<p data-from="2278" data-to="2415"><strong data-from="2278" data-to="2316">Measured on the <code data-from="2296" data-to="2309">hb-bench-07</code> rig:</strong> p50 lookup <strong data-from="2328" data-to="2338">0.4 ms</strong>, p99 <strong data-from="2344" data-to="2354">1.1 ms</strong>, resident memory <strong data-from="2372" data-to="2386">310 MB/pod</strong>. Caught 96.4% of duplicates.</p>
+<p data-from="2417" data-to="2938">The failure mode is structural: because the filter is <em data-from="2471" data-to="2480">per-pod</em> and the load balancer is round-robin rather than key-affine, a retry usually lands on a different pod than the original. <mark data-from="2602" data-to="2700">Approach A only works if we also introduce consistent hashing on the event key at the L7 layer</mark>, which the network team has scheduled no earlier than Q4. Bloom filters also cannot be un-set, so the false-positive rate translates directly into false drops — measured at <strong data-from="2874" data-to="2888">1 in 9,800</strong>, four orders of magnitude outside the constraint.</p>
+<hr data-from="2940" data-to="2943">
+<h2 id="3-approach-b-shared-key-value-store-with-ttl" data-from="2945" data-to="2995">3. Approach B — Shared key-value store with TTL</h2>
+<p data-from="2997" data-to="3157">A three-node Verdigris cluster (our internal Redis fork) holds <code data-from="3060" data-to="3067">SETNX</code>-style entries keyed on a BLAKE3 digest of <code data-from="3110" data-to="3138">(collector_id, event_uuid)</code>, TTL 2700 seconds.</p>
+<p data-from="3159" data-to="3397"><strong data-from="3159" data-to="3172">Measured:</strong> p50 <strong data-from="3177" data-to="3187">2.6 ms</strong>, p99 <strong data-from="3193" data-to="3203">6.9 ms</strong> under synthetic peak, degrading to <strong data-from="3239" data-to="3248">21 ms</strong> at p99 when a node is being rebalanced. Duplicate catch rate <strong data-from="3310" data-to="3320">99.98%</strong>. Memory footprint on the cluster: 46 GB at peak, projected <strong data-from="3380" data-to="3396">$3,850/month</strong>.</p>
+<p data-from="3399" data-to="3798">Strengths: correctness is easy to reason about, the TTL covers the observed long tail, and the semantics are <em data-from="3508" data-to="3517">exactly</em> what the downstream jobs assume. Weaknesses: it introduces a hard synchronous dependency on a stateful service in the hot path, and the rebalance latency spike breaches our budget. It also puts us at 92% of the cost ceiling with no headroom for the 2026 growth projection of +40%.</p>
+<hr data-from="3800" data-to="3803">
+<h2 id="4-approach-c-monotonic-sequence-watermarks" data-from="3805" data-to="3853">4. Approach C — Monotonic sequence watermarks</h2>
+<p data-from="3855" data-to="4166">Collectors already stamp each event with a per-collector monotonic <code data-from="3922" data-to="3927">seq</code>. Instead of remembering event identities, the ingest tier remembers a <strong data-from="3998" data-to="4011">watermark</strong> per collector: the highest contiguous <code data-from="4050" data-to="4055">seq</code> acknowledged, plus a small sparse bitmap (currently 4,096 bits) for out-of-order arrivals above the watermark.</p>
+<p data-from="4168" data-to="4341">State per collector is ~600 bytes. With 71,000 active collectors that is <strong data-from="4241" data-to="4256">43 MB total</strong> — small enough to hold in every pod and gossip via the existing membership protocol.</p>
+<p data-from="4343" data-to="4498"><strong data-from="4343" data-to="4356">Measured:</strong> p50 <strong data-from="4361" data-to="4371">0.2 ms</strong>, p99 <strong data-from="4377" data-to="4387">0.9 ms</strong>. Catch rate <strong data-from="4400" data-to="4412">99.9994%</strong>. Cost: effectively zero beyond the gossip bandwidth (measured at 1.8 Mbps aggregate).</p>
+<p data-from="4500" data-to="4992">The catch: it depends on collector-side discipline. Firmware branch <code data-from="4568" data-to="4576">cw-2.8</code> and earlier resets <code data-from="4596" data-to="4601">seq</code> to zero on reboot without rolling the collector epoch, which makes the watermark reject a <em data-from="4692" data-to="4704">legitimate</em> burst of post-reboot events. That fleet is <strong data-from="4748" data-to="4769">11% of collectors</strong> and shrinking by roughly 2 points per month. A mitigation — treating a <code data-from="4841" data-to="4846">seq</code> regression as an implicit epoch bump — reintroduces a duplicate window of exactly one reboot's worth of traffic, which is bounded and acceptable.</p>
+<hr data-from="4994" data-to="4997">
+<h2 id="5-comparison" data-from="4999" data-to="5015">5. Comparison</h2>
+<div class="mdr-table-wrap" data-from="5017" data-to="5291">
+  <table data-from="5017" data-to="5291">
+    <thead data-from="5017" data-to="5058">
+      <tr data-from="5017" data-to="5058">
+        <th data-from="5021" data-to="5029">A: Bloom</th>
+        <th data-from="5032" data-to="5041">B: KV+TTL</th>
+        <th data-from="5044" data-to="5056">C: Watermark</th>
+      </tr>
+    </thead>
+    <tbody data-from="5077" data-to="5291">
+      <tr data-from="5077" data-to="5123">
+        <td data-from="5079" data-to="5090">p99 latency</td>
+        <td data-from="5093" data-to="5099">1.1 ms</td>
+        <td data-from="5102" data-to="5108">6.9 ms</td>
+        <td data-from="5111" data-to="5121"><strong data-from="5111" data-to="5121">0.9 ms</strong></td>
+      </tr>
+      <tr data-from="5124" data-to="5174">
+        <td data-from="5126" data-to="5141">False-drop rate</td>
+        <td data-from="5144" data-to="5154">1 in 9.8e3</td>
+        <td data-from="5157" data-to="5159">~0</td>
+        <td data-from="5162" data-to="5172">1 in 1.7e6</td>
+      </tr>
+      <tr data-from="5175" data-to="5215">
+        <td data-from="5177" data-to="5189">Monthly cost</td>
+        <td data-from="5192" data-to="5197">~$300</td>
+        <td data-from="5200" data-to="5206">$3,850</td>
+        <td data-from="5209" data-to="5213">~$40</td>
+      </tr>
+      <tr data-from="5216" data-to="5291">
+        <td data-from="5218" data-to="5234">New dependencies</td>
+        <td data-from="5237" data-to="5252">L7 key affinity</td>
+        <td data-from="5255" data-to="5272">Verdigris cluster</td>
+        <td data-from="5275" data-to="5289">firmware floor</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<hr data-from="5293" data-to="5296">
+<h2 id="6-recommendation" data-from="5298" data-to="5318">6. Recommendation</h2>
+<p data-from="5320" data-to="5630">Adopt <strong data-from="5326" data-to="5351">C as the primary path</strong>, with <strong data-from="5358" data-to="5384">B as a narrow fallback</strong> applied only to collectors reporting firmware below <code data-from="5437" data-to="5445">cw-2.8</code>. That hybrid keeps the KV cluster at roughly one-eighth of the sizing in Approach B (projected <strong data-from="5541" data-to="5555">$520/month</strong>) and lets us decommission it entirely once the firmware rollout completes.</p>
+<p data-from="5632" data-to="5845">Open question for the next review: whether the sparse bitmap should widen to 16,384 bits to absorb the reordering we see on the satellite-backhauled sites. <em data-from="5788" data-to="5845">Needs a week of trace capture before I'd want to guess.</em></p>
