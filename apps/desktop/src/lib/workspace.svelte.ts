@@ -2,9 +2,10 @@ import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { EditorSelection, type Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { type EditorMode, setModeEffect } from '@mdreader/editor-core';
-import type { Commands, FileFormat } from '@mdreader/ipc';
-import { headings, type OutlineEntry } from '@mdreader/markdown';
+import type { Commands, DocumentMeta, FileFormat } from '@mdreader/ipc';
+import { headings, type ImageResolver, type OutlineEntry } from '@mdreader/markdown';
 import { Doc, nextId } from './document.svelte.ts';
+import { imageResolver } from './images.ts';
 import { basename, dirname, shortenDir, tabLabels } from './paths.ts';
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
@@ -62,6 +63,12 @@ export interface WorkspaceOptions {
   openExternal?: (url: string) => void;
   /** Shiki, KaTeX and Mermaid. Left out in tests, which do not need them. */
   enhancer?: Enhancer;
+  /**
+   * Turns a local file path into a URL the webview may load, which under
+   * Tauri is the asset protocol. Without it no local image loads, which
+   * is what a browser build and the tests want.
+   */
+  assetUrl?: (path: string) => string;
 }
 
 /** What a file we create ourselves looks like until the user says otherwise. */
@@ -159,10 +166,12 @@ export class Workspace {
       this.status = describeError(result.error);
       return false;
     }
-    const doc = new Doc(result.data.content, { path, meta: result.data.meta });
-    this.docs.set(doc.id, doc);
+    const doc = this.newDoc(result.data.content, { path, meta: result.data.meta });
     this.addTab(doc);
     this.remember(path);
+    // Images in this document resolve against its folder, so Rust is told
+    // to let the webview read that folder and below (design 8).
+    void this.options.commands.allowDocumentImages(path);
     this.status = result.data.meta.read_only
       ? `${basename(path)} is ${result.data.meta.format.encoding}; convert to UTF-8 to edit`
       : `${basename(path)} · ${describeFormat(result.data.meta.format)}`;
@@ -176,10 +185,57 @@ export class Workspace {
 
   newUntitled(): void {
     this.untitledCount += 1;
-    const doc = new Doc('', { untitledName: `Untitled ${this.untitledCount}` });
-    this.docs.set(doc.id, doc);
+    const doc = this.newDoc('', { untitledName: `Untitled ${this.untitledCount}` });
     // A file opens in Read (design 4.2), but an empty one has nothing to read.
     this.addTab(doc, 'edit');
+  }
+
+  /**
+   * A document with this window's rendering rules attached. Every widget
+   * and every rendered image asks the document itself, so a toggle takes
+   * effect on the next draw without rebuilding any editor state.
+   */
+  private newDoc(
+    text: string,
+    options: { path?: string; meta?: DocumentMeta; untitledName?: string },
+  ): Doc {
+    const doc = new Doc(text, {
+      ...options,
+      preview: (owner) => ({
+        enhance: this.options.enhancer,
+        image: this.imageRules(owner),
+      }),
+    });
+    this.docs.set(doc.id, doc);
+    return doc;
+  }
+
+  /** Design 8's rules for one document, read afresh on every image. */
+  private imageRules(doc: Doc): ImageResolver {
+    return imageResolver(() => ({
+      path: doc.path,
+      remote: doc.remoteImages,
+      assetUrl: this.options.assetUrl,
+    }));
+  }
+
+  /**
+   * Let this document load images from the network, or stop it (design 8).
+   * The views are remounted rather than patched: an image that was blocked
+   * has no element to fill in.
+   */
+  toggleRemoteImages(): void {
+    const tab = this.activeTab;
+    if (!tab) return;
+    const doc = this.doc(tab);
+    doc.remoteImages = !doc.remoteImages;
+    this.syncMounted();
+    this.unmount();
+    this.unmountRead();
+    this.epoch += 1;
+    this.status = doc.remoteImages
+      ? `Loading remote images in ${doc.label}`
+      : `Remote images blocked in ${doc.label}`;
   }
 
   /** A second view onto the same document; undo is shared through its state. */
@@ -376,6 +432,7 @@ export class Workspace {
         tab.folded = ids;
       },
       onLink: (href, external) => this.openLink(href, external),
+      render: { image: this.imageRules(doc) },
     });
     this.reading = { view, tab };
     view.scrollToOffset(tab.anchor?.offset ?? tab.selection.main.head);

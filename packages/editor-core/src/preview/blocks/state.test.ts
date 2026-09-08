@@ -2,7 +2,7 @@ import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { parsedState } from '../../test-helpers.ts';
-import { changedRegion, tableWidgetsField } from './state.ts';
+import { blockWidgetsField, changedRegion } from './state.ts';
 
 const doc = [
   'para one',
@@ -25,7 +25,7 @@ function edited(state: EditorState, from: number, to: number, insert: string): E
 
 function widgets(state: EditorState): [number, number][] {
   const out: [number, number][] = [];
-  const iter = state.field(tableWidgetsField).deco.iter();
+  const iter = state.field(blockWidgetsField).deco.iter();
   while (iter.value) {
     out.push([iter.from, iter.to]);
     iter.next();
@@ -51,7 +51,7 @@ describe('changedRegion', () => {
   });
 });
 
-describe('tableWidgetsField', () => {
+describe('blockWidgetsField', () => {
   it('keeps both tables as widgets and maps them through edits elsewhere', () => {
     const state = parsedState(doc, doc.length);
     expect(widgets(state)).toEqual([
@@ -63,8 +63,8 @@ describe('tableWidgetsField', () => {
       [13, 42],
       [56, 73],
     ]);
-    expect(state.field(tableWidgetsField).deco.iter(53).value).toBe(
-      shifted.field(tableWidgetsField).deco.iter(56).value,
+    expect(state.field(blockWidgetsField).deco.iter(53).value).toBe(
+      shifted.field(blockWidgetsField).deco.iter(56).value,
     );
   });
 

@@ -1,0 +1,20 @@
+<span class="mdr-comment" hidden data-from="0" data-to="82">&lt;!-- adversarial: the inline HTML whitelist of design 5.3, allowed and refused --&gt;</span>
+<p data-from="83" data-to="250">Allowed: <mark data-from="92" data-to="111">marked</mark>, <sub data-from="113" data-to="125">2</sub>, <sup data-from="127" data-to="140">nd</sup>, <u data-from="142" data-to="159">underlined</u>, <s data-from="161" data-to="174">struck</s>,
+<kbd data-from="176" data-to="190">Cmd</kbd>, a break<br data-from="199" data-to="203">here, and <span style="color:#c00" data-from="213" data-to="249">red</span>.</p>
+<p data-from="252" data-to="423">Refused: &lt;script&gt;alert(1)&lt;/script&gt;, &lt;iframe src="x"&gt;&lt;/iframe&gt;, &lt;style&gt;b{}&lt;/style&gt;,
+&lt;b onclick="steal()"&gt;handler&lt;/b&gt;, &lt;div&gt;a block tag inline&lt;/div&gt;, &lt;a href="x"&gt;a link&lt;/a&gt;.</p>
+<p data-from="425" data-to="606">A span with more than a colour is text: &lt;span style="color:red;font-size:99px"&gt;too much&lt;/span&gt;.
+A span with a colour that is not one: &lt;span style="color:url(x)"&gt;not a colour&lt;/span&gt;.</p>
+<p data-from="608" data-to="762">Nesting: <mark data-from="617" data-to="658">outer <sup data-from="629" data-to="645">inner</sup> outer</mark>.
+Crossed tags: <mark data-from="674" data-to="699">one &lt;sup&gt;two</mark> three&lt;/sup&gt;.
+Unclosed: &lt;mark&gt;runs to the end of the paragraph.</p>
+<details data-from="764" data-to="869">
+  <summary data-from="774" data-to="830">The compact form, with no blank lines</summary>
+  
+Body text inside the block.
+
+</details>
+<pre class="mdr-html" data-from="871" data-to="880">&lt;details&gt;</pre>
+<pre class="mdr-html" data-from="882" data-to="926">&lt;summary&gt;The form with blank lines&lt;/summary&gt;</pre>
+<p data-from="928" data-to="979">Its tags are separate blocks, so they read as text.</p>
+<pre class="mdr-html" data-from="981" data-to="991">&lt;/details&gt;</pre>

@@ -1,5 +1,5 @@
 import { EditorState, type Text } from '@codemirror/state';
-import { createEditorState, type EditorMode } from '@mdreader/editor-core';
+import { createEditorState, type EditorMode, type PreviewOptions } from '@mdreader/editor-core';
 import type { DocumentMeta } from '@mdreader/ipc';
 import { basename } from './paths.ts';
 
@@ -17,6 +17,12 @@ export interface DocOptions {
   meta?: DocumentMeta;
   mode?: EditorMode;
   untitledName?: string;
+  /**
+   * What the block widgets render with. Built from the document itself,
+   * because the image rules depend on where the file is and on whether
+   * this document may load remote images.
+   */
+  preview?: (doc: Doc) => PreviewOptions;
 }
 
 /**
@@ -37,14 +43,30 @@ export class Doc {
   reviewed: Text = $state.raw(EMPTY.doc);
   /** `Untitled 1` until the first save gives the document a path. */
   readonly untitledName: string;
+  /**
+   * Whether this document may load images from the network (design 8).
+   * Off until the reader says otherwise, and never remembered: the choice
+   * belongs to this reading of this file.
+   */
+  remoteImages = $state(false);
+  private readonly preview: ((doc: Doc) => PreviewOptions) | undefined;
 
   constructor(text: string, options: DocOptions = {}) {
-    this.state = createEditorState(text, { mode: options.mode ?? 'edit' });
-    this.base = this.state.doc;
-    this.reviewed = this.state.doc;
     this.path = options.path ?? null;
     this.meta = options.meta ?? null;
     this.untitledName = options.untitledName ?? 'Untitled';
+    this.preview = options.preview;
+    this.state = createEditorState(text, {
+      mode: options.mode ?? 'edit',
+      preview: this.previewOptions(),
+    });
+    this.base = this.state.doc;
+    this.reviewed = this.state.doc;
+  }
+
+  /** Read afresh on every widget, so a toggle needs no new state. */
+  previewOptions(): PreviewOptions {
+    return this.preview?.(this) ?? {};
   }
 
   get text(): string {
@@ -73,7 +95,7 @@ export class Doc {
 
   /** Replace the buffer, as opening or converting a file does. Undo resets. */
   replace(text: string, mode: EditorMode): void {
-    this.state = createEditorState(text, { mode });
+    this.state = createEditorState(text, { mode, preview: this.previewOptions() });
     this.base = this.state.doc;
     this.reviewed = this.state.doc;
   }

@@ -31,13 +31,16 @@ const answer = 42;
 let host: HTMLDivElement;
 let workspace: Workspace;
 let opened: string[] = [];
+let calls: { command: string; args: unknown[] }[] = [];
 
 function start(files: Record<string, string>) {
   const ipc = createFakeIpc(files);
   opened = [];
+  calls = ipc.calls;
   workspace = new Workspace({
     commands: ipc.commands,
     openExternal: (url) => opened.push(url),
+    assetUrl: (path) => `asset://localhost/${path}`,
   });
 }
 
@@ -60,6 +63,77 @@ beforeEach(() => {
 afterEach(() => {
   workspace.destroy();
   host.remove();
+});
+
+/** A document that exercises the constructs WP 1.5 added. */
+const DIALECT = `# Dialect
+
+A claim with a note[^why] and a <mark>marked</mark> phrase.
+
+> [!TLDR] The short of it
+> An alias of abstract.
+
+> [!example]- Folded
+> Hidden until opened.
+
+![local](pictures/a.png)
+
+![remote](https://example.test/a.png)
+
+[^why]: Because the file says so.
+`;
+
+describe('the rest of the dialect in Read mode', () => {
+  it('renders footnotes, callout types, folding, and the HTML whitelist', async () => {
+    start({ '/d.md': DIALECT });
+    await workspace.openPath('/d.md');
+    mountRead();
+    const page = read();
+
+    const ref = page.querySelector('.mdr-fnref') as HTMLAnchorElement;
+    expect(ref.textContent).toBe('1');
+    expect(ref.getAttribute('href')).toBe('#fn-1');
+    expect(page.querySelector('#fn-1')?.textContent).toContain('Because the file says so.');
+
+    expect(page.querySelector('mark')?.textContent).toBe('marked');
+
+    // `tldr` is an alias; the page carries the canonical type.
+    const callout = page.querySelector('blockquote.mdr-callout') as HTMLElement;
+    expect(callout.dataset.callout).toBe('abstract');
+    expect(callout.querySelector('.mdr-callout-title')?.textContent).toBe('The short of it');
+
+    const folded = page.querySelector('details.mdr-callout') as HTMLDetailsElement;
+    expect(folded.dataset.callout).toBe('example');
+    expect(folded.open).toBe(false);
+  });
+
+  it('loads a local image through the asset protocol and blocks a remote one', async () => {
+    start({ '/notes/d.md': DIALECT });
+    await workspace.openPath('/notes/d.md');
+    mountRead();
+    expect(calls.map((call) => call.command)).toContain('allow_document_images');
+
+    const local = read().querySelector('img') as HTMLImageElement;
+    expect(local.getAttribute('src')).toBe('asset://localhost//notes/pictures/a.png');
+    const blocked = read().querySelector('.mdr-image[data-blocked]') as HTMLElement;
+    expect(blocked.dataset.blocked).toBe('remote');
+    expect(blocked.textContent).toBe('remote');
+  });
+
+  it('loads remote images once the reader allows this document', async () => {
+    start({ '/notes/d.md': DIALECT });
+    await workspace.openPath('/notes/d.md');
+    mountRead();
+    workspace.toggleRemoteImages();
+    mountRead();
+    const sources = [...read().querySelectorAll('img')].map((img) => img.getAttribute('src'));
+    expect(sources).toContain('https://example.test/a.png');
+    expect(workspace.status).toContain('Loading remote images');
+
+    workspace.toggleRemoteImages();
+    mountRead();
+    expect(read().querySelector('.mdr-image[data-blocked="remote"]')).not.toBeNull();
+  });
 });
 
 describe('read mode', () => {

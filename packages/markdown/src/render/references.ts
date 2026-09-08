@@ -9,6 +9,8 @@
  * document render, which is the property the golden tests rely on.
  */
 
+import { linesOutsideCode } from './scan.ts';
+
 export interface Reference {
   url: string;
   title: string | null;
@@ -21,7 +23,6 @@ export function normalizeLabel(label: string): string {
 
 const DEFINITION =
   /^ {0,3}\[([^\]\n]+)\]:[ \t]*(?:<([^>\n]*)>|(\S+))[ \t]*(?:"([^"]*)"|'([^']*)'|\(([^)]*)\))?[ \t]*$/;
-const FENCE = /^ {0,3}(?:```|~~~)/;
 
 /**
  * Every `[label]: url "title"` definition in the source. Lines inside a
@@ -30,19 +31,13 @@ const FENCE = /^ {0,3}(?:```|~~~)/;
  */
 export function referenceDefinitions(source: string): Map<string, Reference> {
   const found = new Map<string, Reference>();
-  let fence: string | null = null;
-  for (const line of source.split('\n')) {
-    if (fence !== null) {
-      if (line.trimStart().startsWith(fence)) fence = null;
-      continue;
-    }
-    if (FENCE.test(line)) {
-      fence = line.trimStart().slice(0, 3);
-      continue;
-    }
+  for (const line of linesOutsideCode(source)) {
     const m = DEFINITION.exec(line);
     if (!m) continue;
-    const label = normalizeLabel(m[1] ?? '');
+    // `[^1]: url` is a footnote, not a link reference; see `footnotes.ts`.
+    const raw = m[1] ?? '';
+    if (raw.startsWith('^')) continue;
+    const label = normalizeLabel(raw);
     // The first definition of a label wins, as CommonMark says.
     if (label === '' || found.has(label)) continue;
     found.set(label, {

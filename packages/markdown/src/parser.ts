@@ -1,5 +1,6 @@
 import { parser as commonmark, GFM, type MarkdownExtension } from '@lezer/markdown';
 import { Callout } from './extensions/callout.ts';
+import { Footnote } from './extensions/footnote.ts';
 import { Frontmatter } from './extensions/frontmatter.ts';
 import { Highlight } from './extensions/highlight.ts';
 import { TexMath } from './extensions/math.ts';
@@ -10,7 +11,14 @@ import { TexMath } from './extensions/math.ts';
  * list to `@codemirror/lang-markdown` over its CommonMark base, so the
  * editor and every headless consumer parse identically.
  */
-export const extensions: MarkdownExtension[] = [GFM, Frontmatter, Callout, TexMath, Highlight];
+export const extensions: MarkdownExtension[] = [
+  GFM,
+  Frontmatter,
+  Callout,
+  TexMath,
+  Highlight,
+  Footnote,
+];
 
 /** A standalone parser for headless use: block extraction, tests, tooling. */
 export const parser = commonmark.configure(extensions);

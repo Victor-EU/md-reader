@@ -2,6 +2,7 @@ import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Range } from '@codemirror/state';
 import { Decoration } from '@codemirror/view';
 import type { SyntaxNode, SyntaxNodeRef, Tree } from '@lezer/common';
+import { allowedAttrs, calloutType, parseTag } from '@mdreader/markdown';
 import { headingLevel } from './nodes.ts';
 import { type RevealRange, revealRanges } from './reveal.ts';
 import { BulletWidget, CheckboxWidget } from './widgets.ts';
@@ -36,7 +37,31 @@ const M = {
   quoteMark: mark('mdr-quote-mark'),
   olMark: mark('mdr-ol-mark'),
   calloutMarker: mark('mdr-callout-marker'),
+  fnref: mark('mdr-fnref'),
 };
+
+/**
+ * How the content of a whitelisted HTML element is styled (design 5.3).
+ * A `span` carries a colour instead of a class, so it is built per tag.
+ */
+const htmlMarks: Record<string, Decoration> = {
+  mark: mark('mdr-mark'),
+  sub: mark('mdr-sub'),
+  sup: mark('mdr-sup'),
+  u: mark('mdr-u'),
+  s: mark('mdr-del'),
+  kbd: mark('mdr-kbd'),
+};
+
+const styleCache = new Map<string, Decoration>();
+function styled(style: string): Decoration {
+  let deco = styleCache.get(style);
+  if (!deco) {
+    deco = Decoration.mark({ class: 'mdr-html-style', attributes: { style }, kind: 'mark' });
+    styleCache.set(style, deco);
+  }
+  return deco;
+}
 const hide = Decoration.replace({ kind: 'hide' });
 const bullet = Decoration.replace({ widget: new BulletWidget(), kind: 'widget' });
 const checkboxOn = Decoration.replace({ widget: new CheckboxWidget(true), kind: 'widget' });
@@ -199,6 +224,62 @@ class Builder {
     this.atomic.push(deco.range(from, to));
   }
 
+  /**
+   * One inline HTML tag (design 5.3). A tag the whitelist renders is
+   * dimmed and its content takes the element's styling; anything else is
+   * left exactly as the plain text it is.
+   *
+   * Nothing is hidden here, unlike the markdown marks. HTML in a markdown
+   * file is a foreign body, and a reader editing one needs to see where
+   * it starts and ends; dimming says "this is markup" without pretending
+   * the file does not contain it.
+   */
+  private htmlTag(node: SyntaxNode): void {
+    const source = this.text(node.from, node.to);
+    const tag = parseTag(source);
+    if (!tag || tag.kind === 'close') return;
+    const attrs = allowedAttrs(tag);
+    if (!attrs) return;
+    if (tag.kind === 'void') {
+      this.decorations.push(M.dim.range(node.from, node.to));
+      return;
+    }
+    // A tag nothing closes is text in Read mode, so it is text here too.
+    const close = this.closingTag(node, tag.name);
+    if (!close) return;
+    this.decorations.push(M.dim.range(node.from, node.to));
+    this.decorations.push(M.dim.range(close.from, close.to));
+    if (close.from <= node.to) return;
+    const style = attrs.style;
+    const content = style === undefined ? htmlMarks[tag.name] : styled(style);
+    if (content) this.decorations.push(content.range(node.to, close.from));
+  }
+
+  /**
+   * The tag that closes `open`, among the siblings after it, by the same
+   * rule the Read renderer's stack applies: a closing tag for something
+   * opened outside this element ends it, and abandons this one.
+   */
+  private closingTag(open: SyntaxNode, name: string): SyntaxNode | null {
+    const inside: string[] = [];
+    for (let next = open.nextSibling; next; next = next.nextSibling) {
+      if (next.name !== 'HTMLTag') continue;
+      const tag = parseTag(this.text(next.from, next.to));
+      if (!tag || tag.kind === 'void') continue;
+      if (tag.kind === 'open') {
+        inside.push(tag.name);
+        continue;
+      }
+      const at = inside.lastIndexOf(tag.name);
+      if (at >= 0) {
+        inside.length = at;
+        continue;
+      }
+      return tag.name === name ? next : null;
+    }
+    return null;
+  }
+
   visit(node: SyntaxNodeRef, vFrom: number, vTo: number): boolean {
     switch (node.name) {
       case 'ATXHeading1':
@@ -232,7 +313,9 @@ class Builder {
         const header = node.node.getChild('CalloutHeader');
         if (header) {
           const type = header.getChild('CalloutType');
-          const kind = type ? this.text(type.from, type.to).toLowerCase() : 'note';
+          // The same type set the Read renderer uses, so one stylesheet
+          // colours both views.
+          const kind = calloutType(type ? this.text(type.from, type.to) : '').name;
           this.lines(
             node.from,
             node.to,
@@ -353,6 +436,26 @@ class Builder {
       case 'Comment':
         this.decorations.push(M.comment.range(node.from, node.to));
         return false;
+      case 'HTMLTag':
+        this.htmlTag(node.node);
+        return false;
+
+      case 'FootnoteReference':
+        this.decorations.push(M.fnref.range(node.from, node.to));
+        return true;
+      case 'FootnoteMark':
+        // In a reference the brackets hide, leaving the label as the
+        // number a reader follows; in a definition they stay, dimmed,
+        // because the label is what identifies the note.
+        if (node.node.parent?.name === 'FootnoteReference') this.hideInline(node.from, node.to);
+        else this.dimBlock(node.from, node.to);
+        return false;
+      case 'FootnoteLabel':
+        if (node.node.parent?.name === 'FootnoteDefinition') this.dimBlock(node.from, node.to);
+        return false;
+      case 'FootnoteDefinition':
+        this.lines(node.from, node.to, line('mdr-footnote'), vFrom, vTo);
+        return true;
 
       case 'FencedCode': {
         this.lines(node.from, node.to, line('mdr-fence'), vFrom, vTo);

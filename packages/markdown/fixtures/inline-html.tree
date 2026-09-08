@@ -1,0 +1,26 @@
+Document 0-373
+  Paragraph 0-97
+    HTMLTag 9-15 "<mark>"
+    HTMLTag 21-28 "</mark>"
+    HTMLTag 30-35 "<kbd>"
+    HTMLTag 38-44 "</kbd>"
+    HTMLTag 46-51 "<sup>"
+    HTMLTag 52-58 "</sup>"
+    HTMLTag 60-86 "<span style=\"color: #c00\">"
+    HTMLTag 89-96 "</span>"
+  Paragraph 99-188
+    HTMLTag 108-116 "<script>"
+    HTMLTag 124-133 "</script>"
+    HTMLTag 138-155 "<b onclick=\"x()\">"
+    HTMLTag 162-166 "</b>"
+    HTMLTag 171-176 "<div>"
+    HTMLTag 181-187 "</div>"
+  Paragraph 190-261
+    HTMLTag 199-205 "<mark>"
+    HTMLTag 228-233 "<sup>"
+    HTMLTag 237-244 "</mark>"
+    HTMLTag 254-260 "</sup>"
+  Paragraph 263-317
+    HTMLTag 270-274 "<br>"
+    HTMLTag 287-316 "<img src=\"local.png\" alt=\"x\">"
+  HTMLBlock 319-372 "<details>\n<summary>Compact</summary>\nBody.\n</details>"

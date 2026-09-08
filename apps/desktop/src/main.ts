@@ -1,5 +1,5 @@
 import { commands } from '@mdreader/ipc';
-import { isTauri } from '@tauri-apps/api/core';
+import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -25,6 +25,9 @@ const shell = createShell({
     void openUrl(url);
   },
   enhancer: createEnhancer(),
+  // Images load over the asset protocol, whose scope Rust widens to each
+  // opened document's folder (design 8). Outside Tauri nothing local loads.
+  assetUrl: isTauri() ? (path) => convertFileSrc(path) : undefined,
 });
 
 // The webview handles drops itself when it runs under Tauri, and only it

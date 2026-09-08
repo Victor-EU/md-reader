@@ -1,6 +1,6 @@
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
-import { blockUnits, hasInlineContent, inlineUnits } from './nodes.ts';
+import { blockUnits, hasInlineContent, inlineUnits, loneImage } from './nodes.ts';
 
 export interface RevealRange {
   from: number;
@@ -31,6 +31,12 @@ export function revealRanges(state: EditorState): RevealRange[] {
       from: range.from,
       to: range.to,
       enter(node) {
+        // A paragraph holding nothing but an image is a block widget, so
+        // touching it has to give the source back like any other block.
+        if (loneImage(node.node, (from, to) => state.doc.sliceString(from, to))) {
+          found.push({ from: node.from, to: node.to, block: true });
+          return true;
+        }
         if (inlineUnits.has(node.name)) {
           found.push({ from: node.from, to: node.to, block: false });
           return false;

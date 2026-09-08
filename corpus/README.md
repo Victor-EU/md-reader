@@ -18,6 +18,13 @@ The round-trip corpus from design section 10 and plan section 7.1.
   compares both against this one file. `vitest -u` rewrites them, and the
   diff in the pull request is the review.
 
+WP 1.5 added the design 5.2 leniency cases that had no file of their own
+(`leniency.md`), and one file per construct that work package brought in:
+`footnotes.md`, `callout-types.md`, `html-whitelist.md`, `images.md`,
+`frontmatter-properties.md`, and `mdx-as-markdown.md`. Their goldens are
+the record of what "most plausible intent" means for each case, so a
+change to any of them is a rendering decision to be reviewed as one.
+
 `packages/markdown/src/corpus.ts` is the one list of what the corpus is;
 the round-trip test over it lives in `packages/editor-core/src/corpus/` and
 the read-mode tests in `packages/markdown/src/render/`. Both also run over

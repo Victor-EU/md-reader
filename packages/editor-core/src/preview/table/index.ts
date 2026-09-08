@@ -1,7 +1,7 @@
 import { Prec } from '@codemirror/state';
 import { keymap } from '@codemirror/view';
 import { cellEditorPlugin, tableKeymap } from './cell-editor.ts';
-import { activeCellField, tableWidgetsField } from './state.ts';
+import { activeCellField } from './state.ts';
 
 export {
   deleteColumn,
@@ -19,7 +19,11 @@ export {
 } from './model.ts';
 export { type ActiveCell, activeCellField, setActiveCell } from './state.ts';
 
-/** Table widgets with in-place cell editing (design 7.1, WP 0.4). */
+/**
+ * In-place cell editing for the table widgets (design 7.1, WP 0.4). The
+ * widgets themselves are built by `preview/blocks`, together with every
+ * other block widget, so the document is walked once per change.
+ */
 export function tableWidgets() {
-  return [activeCellField, tableWidgetsField, cellEditorPlugin, Prec.high(keymap.of(tableKeymap))];
+  return [activeCellField, cellEditorPlugin, Prec.high(keymap.of(tableKeymap))];
 }

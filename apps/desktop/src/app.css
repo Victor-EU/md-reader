@@ -490,9 +490,13 @@ body,
   margin-bottom: 0.3em;
 }
 
+/*
+ * One colour per canonical callout type (design 5.1). The renderer
+ * resolves every alias to one of these names, so this list is the whole
+ * set and an unknown type arrives here as `note`.
+ */
 .mdr-callout[data-callout="warning"],
-.mdr-callout[data-callout="caution"],
-.mdr-callout[data-callout="attention"] {
+.mdr-callout[data-callout="question"] {
   --accent: #c07000;
 }
 
@@ -501,10 +505,44 @@ body,
   --accent: #2f8f4e;
 }
 
+/* GitHub's CAUTION is the red one; its WARNING is the amber one. */
+.mdr-callout[data-callout="caution"],
 .mdr-callout[data-callout="danger"],
-.mdr-callout[data-callout="bug"],
-.mdr-callout[data-callout="error"] {
+.mdr-callout[data-callout="failure"],
+.mdr-callout[data-callout="bug"] {
   --accent: #c0392b;
+}
+
+/* GitHub styles IMPORTANT apart from a tip, which is why it is canonical. */
+.mdr-callout[data-callout="important"],
+.mdr-callout[data-callout="example"] {
+  --accent: #8250c8;
+}
+
+.mdr-callout[data-callout="abstract"] {
+  --accent: #0f8ea8;
+}
+
+.mdr-callout[data-callout="quote"] {
+  --accent: #7a7a7a;
+}
+
+/* A folded callout: `details` in place of `blockquote`, same skin. */
+.read details.mdr-callout {
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: 0 6px 6px 0;
+  padding: 8px 14px;
+  margin: 0.9em 0;
+}
+
+.read details.mdr-callout > .mdr-callout-title {
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.read details.mdr-callout[open] > .mdr-callout-title {
+  margin-bottom: 0.3em;
 }
 
 .read ul,
@@ -570,9 +608,104 @@ body,
   padding: 0;
 }
 
+/* Frontmatter as the properties panel of design 5.1: one row per key. */
+.read .mdr-properties {
+  display: grid;
+  grid-template-columns: minmax(6em, max-content) 1fr;
+  gap: 2px 14px;
+  font-size: 0.9em;
+}
+
+.read .mdr-property {
+  display: contents;
+}
+
+.read .mdr-property-key {
+  font-weight: 600;
+}
+
+.read .mdr-property-value {
+  color: var(--fg);
+  word-break: break-word;
+}
+
+/* Footnotes, where the file puts them. */
+.read .mdr-footnote {
+  display: grid;
+  grid-template-columns: 2em 1fr;
+  font-size: 0.92em;
+  color: var(--muted);
+  margin: 0.4em 0;
+}
+
+.read .mdr-footnote + .mdr-footnote {
+  margin-top: 0;
+}
+
+.read .mdr-fn-number {
+  text-align: right;
+  padding-right: 0.6em;
+}
+
+.read .mdr-fn-body > :first-child {
+  margin-top: 0;
+}
+
+.read .mdr-fn-body > :last-child {
+  margin-bottom: 0;
+}
+
+.read .mdr-fn-back {
+  text-decoration: none;
+}
+
+.read .mdr-fnref-sup {
+  font-size: 0.75em;
+  line-height: 0;
+}
+
+.read .mdr-fnref {
+  text-decoration: none;
+  padding: 0 0.15em;
+}
+
+/* The inline HTML whitelist of design 5.3, styled as the elements they are. */
+.read kbd {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.read sub,
+.read sup {
+  line-height: 0;
+}
+
+.read details > summary {
+  cursor: pointer;
+}
+
 .read .mdr-image {
   color: var(--muted);
   font-style: italic;
+}
+
+/*
+ * An image the reader has not allowed. Design 8 blocks remote sources
+ * until a document is trusted, so the placeholder has to say which case
+ * this is rather than looking like a broken file.
+ */
+.read .mdr-image[data-blocked]::before {
+  content: "◇ ";
+}
+
+.read .mdr-image[data-blocked="remote"]::after {
+  content: " (remote image blocked)";
+  font-size: 0.85em;
 }
 
 .read .mdr-math-block {

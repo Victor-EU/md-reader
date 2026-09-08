@@ -1,0 +1,37 @@
+<span class="mdr-comment" hidden data-from="0" data-to="98">&lt;!-- adversarial: the leniency cases of design 5.2, each rendered as the most plausible intent --&gt;</span>
+<p data-from="99" data-to="138">A heading with no blank line before it:</p>
+<h2 id="still-a-heading" data-from="139" data-to="157">Still a heading</h2>
+<p data-from="159" data-to="193">Mixed tabs and spaces in one list:</p>
+<ul data-from="194" data-to="263">
+  <li data-from="194" data-to="263">space item<ul data-from="208" data-to="263">
+      <li data-from="208" data-to="219">tab child</li>
+      <li data-from="222" data-to="263">two space child
+	    - deep mixed child</li>
+    </ul></li>
+</ul>
+<p data-from="265" data-to="293">A table with ragged columns:</p>
+<p data-from="295" data-to="342">| a | b | c |
+|---|---|
+| 1 | 2 | 3 | 4 |
+| 5 |</p>
+<p data-from="344" data-to="396">Emphasis nobody closed: *open italic and **open bold</p>
+<p data-from="398" data-to="441">A stray angle bracket: 5 &lt; 6 and a &lt; b &gt; c.</p>
+<p data-from="443" data-to="523">An unclosed link [label](<a href="https://example.com" data-external data-from="468" data-to="487">https://example.com</a> and a bare bracket [aside] in text.</p>
+<p data-from="525" data-to="560">A list that changes marker halfway:</p>
+<ul data-from="561" data-to="568">
+  <li data-from="561" data-to="568">first</li>
+</ul>
+<ul data-from="569" data-to="577">
+  <li data-from="569" data-to="577">second</li>
+</ul>
+<ul data-from="578" data-to="585">
+  <li data-from="578" data-to="585">third</li>
+</ul>
+<p data-from="587" data-to="617">Setext underline after a list:</p>
+<ul data-from="618" data-to="628">
+  <li data-from="618" data-to="628">item
+===</li>
+</ul>
+<p data-from="630" data-to="656">A fence that never closes:</p>
+<pre class="mdr-code" data-lang="js" data-from="658" data-to="682"><code class="language-js" data-verbatim data-from="664" data-to="682">function open() {
+</code></pre>

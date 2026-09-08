@@ -1,0 +1,35 @@
+Document 0-269
+  Paragraph 0-74
+    FootnoteReference 19-25
+      FootnoteMark 19-21 "[^"
+      FootnoteLabel 21-24 "why"
+      FootnoteMark 24-25 "]"
+    FootnoteReference 38-45
+      FootnoteMark 38-40 "[^"
+      FootnoteLabel 40-44 "also"
+      FootnoteMark 44-45 "]"
+    FootnoteReference 67-73
+      FootnoteMark 67-69 "[^"
+      FootnoteLabel 69-72 "why"
+      FootnoteMark 72-73 "]"
+  Paragraph 76-115
+    FootnoteReference 98-103
+      FootnoteMark 98-100 "[^"
+      FootnoteLabel 100-102 "no"
+      FootnoteMark 102-103 "]"
+  FootnoteDefinition 117-152
+    FootnoteMark 117-119 "[^"
+    FootnoteLabel 119-122 "why"
+    FootnoteMark 122-124 "]:"
+    Paragraph 125-152 "Because the parser says so."
+  FootnoteDefinition 154-235
+    FootnoteMark 154-156 "[^"
+    FootnoteLabel 156-160 "also"
+    FootnoteMark 160-162 "]:"
+    Paragraph 163-190 "A note with two paragraphs."
+    Paragraph 196-235 "The second one is indented four spaces."
+  FootnoteDefinition 237-268
+    FootnoteMark 237-239 "[^"
+    FootnoteLabel 239-245 "orphan"
+    FootnoteMark 245-247 "]:"
+    Paragraph 248-268 "Referred to nowhere."

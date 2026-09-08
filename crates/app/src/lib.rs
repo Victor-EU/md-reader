@@ -36,6 +36,30 @@ fn save_document(
     mdreader_core::save_document(&path, &content, expected_hash.as_deref(), &format)
 }
 
+/// Let the webview load images from a document's folder and below.
+///
+/// The asset protocol starts with an empty scope (design 8), and it grows
+/// only here, only to the folder of a file the reader has opened. Nothing
+/// else in the app can widen it, and nothing outside those folders is
+/// reachable from the page.
+#[tauri::command]
+#[specta::specta]
+fn allow_document_images(app: tauri::AppHandle, path: PathBuf) -> Result<(), Error> {
+    let dir = path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .ok_or_else(|| Error::Read {
+            path: path.clone(),
+            message: "no folder to allow images from".to_owned(),
+        })?;
+    tauri::Manager::asset_protocol_scope(&app)
+        .allow_directory(dir, true)
+        .map_err(|error| Error::Read {
+            path: dir.to_path_buf(),
+            message: error.to_string(),
+        })
+}
+
 /// Rewrite a non-UTF-8 file as UTF-8 and return it freshly read.
 #[tauri::command]
 #[specta::specta]
@@ -133,6 +157,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             open_document,
             save_document,
             convert_document_to_utf8,
+            allow_document_images,
             watch,
             unwatch,
             merge3,

@@ -1,0 +1,21 @@
+9-15 mark mdr-dim "<mark>"
+15-21 mark mdr-mark "marked"
+21-28 mark mdr-dim "</mark>"
+30-35 mark mdr-dim "<kbd>"
+35-38 mark mdr-kbd "Cmd"
+38-44 mark mdr-dim "</kbd>"
+46-51 mark mdr-dim "<sup>"
+51-52 mark mdr-sup "1"
+52-58 mark mdr-dim "</sup>"
+60-86 mark mdr-dim "<span style=\"color: #c00\">"
+86-89 mark mdr-html-style "red"
+89-96 mark mdr-dim "</span>"
+199-205 mark mdr-dim "<mark>"
+205-237 mark mdr-mark "runs on, and a crossed <sup>pair"
+237-244 mark mdr-dim "</mark>"
+270-274 mark mdr-dim "<br>"
+287-316 mark mdr-dim "<img src=\"local.png\" alt=\"x\">"
+319-319 line mdr-html
+329-329 line mdr-html
+356-356 line mdr-html
+362-362 line mdr-html

@@ -1,4 +1,6 @@
 import type { SyntaxNode, Tree } from '@lezer/common';
+import { calloutType } from './callouts.ts';
+import { FootnoteNumbers, footnoteDefinitions } from './footnotes.ts';
 import {
   element,
   type RenderElement,
@@ -7,14 +9,45 @@ import {
   text,
   textOf,
 } from './nodes.ts';
+import { properties } from './properties.ts';
 import { normalizeLabel, type Reference, referenceDefinitions } from './references.ts';
 import { Slugger } from './slug.ts';
+import { HtmlStack, tagRenders, tokenizeHtml } from './whitelist.ts';
+
+/** What the view may do with one image source (design 8). */
+export interface ImageTarget {
+  /** The URL to load, or null when the image stays a placeholder. */
+  url: string | null;
+  /** Why it is not loaded, so the placeholder can say. */
+  blocked?: 'remote' | 'unavailable';
+}
+
+/**
+ * Turns the source of an image into something the view may load. The
+ * desktop app resolves a relative path against the document's folder and
+ * hands back an asset URL; a headless render has no folder and no
+ * permission to reach the network, so it loads nothing.
+ */
+export type ImageResolver = (src: string) => ImageTarget;
+
+/** Only a data URL is safe without a folder to resolve against or a reader to ask. */
+const noImages: ImageResolver = (src) => {
+  if (/^data:image\//i.test(src)) return { url: src };
+  return {
+    url: null,
+    blocked: /^(?:[a-z][a-z\d+\-.]*:|\/\/)/i.test(src) ? 'remote' : 'unavailable',
+  };
+};
 
 export interface RenderOptions {
   /** Shared with the outline so heading ids agree; see `headings`. */
   slugger?: Slugger;
   /** Scanned from the source by default; passed in only by tests. */
   references?: Map<string, Reference>;
+  /** The labels footnote definitions give; scanned from the source by default. */
+  footnotes?: Set<string>;
+  /** Design 8's image rules. Loads nothing when left out. */
+  image?: ImageResolver;
 }
 
 const HEADING = /^(?:ATX|Setext)Heading([1-6])$/;
@@ -24,17 +57,37 @@ export function headingLevel(name: string): number | null {
   return m?.[1] ? Number(m[1]) : null;
 }
 
+const SCHEME = /^[a-z][a-z\d+\-.]*:/i;
+
 /** Schemes a rendered `href` or `src` may carry. Everything else renders as text. */
-const SAFE_URL = /^(?:https?:|mailto:|tel:|#|[^a-z]|[a-z][a-z\d+\-.]*[^a-z\d+\-.:])/i;
+const SAFE_SCHEME = /^(?:https?|mailto|tel)$/i;
 
 /** Links that leave the app, and so open in the system browser. */
 const EXTERNAL = /^(?:https?|mailto|tel):/i;
 
+/**
+ * The destination of text that is its own link, by GFM's rules: `www.` is
+ * a web address, and something with an `@` and no scheme is an address to
+ * write to.
+ */
+function autoHref(raw: string): string {
+  if (/^www\./i.test(raw)) return `http://${raw}`;
+  if (raw.includes('@') && !SCHEME.test(raw)) return `mailto:${raw}`;
+  return raw;
+}
+
+/**
+ * The address as it may be written into the page, or null when it may not.
+ * A destination with no scheme is a path inside the document's own world
+ * and is always safe; one with a scheme is safe only if the scheme is.
+ */
 function safeUrl(url: string): string | null {
   const trimmed = url.trim();
   if (trimmed === '') return null;
   if (trimmed.startsWith('data:image/')) return trimmed;
-  return SAFE_URL.test(trimmed) ? trimmed : null;
+  const scheme = SCHEME.exec(trimmed)?.[0].slice(0, -1);
+  if (scheme === undefined) return trimmed;
+  return SAFE_SCHEME.test(scheme) ? trimmed : null;
 }
 
 /**
@@ -120,6 +173,8 @@ const dropped: ReadonlySet<string> = new Set([
   'CalloutFold',
   'TableDelimiter',
   'LinkReference',
+  'FootnoteMark',
+  'FootnoteLabel',
 ]);
 
 /**
@@ -135,6 +190,9 @@ const dropped: ReadonlySet<string> = new Set([
 export class Renderer {
   readonly slugger: Slugger;
   private readonly references: Map<string, Reference>;
+  private readonly footnoteLabels: Set<string>;
+  private readonly footnotes: FootnoteNumbers;
+  private readonly resolveImage: ImageResolver;
 
   constructor(
     private readonly source: string,
@@ -142,6 +200,11 @@ export class Renderer {
   ) {
     this.slugger = options.slugger ?? new Slugger();
     this.references = options.references ?? referenceDefinitions(source);
+    this.footnoteLabels = options.footnotes ?? footnoteDefinitions(source);
+    // Footnote anchors share the heading namespace, so they go through the
+    // same slugger: a heading called "Fn 1" cannot steal `#fn-1`.
+    this.footnotes = new FootnoteNumbers((id) => this.slugger.slug(id));
+    this.resolveImage = options.image ?? noImages;
   }
 
   /** Every top-level block of a tree, in document order. */
@@ -180,11 +243,9 @@ export class Renderer {
       case 'Frontmatter':
         return this.frontmatter(node);
       case 'HTMLBlock':
-        // The whitelist of design 5.2 arrives with WP 1.5; until then every
-        // HTML block shows as the literal text it is, which is safe by default.
-        return element('pre', { class: 'mdr-html' }, node.from, node.to, [
-          text(this.slice(node.from, node.to), node.from, node.to),
-        ]);
+        return this.htmlBlock(node);
+      case 'FootnoteDefinition':
+        return this.footnote(node);
       case 'CommentBlock':
       case 'Comment':
         return this.comment(node);
@@ -211,25 +272,40 @@ export class Renderer {
     return element(`h${level}`, { id }, node.from, node.to, children);
   }
 
+  /**
+   * A blockquote, or the callout it starts with. A fold sign makes the
+   * callout a `details` element, which is how a collapsed section
+   * survives without a line of script and reopens where the reader left
+   * it — the `+` and `-` of Obsidian's syntax mean exactly `open` and
+   * closed.
+   */
   private blockquote(node: SyntaxNode): RenderElement {
     const header = node.getChild('CalloutHeader');
     if (!header) {
       return element('blockquote', {}, node.from, node.to, this.blockChildren(node));
     }
-    const type = header.getChild('CalloutType');
-    const kind = type ? this.slice(type.from, type.to).toLowerCase() : 'note';
+    const typeNode = header.getChild('CalloutType');
+    const type = calloutType(typeNode ? this.slice(typeNode.from, typeNode.to) : '');
     const title = header.getChild('CalloutTitle');
     const label = title
       ? this.inline(title, title.from, title.to)
-      : [text(kind.charAt(0).toUpperCase() + kind.slice(1), header.from, header.to, false)];
+      : [text(type.title, header.from, header.to, false)];
     const body = this.blockChildren(node, header);
-    return element(
-      'blockquote',
-      { class: 'mdr-callout', 'data-callout': kind },
-      node.from,
-      node.to,
-      [element('div', { class: 'mdr-callout-title' }, header.from, header.to, label), ...body],
-    );
+    const fold = header.getChild('CalloutFold');
+    const sign = fold ? this.slice(fold.from, fold.to) : '';
+    const attrs: Record<string, string> = { class: 'mdr-callout', 'data-callout': type.name };
+    if (!type.known) attrs['data-callout-unknown'] = '';
+    if (sign === '') {
+      return element('blockquote', attrs, node.from, node.to, [
+        element('div', { class: 'mdr-callout-title' }, header.from, header.to, label),
+        ...body,
+      ]);
+    }
+    if (sign === '+') attrs.open = '';
+    return element('details', attrs, node.from, node.to, [
+      element('summary', { class: 'mdr-callout-title' }, header.from, header.to, label),
+      ...body,
+    ]);
   }
 
   private orderedAttrs(node: SyntaxNode): Record<string, string> {
@@ -347,12 +423,134 @@ export class Renderer {
     );
   }
 
+  /**
+   * Frontmatter as the properties panel of design 5.1, or as the YAML it
+   * is when the block holds a shape the panel would misrepresent.
+   */
   private frontmatter(node: SyntaxNode): RenderElement {
-    // WP 1.5 turns this into the properties widget; until then it is the
-    // YAML as written, which is at least honest about what the file holds.
     const runs = this.verbatimRuns(node, 'FrontmatterContent');
-    return element('div', { class: 'mdr-frontmatter' }, node.from, node.to, [
-      element('pre', {}, runs[0]?.from ?? node.from, runs.at(-1)?.to ?? node.to, runs),
+    const from = runs[0]?.from ?? node.from;
+    const to = runs.at(-1)?.to ?? node.to;
+    const found = runs.length === 0 ? [] : properties(this.slice(from, to), from);
+    if (found === null) {
+      return element('div', { class: 'mdr-frontmatter' }, node.from, node.to, [
+        element('pre', {}, from, to, runs),
+      ]);
+    }
+    const rows = found.map((property) =>
+      element('div', { class: 'mdr-property' }, property.from, property.to, [
+        element('span', { class: 'mdr-property-key' }, property.from, property.valueFrom, [
+          text(property.key, property.from, property.from + property.key.length),
+        ]),
+        element(
+          'span',
+          { class: 'mdr-property-value' },
+          property.valueFrom,
+          property.to,
+          property.items
+            ? property.items.map((item, i) =>
+                element('span', { class: 'mdr-property-item' }, property.to, property.to, [
+                  text(item, property.to, property.to, false),
+                  ...(i < (property.items?.length ?? 0) - 1
+                    ? [text(', ', property.to, property.to, false)]
+                    : []),
+                ]),
+              )
+            : [text(property.value, property.valueFrom, property.valueTo)],
+        ),
+      ]),
+    );
+    return element('div', { class: 'mdr-frontmatter mdr-properties' }, node.from, node.to, rows);
+  }
+
+  /**
+   * A footnote where the file puts it, numbered by the order the document
+   * first refers to it.
+   *
+   * GitHub moves every note into a section at the end. Moving blocks would
+   * cost this renderer the property everything else here depends on —
+   * that a rendered element sits at its own source range, in source order,
+   * so a click lands on the right character and a chunk can be rendered
+   * without reading the rest of the file.
+   */
+  private footnote(node: SyntaxNode): RenderElement {
+    const labelNode = node.getChild('FootnoteLabel');
+    const label = labelNode ? this.slice(labelNode.from, labelNode.to) : '';
+    // A note referred to nowhere above has nothing to link back to.
+    const referenced = !this.footnotes.unseen(label);
+    const anchor = this.footnotes.anchor(label);
+    const body = this.blockChildren(node);
+    const back = element(
+      'a',
+      { href: `#${anchor.backId}`, class: 'mdr-fn-back', 'aria-label': 'Back to reference' },
+      node.to,
+      node.to,
+      [text('\u21a9', node.to, node.to, false)],
+    );
+    const last = body.at(-1);
+    if (!referenced) {
+      // nothing to add
+    } else if (last?.kind === 'element' && last.tag === 'p') {
+      body[body.length - 1] = element('p', last.attrs, last.from, last.to, [
+        ...last.children,
+        text(' ', node.to, node.to, false),
+        back,
+      ]);
+    } else {
+      body.push(back);
+    }
+    return element(
+      'div',
+      { class: 'mdr-footnote', id: anchor.id, 'data-footnote': label },
+      node.from,
+      node.to,
+      [
+        element('span', { class: 'mdr-fn-number' }, node.from, node.from, [
+          text(`${anchor.number}.`, node.from, node.from, false),
+        ]),
+        element('div', { class: 'mdr-fn-body' }, body[0]?.from ?? node.from, node.to, body),
+      ],
+    );
+  }
+
+  /**
+   * A block of raw HTML: the whitelist's elements when every tag in the
+   * block is one the whitelist renders, and the literal text of the block
+   * otherwise (design 5.3).
+   *
+   * Pairing stops at the block's own edges. An HTML block ends at a blank
+   * line, so a `<details>` written with blank lines inside it is several
+   * blocks and its tags show as text. Read mode renders a long document
+   * one top-level block at a time and cannot look ahead for a closing tag
+   * without giving that up, and a rule that holds everywhere is worth more
+   * here than one that holds until a document gets long.
+   */
+  private htmlBlock(node: SyntaxNode): RenderElement {
+    const source = this.slice(node.from, node.to);
+    const tokens = tokenizeHtml(source, node.from);
+    if (tokens.every((token) => !token.tag || tagRenders(token.source))) {
+      const stack = this.htmlStack();
+      let loose = false;
+      for (const token of tokens) {
+        if (token.tag && stack.tag(token.source, token.from, token.to)) continue;
+        if (!token.tag && token.source.trim() === '') continue;
+        // Text or a tag with nowhere to go: the block is not a structure
+        // this whitelist can build, so all of it stays as written.
+        if (!stack.inElement) {
+          loose = true;
+          break;
+        }
+        stack.push(text(token.source, token.from, token.to));
+      }
+      const nodes = loose ? [] : stack.finish();
+      const only = nodes.length === 1 ? nodes[0] : null;
+      if (only?.kind === 'element') return only;
+      if (nodes.some((child) => child.kind === 'element')) {
+        return element('div', { class: 'mdr-html-block' }, node.from, node.to, nodes);
+      }
+    }
+    return element('pre', { class: 'mdr-html' }, node.from, node.to, [
+      text(source, node.from, node.to),
     ]);
   }
 
@@ -483,23 +681,35 @@ export class Renderer {
    * the character under the pointer without any further bookkeeping.
    */
   private inline(node: SyntaxNode, from: number, to: number): RenderNode[] {
-    const out: RenderNode[] = [];
+    const stack = this.htmlStack();
     let pos = from;
     for (let child = node.firstChild; child; child = child.nextSibling) {
       if (child.to <= from) continue;
       if (child.from >= to) break;
-      if (child.from > pos) this.pushText(out, pos, child.from);
-      const rendered = this.inlineNode(child);
-      if (rendered) out.push(...rendered);
+      if (child.from > pos) this.pushText(stack, pos, child.from);
+      if (child.name === 'HTMLTag') {
+        // An allowed tag opens or closes an element; anything else is the
+        // text it looks like (design 5.3).
+        if (!stack.tag(this.slice(child.from, child.to), child.from, child.to)) {
+          this.pushText(stack, child.from, child.to);
+        }
+      } else {
+        const rendered = this.inlineNode(child);
+        if (rendered) stack.pushAll(rendered);
+      }
       pos = Math.max(pos, child.to);
     }
-    if (to > pos) this.pushText(out, pos, to);
-    return out;
+    if (to > pos) this.pushText(stack, pos, to);
+    return stack.finish();
   }
 
-  private pushText(out: RenderNode[], from: number, to: number): void {
+  private htmlStack(): HtmlStack {
+    return new HtmlStack({ image: (attrs, from, to) => this.imageNode(attrs, from, to) });
+  }
+
+  private pushText(stack: HtmlStack, from: number, to: number): void {
     if (to <= from) return;
-    out.push(text(this.slice(from, to), from, to));
+    stack.push(text(this.slice(from, to), from, to));
   }
 
   private inlineNode(node: SyntaxNode): RenderNode[] | null {
@@ -521,7 +731,7 @@ export class Renderer {
       case 'Autolink':
         return [this.autolink(node)];
       case 'Image':
-        return [this.image(node)];
+        return [this.markdownImage(node)];
       case 'HardBreak':
         return [element('br', {}, node.from, node.to)];
       case 'Escape':
@@ -533,9 +743,8 @@ export class Renderer {
       }
       case 'Comment':
         return [this.comment(node)];
-      case 'HTMLTag':
-        // Literal text until the whitelist of WP 1.5.
-        return [text(this.slice(node.from, node.to), node.from, node.to)];
+      case 'FootnoteReference':
+        return this.footnoteReference(node);
       case 'LinkMark':
       case 'LinkLabel': {
         // Kept as text when the brackets around them are not a link at all.
@@ -546,9 +755,13 @@ export class Renderer {
         return null;
       }
       case 'URL':
-        return node.parent?.name === 'Autolink'
-          ? [text(this.slice(node.from, node.to), node.from, node.to)]
-          : null;
+        // GFM's extended autolinks — a bare `https://…`, `www.…`, or an
+        // email address — are a `URL` with no link around it, and so is
+        // the address in `[label](https://example.com` with no closing
+        // paren. Inside a link that resolved a `URL` is syntax, but that
+        // one sits past the label, where `link` never walks. So every
+        // `URL` reaching here is text the reader must see.
+        return [this.autoLink(this.slice(node.from, node.to), node.from, node.to)];
       case 'TaskMarker':
         return null;
       default:
@@ -619,29 +832,83 @@ export class Renderer {
 
   private autolink(node: SyntaxNode): RenderElement {
     const url = node.getChild('URL');
-    const raw = url ? this.slice(url.from, url.to) : this.slice(node.from + 1, node.to - 1);
-    const href = safeUrl(raw.includes('@') && !raw.includes(':') ? `mailto:${raw}` : raw);
-    const attrs: Record<string, string> = href === null ? {} : { href, 'data-external': '' };
-    return element('a', attrs, node.from, node.to, [
-      text(raw, url ? url.from : node.from + 1, url ? url.to : node.to - 1),
-    ]);
+    const from = url ? url.from : node.from + 1;
+    const to = url ? url.to : node.to - 1;
+    return this.autoLink(this.slice(from, to), node.from, node.to, from, to);
   }
 
-  private image(node: SyntaxNode): RenderElement {
+  /** A link whose text is its own destination. */
+  private autoLink(
+    raw: string,
+    from: number,
+    to: number,
+    textFrom = from,
+    textTo = to,
+  ): RenderElement {
+    const href = safeUrl(autoHref(raw));
+    const attrs: Record<string, string> = href === null ? {} : { href };
+    if (href !== null && EXTERNAL.test(href)) attrs['data-external'] = '';
+    return element('a', attrs, from, to, [text(raw, textFrom, textTo)]);
+  }
+
+  /**
+   * A reference to a footnote, as the number the reader follows. A label
+   * nothing defines is left as the text it is, the way an unresolved
+   * `[bracket]` is.
+   */
+  private footnoteReference(node: SyntaxNode): RenderNode[] {
+    const labelNode = node.getChild('FootnoteLabel');
+    const label = labelNode ? this.slice(labelNode.from, labelNode.to) : '';
+    if (!this.footnoteLabels.has(normalizeLabel(label))) {
+      return [text(this.slice(node.from, node.to), node.from, node.to)];
+    }
+    const first = this.footnotes.unseen(label);
+    const anchor = this.footnotes.anchor(label);
+    const attrs: Record<string, string> = { href: `#${anchor.id}`, class: 'mdr-fnref' };
+    // Only the first reference carries the id the note links back to.
+    if (first) attrs.id = anchor.backId;
+    return [
+      element('sup', { class: 'mdr-fnref-sup' }, node.from, node.to, [
+        element('a', attrs, node.from, node.to, [
+          text(String(anchor.number), node.from, node.to, false),
+        ]),
+      ]),
+    ];
+  }
+
+  /**
+   * One image, from markdown or from a whitelisted `<img>`. Whether the
+   * file may be loaded is design 8's question and the resolver's answer;
+   * a source that stays unloaded shows its alt text and says why, which
+   * is more use to a reader than a broken icon.
+   */
+  private imageNode(attrs: Record<string, string>, from: number, to: number): RenderNode {
+    const src = attrs.src ?? '';
+    const alt = attrs.alt ?? '';
+    const target: ImageTarget = safeUrl(src) === null ? { url: null } : this.resolveImage(src);
+    if (target.url === null) {
+      const placeholder: Record<string, string> = { class: 'mdr-image' };
+      if (src !== '') placeholder['data-src'] = src;
+      if (target.blocked) placeholder['data-blocked'] = target.blocked;
+      // With no alt text the source is the only thing left to show, and an
+      // empty span would leave the reader with nothing at all.
+      return element('span', placeholder, from, to, [
+        text(alt === '' ? src : alt, from, to, false),
+      ]);
+    }
+    const out: Record<string, string> = { ...attrs, src: target.url, alt };
+    return element('img', out, from, to);
+  }
+
+  private markdownImage(node: SyntaxNode): RenderNode {
     const target = this.destination(node);
     const label = this.labelRange(node);
-    const alt = this.slice(label.from, label.to);
-    const src = target ? safeUrl(target.url) : null;
-    // Relative images need the asset protocol and the per-document scope of
-    // WP 1.5; until then the alt text stands in, rather than a broken icon.
-    if (src === null || !/^(?:https?:|data:)/i.test(src)) {
-      const attrs: Record<string, string> = { class: 'mdr-image' };
-      if (target) attrs['data-src'] = target.url;
-      return element('span', attrs, node.from, node.to, [text(alt, label.from, label.to)]);
-    }
-    const attrs: Record<string, string> = { src, alt };
+    const attrs: Record<string, string> = {
+      src: target?.url ?? '',
+      alt: this.slice(label.from, label.to),
+    };
     if (target?.title) attrs.title = target.title;
-    return element('img', attrs, node.from, node.to);
+    return this.imageNode(attrs, node.from, node.to);
   }
 
   private slice(from: number, to: number): string {

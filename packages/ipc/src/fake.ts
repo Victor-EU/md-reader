@@ -134,6 +134,7 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
         });
       return record('convert_document_to_utf8', [path], read(path));
     },
+    allowDocumentImages: (path) => record('allow_document_images', [path], ok(null)),
     watch: (path) => record('watch', [path], ok(null)),
     unwatch: (path) => record('unwatch', [path], ok(null)),
     merge3: (base, ours, theirs) =>

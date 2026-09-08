@@ -15,6 +15,15 @@ export const commands = {
 	saveDocument: (path: string, content: string, expectedHash: string | null, format: FileFormat) => typedError<SaveResult, Error>(__TAURI_INVOKE("save_document", { path, content, expectedHash, format })),
 	/**  Rewrite a non-UTF-8 file as UTF-8 and return it freshly read. */
 	convertDocumentToUtf8: (path: string) => typedError<Document, Error>(__TAURI_INVOKE("convert_document_to_utf8", { path })),
+	/**
+	 *  Let the webview load images from a document's folder and below.
+	 * 
+	 *  The asset protocol starts with an empty scope (design 8), and it grows
+	 *  only here, only to the folder of a file the reader has opened. Nothing
+	 *  else in the app can widen it, and nothing outside those folders is
+	 *  reachable from the page.
+	 */
+	allowDocumentImages: (path: string) => typedError<null, Error>(__TAURI_INVOKE("allow_document_images", { path })),
 	/**  Start watching a file for external writes (WP 1.7). */
 	watch: (path: string) => typedError<null, Error>(__TAURI_INVOKE("watch", { path })),
 	/**  Stop watching a file (WP 1.7). */

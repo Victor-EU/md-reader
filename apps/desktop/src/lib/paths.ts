@@ -15,6 +15,32 @@ export function dirname(path: string): string {
   return cut <= 0 ? '' : path.slice(0, cut);
 }
 
+/** Whether a path names a place from the root rather than from a folder. */
+export function isAbsolute(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:[/\\]/.test(path);
+}
+
+/**
+ * `relative` resolved against `dir`, with `.` and `..` applied. Absolute
+ * paths are returned as they are, so `/pictures/x.png` in a document means
+ * the same place whichever folder the document sits in.
+ *
+ * Separators follow whatever `dir` already uses, because the result is
+ * handed straight back to the platform that produced the path.
+ */
+export function resolvePath(dir: string, relative: string): string {
+  if (isAbsolute(relative)) return relative;
+  const separator = dir.includes('\\') && !dir.includes('/') ? '\\' : '/';
+  const parts = segments(dir);
+  const prefix = dir.startsWith('/') ? '/' : '';
+  for (const part of segments(relative)) {
+    if (part === '.') continue;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  }
+  return prefix + parts.join(separator);
+}
+
 /**
  * Tab labels: the file name, extended leftwards with parent directories
  * until it is unique among the open tabs. Two `index.md` tabs read

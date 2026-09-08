@@ -1,0 +1,26 @@
+19-21 hide "[^"
+19-25 mark mdr-fnref "[^why]"
+24-25 hide "]"
+38-40 hide "[^"
+38-45 mark mdr-fnref "[^also]"
+44-45 hide "]"
+67-69 hide "[^"
+67-73 mark mdr-fnref "[^why]"
+72-73 hide "]"
+98-100 hide "[^"
+98-103 mark mdr-fnref "[^no]"
+102-103 hide "]"
+117-117 line mdr-footnote
+117-119 mark mdr-dim "[^"
+119-122 mark mdr-dim "why"
+122-124 mark mdr-dim "]:"
+154-154 line mdr-footnote
+154-156 mark mdr-dim "[^"
+156-160 mark mdr-dim "also"
+160-162 mark mdr-dim "]:"
+191-191 line mdr-footnote
+192-192 line mdr-footnote
+237-237 line mdr-footnote
+237-239 mark mdr-dim "[^"
+239-245 mark mdr-dim "orphan"
+245-247 mark mdr-dim "]:"

@@ -1,5 +1,6 @@
 import type { Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import type { PreviewOptions } from './preview/index.ts';
 import { createEditorState, type EditorMode, setModeEffect } from './state.ts';
 
 export interface Editor {
@@ -17,16 +18,19 @@ export interface Editor {
 export interface EditorOptions {
   extra?: Extension[];
   mode?: EditorMode;
+  /** What the block widgets render with: KaTeX, Mermaid, the image rules. */
+  preview?: PreviewOptions;
 }
 
 export function createEditor(parent: HTMLElement, doc = '', options: EditorOptions = {}): Editor {
   const extra = options.extra ?? [];
+  const preview = options.preview;
   let mode: EditorMode = options.mode ?? 'edit';
-  const view = new EditorView({ state: createEditorState(doc, { extra, mode }), parent });
+  const view = new EditorView({ state: createEditorState(doc, { extra, mode, preview }), parent });
   return {
     view,
     getDoc: () => view.state.doc.toString(),
-    setDoc: (next) => view.setState(createEditorState(next, { extra, mode })),
+    setDoc: (next) => view.setState(createEditorState(next, { extra, mode, preview })),
     getMode: () => mode,
     setMode: (next) => {
       if (next === mode) return;

@@ -95,9 +95,11 @@ describe('blocks', () => {
     );
   });
 
-  it('shows frontmatter as the YAML it is', () => {
+  it('shows frontmatter as a properties panel', () => {
     expect(render('---\ntitle: x\n---\n\nbody')).toBe(
-      '<div class="mdr-frontmatter"><pre>title: x</pre></div><p>body</p>',
+      '<div class="mdr-frontmatter mdr-properties"><div class="mdr-property">' +
+        '<span class="mdr-property-key">title</span>' +
+        '<span class="mdr-property-value">x</span></div></div><p>body</p>',
     );
   });
 
@@ -171,12 +173,12 @@ describe('links', () => {
     expect(render('```\n[r]: http://x.test\n```\n\n[r]')).toContain('<p>[r]</p>');
   });
 
-  it('renders a remote image and stands in for a relative one until WP 1.5', () => {
+  it('blocks a remote image and stands in for one it cannot resolve', () => {
     expect(render('![alt](https://x.test/a.png)')).toBe(
-      '<p><img src="https://x.test/a.png" alt="alt"></p>',
+      '<p><span class="mdr-image" data-src="https://x.test/a.png" data-blocked="remote">alt</span></p>',
     );
     expect(render('![alt](pictures/a.png)')).toBe(
-      '<p><span class="mdr-image" data-src="pictures/a.png">alt</span></p>',
+      '<p><span class="mdr-image" data-src="pictures/a.png" data-blocked="unavailable">alt</span></p>',
     );
   });
 });

@@ -28,6 +28,7 @@ const containers: ReadonlySet<string> = new Set([
   'ul',
   'ol',
   'blockquote',
+  'details',
   'table',
   'thead',
   'tbody',

@@ -86,6 +86,13 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       run: () => workspace.toggleSidebar(),
     },
     {
+      id: 'view.remoteImages',
+      title: 'Load Remote Images in This Document',
+      group: 'View',
+      enabled: hasTab,
+      run: () => workspace.toggleRemoteImages(),
+    },
+    {
       id: 'view.duplicate',
       title: 'Open a Second View',
       group: 'View',

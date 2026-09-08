@@ -13,7 +13,12 @@ import { drawSelection, EditorView, highlightSpecialChars, keymap } from '@codem
 import { extensions as dialect } from '@mdreader/markdown';
 import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 import { insertNewlineMarkdown } from './commands/newline.ts';
-import { livePreview, markdownHighlightStyle } from './preview/index.ts';
+import {
+  livePreview,
+  markdownHighlightStyle,
+  type PreviewOptions,
+  previewOptions,
+} from './preview/index.ts';
 
 /** Edit is live preview; Source is the same buffer with decorations off (design 4.2). */
 export type EditorMode = 'edit' | 'source';
@@ -71,8 +76,14 @@ export const markdownKeymap = [
  * Everything an editor needs that does not depend on the DOM. Pure state
  * tests build on this; `createEditor` adds the view.
  */
-export function baseExtensions(mode: EditorMode = 'edit'): Extension[] {
+export function baseExtensions(
+  mode: EditorMode = 'edit',
+  preview: PreviewOptions = {},
+): Extension[] {
   return [
+    // Outside the compartment: what the widgets render with does not
+    // change when the mode does.
+    previewOptions.of(preview),
     history(),
     drawSelection(),
     highlightSpecialChars(),
@@ -88,12 +99,14 @@ export interface StateOptions {
   extra?: Extension[];
   mode?: EditorMode;
   selection?: EditorSelection;
+  /** KaTeX, Mermaid, and the image rules the block widgets need. */
+  preview?: PreviewOptions;
 }
 
 export function createEditorState(doc: string, options: StateOptions = {}): EditorState {
   return EditorState.create({
     doc,
     selection: options.selection ?? EditorSelection.single(0),
-    extensions: [baseExtensions(options.mode ?? 'edit'), options.extra ?? []],
+    extensions: [baseExtensions(options.mode ?? 'edit', options.preview), options.extra ?? []],
   });
 }

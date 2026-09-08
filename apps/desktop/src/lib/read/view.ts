@@ -1,7 +1,13 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import type { Tree } from '@lezer/common';
-import { type OutlineEntry, offsetFromPoint, Renderer, toDom } from '@mdreader/markdown';
+import {
+  type OutlineEntry,
+  offsetFromPoint,
+  Renderer,
+  type RenderOptions,
+  toDom,
+} from '@mdreader/markdown';
 import type { Enhancer } from './enhance.ts';
 
 /**
@@ -50,6 +56,8 @@ export interface ReadViewOptions {
   /** A link that is not an anchor in this document. */
   onLink?: (href: string, external: boolean) => void;
   enhance?: Enhancer;
+  /** Design 8's image rules for the document being read. */
+  render?: RenderOptions;
 }
 
 type IdleHandle = number;
@@ -94,7 +102,7 @@ export class ReadView {
     this.parent = options.parent;
     this.state = options.state;
     this.source = options.state.doc.toString();
-    this.renderer = new Renderer(this.source);
+    this.renderer = new Renderer(this.source, options.render);
     this.folded = new Set(options.folded ?? []);
     this.body = document.createElement('article');
     this.body.className = 'read';

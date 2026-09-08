@@ -24,7 +24,8 @@ const constructs: [string, (node: RenderNode) => boolean][] = [
   ['Highlight', (n) => tag(n, 'mark')],
   ['Strikethrough', (n) => tag(n, 's')],
   ['Table', (n) => tag(n, 'table')],
-  ['Blockquote', (n) => tag(n, 'blockquote')],
+  // A folded callout is a `details`; every other blockquote is a blockquote.
+  ['Blockquote', (n) => tag(n, 'blockquote') || tag(n, 'details')],
   ['BulletList', (n) => tag(n, 'ul')],
   ['OrderedList', (n) => tag(n, 'ol')],
   ['ListItem', (n) => tag(n, 'li')],
@@ -34,6 +35,7 @@ const constructs: [string, (node: RenderNode) => boolean][] = [
   ['FencedCode', (n) => cls(n, 'mdr-code') || cls(n, 'mdr-mermaid')],
   ['CodeBlock', (n) => cls(n, 'mdr-code')],
   ['Frontmatter', (n) => cls(n, 'mdr-frontmatter')],
+  ['FootnoteDefinition', (n) => cls(n, 'mdr-footnote')],
   ...([1, 2, 3, 4, 5, 6] as const).map((level): [string, (node: RenderNode) => boolean] => [
     `ATXHeading${level}`,
     (n) => tag(n, `h${level}`),
@@ -74,6 +76,55 @@ function countNodes(nodes: readonly RenderNode[], match: (node: RenderNode) => b
     if (node.kind === 'element') found += countNodes(node.children, match);
   }
   return found;
+}
+
+/**
+ * Nodes whose source text the renderer is entitled not to show: a link's
+ * destination and title, the label of a reference link, the language of a
+ * fence, the tags of inline HTML, a footnote's label, the source of an
+ * entity, a list marker the list element draws itself, and the two blocks
+ * that render as something other than their text. Everything else in a
+ * document has to reach the page — the rest of this test is there because
+ * a renderer that quietly drops an email address is worse than one that
+ * shows it as the wrong thing.
+ */
+const hidden: ReadonlySet<string> = new Set([
+  'CodeInfo',
+  'ListMark',
+  'FootnoteLabel',
+  'LinkLabel',
+  'LinkTitle',
+  'LinkReference',
+  'FootnoteReference',
+  'HTMLTag',
+  'HTMLBlock',
+  'Entity',
+  'Frontmatter',
+  'CalloutType',
+  'CalloutFold',
+]);
+
+/** The source with every hidden range blanked out. */
+function visibleSource(tree: Tree, source: string): string {
+  const out = source.split('');
+  tree.iterate({
+    enter(node) {
+      const parent = node.node.parent?.name;
+      const isDestination = node.name === 'URL' && (parent === 'Link' || parent === 'Image');
+      if (!hidden.has(node.name) && !isDestination) return true;
+      for (let i = node.from; i < node.to; i++) out[i] = ' ';
+      return false;
+    },
+  });
+  return out.join('');
+}
+
+/** Words long enough that finding them by accident is unlikely. */
+function words(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word.length >= 4);
 }
 
 /** Ranges are inside the document, inside their parent, and verbatim runs are the source. */
@@ -125,6 +176,18 @@ describe('read renderer over the corpus', () => {
       }
     }
     expect(missing).toEqual([]);
+  });
+
+  it('loses no word of the source', () => {
+    const lost: string[] = [];
+    for (const file of files) {
+      const tree = parser.parse(file.text);
+      const rendered = textOf(renderDocument(tree, file.text)).toLowerCase();
+      for (const word of words(visibleSource(tree, file.text))) {
+        if (!rendered.includes(word)) lost.push(`${file.name}: ${word}`);
+      }
+    }
+    expect(lost.slice(0, 20)).toEqual([]);
   });
 
   it('escapes everything it puts in the page', () => {

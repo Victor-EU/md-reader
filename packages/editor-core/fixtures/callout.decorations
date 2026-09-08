@@ -77,11 +77,11 @@
 358-358 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
 358-358 line mdr-quote mdr-callout {"data-callout":"example"}
 360-361 mark mdr-quote-mark ">"
-391-391 line mdr-quote mdr-callout {"data-callout":"weird-type_2"}
+391-391 line mdr-quote mdr-callout {"data-callout":"note"}
 391-391 line mdr-callout-header
 391-392 mark mdr-quote-mark ">"
 393-408 mark mdr-callout-marker "[!weird-type_2]"
-409-409 line mdr-quote mdr-callout {"data-callout":"weird-type_2"}
+409-409 line mdr-quote mdr-callout {"data-callout":"note"}
 409-410 mark mdr-quote-mark ">"
 457-457 line mdr-quote
 457-458 mark mdr-quote-mark ">"
