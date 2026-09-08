@@ -12,7 +12,7 @@ import { EditorView, keymap, ViewPlugin } from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
 import { markdownHighlightStyle } from '../theme.ts';
 import { escapePipes, insertRowBelow, materializeCell, rebaseCellChanges } from './commands.ts';
-import { cellText, type TableModel, tableModelAt, tableNodeAt } from './model.ts';
+import { type CellModel, cellText, type TableModel, tableModelAt, tableNodeAt } from './model.ts';
 import { type ActiveCell, activeCellField, type CursorHint, setActiveCell } from './state.ts';
 
 const managers = new WeakMap<EditorView, CellEditorManager>();
@@ -69,11 +69,15 @@ function cellTransactionFilter(tr: Transaction): TransactionSpec | readonly Tran
  * the DOM the browser just mutated (composition included) stays in step,
  * and the same changes are then dispatched on the outer document shifted
  * by the cell's start, with the same user event so undo groups as usual.
- * The outer update rebuilds the widget, which calls `sync` with the new
- * cell text; if that ever differs from the nested document, the nested
- * document is overwritten from the outer one. The outer document is the
- * truth; the nested view is a projection that is allowed to be first only
- * because it is verified immediately after.
+ * The outer update rebuilds the widget, which calls `sync`; there the nested
+ * document is verified against the span it occupies in the outer one and
+ * overwritten from it whenever the two disagree. That span is not the cell's
+ * model range: `rowCells` trims a cell to its content, while a space typed at
+ * either edge is content to the person typing and becomes padding only once
+ * they leave. `cellStart` holds the span so a rebase lands after such a space
+ * instead of in front of it. The outer document is the truth; the nested view
+ * is a projection that is allowed to be first only because it is verified
+ * immediately after.
  */
 export class CellEditorManager {
   private nested: EditorView | null = null;
@@ -81,6 +85,18 @@ export class CellEditorManager {
   /** Click coordinates from the activation, consumed on mount to place the cursor. */
   pendingCoords: { x: number; y: number } | null = null;
   private syncing = false;
+  /**
+   * Where the nested document starts in the outer one. It is the cell's
+   * trimmed start when the cell opens, and stops being it the moment the
+   * user types a space at either edge: `rowCells` trims the model's cell
+   * range, so a space typed at the end of a cell falls outside it while it
+   * is still, to the person typing, part of what they are writing. The
+   * nested document keeps those blanks and this offset keeps the span they
+   * occupy, so a rebase lands after them instead of in front of them.
+   */
+  private cellStart: number | null = null;
+  /** True while this manager's own nested change is being dispatched on the outer view. */
+  private rebasing = false;
 
   constructor(private readonly outer: EditorView) {}
 
@@ -93,11 +109,17 @@ export class CellEditorManager {
     const cell = model.rows[active.row]?.cells[active.col];
     const text = cell ? cellText(this.outer.state.doc, cell) : '';
     if (this.nested && this.td === td) {
+      // Our own rebase, already verified against the document: the nested view
+      // is the truth about its own edge blanks, and `text` has had them trimmed
+      // off, so overwriting with it here is what used to eat typed spaces.
+      if (this.rebasing && this.nestedMatchesDoc(cell)) return;
       this.resync(text, active.cursor);
+      this.cellStart = cell?.from ?? null;
       return;
     }
     if (this.nested) this.unmount();
     this.td = td;
+    this.cellStart = cell?.from ?? null;
     td.classList.add('mdr-cell-active');
     const coords = active.cursor === 'coords' ? this.pendingCoords : null;
     this.pendingCoords = null;
@@ -127,6 +149,10 @@ export class CellEditorManager {
         const pos = nested.posAtCoords(coords);
         if (pos !== null) nested.dispatch({ selection: { anchor: pos } });
       }
+      // A clicked cell is on screen already; one reached by Tab or an arrow
+      // key from a line above the fold is not, and the outer view does not
+      // scroll for a cursor it no longer owns.
+      td.scrollIntoView({ block: 'nearest' });
     });
   }
 
@@ -135,6 +161,23 @@ export class CellEditorManager {
     this.nested?.destroy();
     this.nested = null;
     this.td = null;
+    this.cellStart = null;
+  }
+
+  /**
+   * Does the outer document still hold exactly what the nested view shows,
+   * over the span the nested document occupies? The span has to cover the
+   * whole trimmed cell, so a nested view that has fallen behind the model
+   * fails this and is overwritten rather than rebased onto the wrong text.
+   */
+  private nestedMatchesDoc(cell: CellModel | undefined): boolean {
+    const nested = this.nested;
+    if (!nested || !cell || this.cellStart === null) return false;
+    const current = nested.state.doc.toString();
+    const from = this.cellStart;
+    const to = from + current.length;
+    if (from > cell.from || to < cell.to) return false;
+    return this.outer.state.doc.sliceString(from, to) === current;
   }
 
   destroy(): void {
@@ -184,18 +227,32 @@ export class CellEditorManager {
       const model = tableModelAt(this.outer.state, active.table);
       const cell = model?.rows[active.row]?.cells[active.col];
       if (!cell) continue;
-      const expected = this.outer.state.doc.sliceString(cell.from, cell.to);
-      if (expected !== tr.startState.doc.toString()) {
-        this.resync(expected, 'keep');
+      const before = tr.startState.doc.toString();
+      const from = this.cellStart ?? cell.from;
+      const to = from + before.length;
+      // The span must still read back as the document the nested view had, and
+      // must cover the trimmed cell; anything else means the two have drifted.
+      if (
+        from > cell.from ||
+        to < cell.to ||
+        this.outer.state.doc.sliceString(from, to) !== before
+      ) {
+        this.cellStart = cell.from;
+        this.resync(cellText(this.outer.state.doc, cell), 'keep');
         continue;
       }
       const userEvent = tr.annotation(Transaction.userEvent);
-      this.outer.dispatch({
-        changes: rebaseCellChanges(cell.from, tr.changes),
-        effects: setActiveCell.of({ ...active, cursor: 'keep' }),
-        ...(userEvent ? { userEvent } : {}),
-        scrollIntoView: false,
-      });
+      this.rebasing = true;
+      try {
+        this.outer.dispatch({
+          changes: rebaseCellChanges(from, tr.changes),
+          effects: setActiveCell.of({ ...active, cursor: 'keep' }),
+          ...(userEvent ? { userEvent } : {}),
+          scrollIntoView: false,
+        });
+      } finally {
+        this.rebasing = false;
+      }
     }
   }
 
@@ -372,9 +429,42 @@ function enterTable(view: EditorView, direction: 1 | -1): boolean {
   return true;
 }
 
+/** True when `lineNumber` is the last line of a table, which is the model of that table. */
+function tableEndingAt(state: EditorState, lineNumber: number): TableModel | null {
+  const line = state.doc.line(lineNumber);
+  const node = tableNodeAt(state, line.to);
+  if (!node || state.doc.lineAt(node.to).number !== lineNumber) return null;
+  return tableModelAt(state, node.from);
+}
+
+/**
+ * Backspace at the start of the line under a table, or of the first text
+ * line after the blank line under it, opens the table's last cell instead
+ * of joining. Joining would splice the line into the last row, and taking
+ * the blank line away would make the paragraph a row of its own, since a
+ * table runs until a blank line; neither is what a writer backing up to
+ * a table means.
+ */
+function backspaceIntoTable(view: EditorView): boolean {
+  const { state } = view;
+  const sel = state.selection.main;
+  const line = state.doc.lineAt(sel.head);
+  if (!sel.empty || sel.head !== line.from || line.number < 2) return false;
+  if (state.field(activeCellField)) return false;
+  let model = tableEndingAt(state, line.number - 1);
+  if (!model && line.number > 2 && line.text.trim() !== '') {
+    const blank = state.doc.line(line.number - 1);
+    if (blank.text.trim() === '') model = tableEndingAt(state, line.number - 2);
+  }
+  if (!model) return false;
+  activateCell(view, model, model.rows.length - 1, model.columns - 1, null, 'end');
+  return true;
+}
+
 export const tableKeymap = [
   { key: 'ArrowDown', run: (view: EditorView) => enterTable(view, 1) },
   { key: 'ArrowUp', run: (view: EditorView) => enterTable(view, -1) },
+  { key: 'Backspace', run: backspaceIntoTable },
 ];
 
 /** Tears the nested view down with the outer one. */

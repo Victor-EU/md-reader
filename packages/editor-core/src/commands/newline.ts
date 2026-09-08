@@ -4,12 +4,12 @@ import { EditorSelection, type StateCommand, type Text } from '@codemirror/state
  * The markup at the start of a line: quote markers, then optionally a list
  * marker and a task box, each with the exact whitespace that follows it.
  */
-const markupRe = /^((?:[ \t]*>[ \t]*)*)(?:([ \t]*)([-*+]|\d+[.)])([ \t]+)(\[[ xX]\][ \t]+)?)?/;
+const markupRe = /^((?:[ \t]*>[ \t]?)*)(?:([ \t]*)([-*+]|\d+[.)])([ \t]+)(\[[ xX]\][ \t]+)?)?/;
 
 export interface LineMarkup {
   /** Everything before the content: quotes, indentation, marker, task box. */
   prefix: string;
-  /** The quote markers alone, with their whitespace. */
+  /** The quote markers alone, each with the one space CommonMark lets it consume. */
   quotes: string;
   /** True when the line has a list marker. */
   list: boolean;
@@ -54,7 +54,7 @@ export interface NewlinePlan {
  */
 function underlineTrap(doc: Text, lineNumber: number, prefix: string): boolean {
   if (lineNumber < 2) return false;
-  const marker = /([-*+]|\d+[.)])/.exec(prefix.replace(/^(?:[ \t]*>[ \t]*)*/, ''))?.[1];
+  const marker = /([-*+]|\d+[.)])/.exec(prefix.replace(/^(?:[ \t]*>[ \t]?)*/, ''))?.[1];
   if (marker !== '-') return false;
   const current = lineMarkup(prefix);
   const prev = lineMarkup(doc.line(lineNumber - 1).text);
@@ -62,6 +62,40 @@ function underlineTrap(doc: Text, lineNumber: number, prefix: string): boolean {
   const indent = (text: string) => /^[ \t]*/.exec(text)?.[0].length ?? 0;
   const markerIndent = indent(prefix.slice(current.quotes.length));
   return indent(prev.content) <= markerIndent + 3;
+}
+
+/** The quote markers minus the innermost one; nothing at all once the last one goes. */
+export function outerQuotes(quotes: string): string {
+  const outer = quotes.replace(/>[ \t]*$/, '');
+  return outer.includes('>') ? outer : '';
+}
+
+/** Width of the whitespace before a line's list marker, after its quote markers. */
+export function markerIndent(markup: LineMarkup): number {
+  return /^[ \t]*/.exec(markup.prefix.slice(markup.quotes.length))?.[0].length ?? 0;
+}
+
+function sameQuotes(a: string, b: string): boolean {
+  return a.replace(/[ \t]/g, '') === b.replace(/[ \t]/g, '');
+}
+
+/**
+ * The prefix of the nearest list item above `lineNumber` that is less
+ * indented than the item on it, or null when the item is at the outer
+ * level. Blank lines and paragraphs are walked over, because a list may
+ * be loose or hold continuation text; a change of quote depth ends it.
+ */
+export function parentItemPrefix(doc: Text, lineNumber: number, prefix: string): string | null {
+  const current = lineMarkup(prefix);
+  const indent = markerIndent(current);
+  if (indent === 0) return null;
+  const stop = Math.max(1, lineNumber - 500);
+  for (let n = lineNumber - 1; n >= stop; n--) {
+    const markup = lineMarkup(doc.line(n).text);
+    if (!sameQuotes(markup.quotes, current.quotes)) return null;
+    if (markup.list && markerIndent(markup) < indent) return markup.prefix;
+  }
+  return null;
 }
 
 export function newlinePlan(doc: Text, pos: number): NewlinePlan {
@@ -86,9 +120,20 @@ export function newlinePlan(doc: Text, pos: number): NewlinePlan {
     };
   }
   if ((list || prefix.includes('>')) && content.trim() === '' && pos === line.to) {
-    // Enter on an empty item or quote line leaves the list or quote.
-    const keep = list ? quotes : quotes.replace(/[ \t]*>[ \t]*$/, '');
-    return { from: line.from + keep.length, to: line.to, insert: '' };
+    // Enter on an empty nested item first moves it out to its parent's level.
+    const parent = list ? parentItemPrefix(doc, line.number, prefix) : null;
+    if (parent !== null) {
+      return { from: line.from, to: line.to, insert: continuation(parent) };
+    }
+    // Enter on an empty item or quote line leaves the list or quote. When
+    // there is text right above, the emptied line stays as the blank line
+    // that ends the list or quote and the cursor moves to a fresh line
+    // under it; without one the next paragraph would be a lazy continuation
+    // of the item above, indented in the preview and glued to it on disk.
+    const keep = list ? quotes : outerQuotes(quotes);
+    const above = line.number > 1 ? doc.line(line.number - 1) : null;
+    const separate = above !== null && lineMarkup(above.text).content.trim() !== '';
+    return { from: line.from + keep.length, to: line.to, insert: separate ? `\n${keep}` : '' };
   }
   return { from: pos, to: pos, insert: `\n${continuation(prefix)}` };
 }

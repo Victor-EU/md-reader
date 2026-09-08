@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Range } from '@codemirror/state';
 import { Decoration } from '@codemirror/view';
-import type { SyntaxNodeRef } from '@lezer/common';
+import type { SyntaxNode, SyntaxNodeRef, Tree } from '@lezer/common';
 import { headingLevel } from './nodes.ts';
 import { type RevealRange, revealRanges } from './reveal.ts';
 import { BulletWidget, CheckboxWidget } from './widgets.ts';
@@ -80,6 +80,46 @@ export function buildDecorations(
   return { decorations: builder.decorations, atomic: builder.atomic };
 }
 
+const labelCache = new WeakMap<Tree, Set<string>>();
+
+/** A reference label as CommonMark matches it: trimmed, inner whitespace collapsed, case folded. */
+function normalizeLabel(label: string): string {
+  return label.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** Blocks that can hold a link reference definition; nothing below them can. */
+const definitionContainers: ReadonlySet<string> = new Set([
+  'Document',
+  'Blockquote',
+  'BulletList',
+  'OrderedList',
+  'ListItem',
+]);
+
+/**
+ * The labels of every `[label]: url` definition in the tree, cached per
+ * tree. Definitions are block-level, so the walk enters only the blocks
+ * that can contain one and never descends into inline content.
+ */
+function referenceLabels(tree: Tree, doc: EditorState['doc']): Set<string> {
+  let labels = labelCache.get(tree);
+  if (labels) return labels;
+  labels = new Set();
+  const found = labels;
+  tree.iterate({
+    enter(node) {
+      if (node.name === 'LinkReference') {
+        const label = node.node.getChild('LinkLabel');
+        if (label) found.add(normalizeLabel(doc.sliceString(label.from + 1, label.to - 1)));
+        return false;
+      }
+      return definitionContainers.has(node.name);
+    },
+  });
+  labelCache.set(tree, labels);
+  return labels;
+}
+
 class Builder {
   readonly decorations: Range<Decoration>[] = [];
   readonly atomic: Range<Decoration>[] = [];
@@ -88,6 +128,23 @@ class Builder {
     private readonly state: EditorState,
     private readonly reveal: readonly RevealRange[],
   ) {}
+
+  /**
+   * Whether a `Link` node is one: an inline link with a URL, or a reference
+   * whose label has a definition. Lezer emits `Link` for any `[text]`, so
+   * without this check every bracketed aside reads as a link.
+   */
+  private resolves(link: SyntaxNode): boolean {
+    if (link.getChild('URL')) return true;
+    const marks = link.getChildren('LinkMark');
+    const open = marks[0];
+    const close = marks[1];
+    if (!open || !close) return false;
+    const labelNode = link.getChild('LinkLabel');
+    const explicit = labelNode ? this.text(labelNode.from + 1, labelNode.to - 1) : '';
+    const label = explicit.trim() !== '' ? explicit : this.text(open.to, close.from);
+    return referenceLabels(syntaxTree(this.state), this.state.doc).has(normalizeLabel(label));
+  }
 
   private revealed(from: number, to: number, block: boolean): boolean {
     return this.reveal.some((r) => r.block === block && r.from < to && r.to > from);
@@ -243,12 +300,17 @@ class Builder {
       case 'StrongEmphasis':
         this.decorations.push(M.strong.range(node.from, node.to));
         return true;
+      case 'LinkMark':
+      case 'LinkLabel': {
+        const parent = node.node.parent;
+        if (parent?.name === 'Link' && !this.resolves(parent)) return false;
+        this.hideInline(node.from, node.to);
+        return false;
+      }
       case 'EmphasisMark':
       case 'HighlightMark':
       case 'StrikethroughMark':
-      case 'LinkMark':
       case 'LinkTitle':
-      case 'LinkLabel':
         this.hideInline(node.from, node.to);
         return false;
       case 'InlineCode':
@@ -258,6 +320,8 @@ class Builder {
         if (node.node.parent?.name === 'InlineCode') this.hideInline(node.from, node.to);
         return false;
       case 'Link':
+        if (this.resolves(node.node)) this.decorations.push(M.link.range(node.from, node.to));
+        return true;
       case 'Autolink':
         this.decorations.push(M.link.range(node.from, node.to));
         return true;

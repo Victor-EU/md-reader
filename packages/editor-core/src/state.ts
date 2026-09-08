@@ -1,5 +1,5 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-import { commonmarkLanguage, deleteMarkupBackward, markdown } from '@codemirror/lang-markdown';
+import { commonmarkLanguage, markdown } from '@codemirror/lang-markdown';
 import { foldNodeProp, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
 import {
@@ -11,6 +11,7 @@ import {
 } from '@codemirror/state';
 import { drawSelection, EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
+import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 import { insertNewlineMarkdown } from './commands/newline.ts';
 import { livePreview, markdownHighlightStyle } from './preview/index.ts';
 
@@ -55,10 +56,15 @@ export function markdownSupport(): Extension {
   });
 }
 
-/** Markdown editing keys: our lossless Enter, and lang-markdown's Backspace over a marker. */
+/**
+ * Markdown editing keys: a lossless Enter, a Backspace that removes a
+ * marker instead of replacing it with spaces, and a Tab that the editor
+ * always keeps. All three are defined in `./commands`.
+ */
 export const markdownKeymap = [
   { key: 'Enter', run: insertNewlineMarkdown },
-  { key: 'Backspace', run: deleteMarkupBackward },
+  { key: 'Backspace', run: deleteMarkerBackward },
+  { key: 'Tab', run: indentListItem, shift: outdentListItem },
 ];
 
 /**

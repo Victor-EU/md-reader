@@ -31,11 +31,11 @@ describe('table commands', () => {
   it('inserts a row below the header and below a body row, keeping any line prefix', () => {
     const state = parsedState(doc, 0);
     const from = tableFrom(doc);
-    expect(apply(doc, insertRowBelow(state, from, 0))).toContain('|---|:-:|\n| | |\n| 1 | 2 |');
-    expect(apply(doc, insertRowBelow(state, from, 2))).toContain('| 3 |\n| | |\n');
+    expect(apply(doc, insertRowBelow(state, from, 0))).toContain('|---|:-:|\n|  |  |\n| 1 | 2 |');
+    expect(apply(doc, insertRowBelow(state, from, 2))).toContain('| 3 |\n|  |  |\n');
     const quoted = '> | a | b |\n> |---|---|\n> | 1 | 2 |';
     const qs = parsedState(quoted, 0);
-    expect(apply(quoted, insertRowBelow(qs, tableFrom(quoted), 1))).toBe(`${quoted}\n> | | |`);
+    expect(apply(quoted, insertRowBelow(qs, tableFrom(quoted), 1))).toBe(`${quoted}\n> |  |  |`);
   });
 
   it('deletes a body row but never the header', () => {

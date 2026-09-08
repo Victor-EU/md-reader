@@ -28,6 +28,27 @@ describe('buildDecorations', () => {
     });
   }
 
+  it('styles a bracketed span as a link only when it resolves', () => {
+    const doc = 'see [aside] and [ok] and [text][ok] and [x][gone] and [u](/u)\n\n[OK]: /ok\n';
+    const links = buildDecorations(parsedState(doc, doc.length), [
+      { from: 0, to: doc.length },
+    ]).decorations.filter((r) => (r.value.spec as { class?: string }).class === 'mdr-link');
+    // The last one is the definition's own URL, styled as a link as before.
+    expect(links.map((r) => doc.slice(r.from, r.to))).toEqual([
+      '[ok]',
+      '[text][ok]',
+      '[u](/u)',
+      '/ok',
+    ]);
+    const shown = serializeDecorations(
+      buildDecorations(parsedState(doc, doc.length), [{ from: 0, to: doc.length }]).decorations,
+      doc,
+    );
+    // The brackets of an unresolved reference are text and stay visible.
+    expect(shown).not.toContain(`${doc.indexOf('[aside]')}-${doc.indexOf('[aside]') + 1} hide`);
+    expect(shown).toContain(`${doc.indexOf('[ok]')}-${doc.indexOf('[ok]') + 1} hide`);
+  });
+
   it('shows syntax dimmed instead of hiding it when the unit is revealed', () => {
     const doc = '# Title with **bold**\n\nx';
     const hidden = serializeDecorations(

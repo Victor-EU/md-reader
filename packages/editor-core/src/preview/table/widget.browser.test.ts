@@ -83,6 +83,39 @@ describe('table widget', () => {
     expect(view.state.doc.toString()).toBe(doc.replace('| a |', '| ay |'));
   });
 
+  // Every other cell test here dispatches the whole string in one transaction,
+  // which never leaves a space at the edge of a cell between two of them.
+  // Typing does, and a cell's model range is its *trimmed* content, so that is
+  // the shape that used to drop the space from the cell and strand it in the
+  // document. These type one transaction per character instead.
+  it('keeps a space typed at the end of a cell', async () => {
+    await activate(1, 0);
+    const inner = getNested(cell(1, 0) as HTMLElement);
+    selectAll(inner);
+    typeInCell(inner, 'a b');
+    expect(inner.state.doc.toString()).toBe('a b');
+    expect(nested()?.textContent).toBe('a b');
+    expect(editor.view.state.doc.toString()).toBe(doc.replace('| a |', '| a b |'));
+  });
+
+  it('keeps every space of a typed multi-word cell, with no stray bytes', async () => {
+    await activate(1, 0);
+    const inner = getNested(cell(1, 0) as HTMLElement);
+    selectAll(inner);
+    typeInCell(inner, 'one two three');
+    expect(inner.state.doc.toString()).toBe('one two three');
+    expect(editor.view.state.doc.toString()).toBe(doc.replace('| a |', '| one two three |'));
+  });
+
+  it('keeps a space typed at the start of a cell', async () => {
+    await activate(1, 0);
+    const inner = getNested(cell(1, 0) as HTMLElement);
+    inner.dispatch({ selection: { anchor: 0 } });
+    typeInCell(inner, ' x');
+    expect(inner.state.doc.toString()).toBe(' xa');
+    expect(editor.view.state.doc.toString()).toBe(doc.replace('| a |', '|  xa |'));
+  });
+
   it('escapes a typed pipe and keeps the cell on one line', async () => {
     await activate(1, 0);
     const inner = getNested(cell(1, 0) as HTMLElement);
@@ -130,8 +163,68 @@ describe('table widget', () => {
     await tick();
     key('Tab');
     await tick();
-    expect(editor.view.state.doc.toString()).toContain('| 日本 | c \\| d |\n| | |\n');
+    expect(editor.view.state.doc.toString()).toContain('| 日本 | c \\| d |\n|  |  |\n');
     expect(cell(3, 0)?.classList.contains('mdr-cell-active')).toBe(true);
+  });
+
+  it('pads a row added with Tab so typed text sits between spaces', async () => {
+    await activate(2, 1);
+    nested()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    await tick();
+    typeInCell(getNested(cell(3, 0) as HTMLElement), '#4');
+    expect(editor.view.state.doc.toString()).toContain('| 日本 | c \\| d |\n| #4 |  |\n');
+  });
+
+  it('opens the last cell on Backspace at the start of the line under the table', async () => {
+    const key = () =>
+      editor.view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }),
+      );
+    // At the start of the paragraph after the blank line: the blank line stays.
+    editor.view.dispatch({ selection: { anchor: doc.indexOf('After line') } });
+    key();
+    await tick();
+    expect(editor.view.state.doc.toString()).toBe(doc);
+    expect(cell(2, 1)?.classList.contains('mdr-cell-active')).toBe(true);
+    expect(getNested(cell(2, 1) as HTMLElement).state.selection.main.head).toBe('c \\| d'.length);
+    // At the start of the blank line directly under the table: no join either.
+    editor.view.dispatch({
+      selection: { anchor: doc.indexOf('After line') - 1 },
+      effects: [],
+    });
+    await tick();
+    expect(table()).not.toBeNull();
+    key();
+    await tick();
+    expect(editor.view.state.doc.toString()).toBe(doc);
+    expect(cell(2, 1)?.classList.contains('mdr-cell-active')).toBe(true);
+  });
+
+  it('scrolls a cell reached by keyboard into view', async () => {
+    host.style.height = '120px';
+    const scroller = host.querySelector<HTMLElement>('.cm-scroller');
+    if (scroller) scroller.style.height = '120px';
+    editor.view.dispatch({
+      changes: { from: doc.length, insert: `${'\n'.repeat(60)}| x | y |\n|---|---|\n| 1 | 2 |\n` },
+      selection: { anchor: doc.length + 1 },
+    });
+    await tick();
+    // The blank line above the table, scrolled into view as a cursor line would be.
+    editor.view.dispatch({
+      selection: { anchor: editor.view.state.doc.length - 31 },
+      scrollIntoView: true,
+    });
+    await tick();
+    editor.view.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    );
+    await tick();
+    await tick();
+    const active = host.querySelector<HTMLElement>('.mdr-cell-active');
+    expect(active).not.toBeNull();
+    const box = active?.getBoundingClientRect();
+    const frame = scroller?.getBoundingClientRect();
+    expect(box && frame && box.top >= frame.top - 1 && box.bottom <= frame.bottom + 1).toBe(true);
   });
 
   it('drops to source on Escape with the cursor at the cell position', async () => {
@@ -176,6 +269,26 @@ describe('table widget', () => {
     expect(editor.view.state.doc.toString()).toBe(doc.replace('| a |', '| a日 |'));
   });
 });
+
+function selectAll(inner: EditorView): void {
+  inner.dispatch({ selection: { anchor: 0, head: inner.state.doc.length } });
+}
+
+/**
+ * Type one transaction per character, the granularity real key input produces.
+ * The widget rebuilds and re-syncs the cell between each pair, which is what
+ * makes this different from inserting the whole string at once.
+ */
+function typeInCell(inner: EditorView, text: string): void {
+  for (const ch of text) {
+    const at = inner.state.selection.main;
+    inner.dispatch({
+      changes: { from: at.from, to: at.to, insert: ch },
+      selection: { anchor: at.from + ch.length },
+      userEvent: 'input.type',
+    });
+  }
+}
 
 function getNested(td: HTMLElement): EditorView {
   const dom = td.querySelector<HTMLElement>('.cm-editor');

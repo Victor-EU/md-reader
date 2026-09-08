@@ -24,6 +24,8 @@ describe('lineMarkup and continuation', () => {
     ['> quoted', '> ', false],
     ['> - both', '> - ', true],
     ['> > deep', '> > ', false],
+    ['>   - indented in quote', '>   - ', true],
+    ['>   spaced quote', '> ', false],
     ['plain', '', false],
     ['  indented plain', '', false],
     ['-no space', '', false],
@@ -56,11 +58,34 @@ describe('insertNewlineMarkdown', () => {
     expect(press('- ab', 3)).toEqual({ doc: '- a\n- b', head: 6 });
   });
 
-  it('leaves a list or quote on an empty item', () => {
-    expect(press('- a\n- ', 6)).toEqual({ doc: '- a\n', head: 4 });
+  it('leaves a list or quote on an empty item, behind a blank line when there is text above', () => {
+    // The emptied item is the blank line that ends the list; the cursor
+    // moves under it, so what is typed next is a paragraph, not a lazy
+    // continuation of the item above.
+    expect(press('- a\n- ', 6)).toEqual({ doc: '- a\n\n', head: 5 });
+    expect(press('1. a\n2. ', 8)).toEqual({ doc: '1. a\n\n', head: 6 });
+    expect(press('- [ ] a\n- [ ] ', 14)).toEqual({ doc: '- [ ] a\n\n', head: 9 });
+    expect(press('> a\n> ', 6)).toEqual({ doc: '> a\n\n', head: 5 });
+    // Inside a quote the blank line is a quoted one, and the cursor stays quoted.
+    expect(press('> - a\n> - ', 10)).toEqual({ doc: '> - a\n> \n> ', head: 11 });
+    expect(press('> > a\n> > ', 10)).toEqual({ doc: '> > a\n> \n> ', head: 11 });
+  });
+
+  it('leaves a list or quote in place when nothing above needs separating', () => {
     expect(press('  - ', 4).doc).toBe('');
     expect(press('> ', 2).doc).toBe('');
     expect(press('> - ', 4).doc).toBe('> ');
+    expect(press('- a\n\n- ', 7)).toEqual({ doc: '- a\n\n', head: 5 });
+    expect(press('> a\n>\n> - ', 10)).toEqual({ doc: '> a\n>\n> ', head: 8 });
+  });
+
+  it('moves an empty nested item out to its parent level first', () => {
+    expect(press('- a\n  - b\n  - ', 14)).toEqual({ doc: '- a\n  - b\n- ', head: 12 });
+    expect(press('1. a\n   1. b\n   2. ', 19).doc).toBe('1. a\n   1. b\n2. ');
+    expect(press('- a\n\t- ', 7).doc).toBe('- a\n- ');
+    expect(press('> - a\n>   - ', 12).doc).toBe('> - a\n> - ');
+    // A quote boundary above is not a parent.
+    expect(press('> - a\n  - ', 10).doc).toBe('> - a\n\n');
   });
 
   it('never turns the paragraph above into a setext heading', () => {

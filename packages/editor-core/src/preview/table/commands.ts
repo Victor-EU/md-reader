@@ -20,8 +20,9 @@ function linePrefix(doc: Text, row: RowModel): string {
   return doc.sliceString(line.from, row.from);
 }
 
+/** Two spaces per cell, so text typed into one gets the ` | x |` padding a hand-typed row has. */
 function emptyRow(columns: number): string {
-  return `|${' |'.repeat(columns)}`;
+  return `|${'  |'.repeat(columns)}`;
 }
 
 /** Insert an empty row after row `index` (0 is the header). */

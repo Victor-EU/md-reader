@@ -85,25 +85,13 @@
 409-410 mark mdr-quote-mark ">"
 457-457 line mdr-quote
 457-458 mark mdr-quote-mark ">"
-459-460 hide "["
-459-475 mark mdr-link "[!not a callout]"
-474-475 hide "]"
 497-497 line mdr-quote
 497-498 mark mdr-quote-mark ">"
 521-521 line mdr-quote
 521-522 mark mdr-quote-mark ">"
-523-524 hide "["
-523-526 mark mdr-link "[!]"
-525-526 hide "]"
 556-556 line mdr-quote
 556-557 mark mdr-quote-mark ">"
-557-558 hide "["
-557-563 mark mdr-link "[!bug]"
-562-563 hide "]"
 604-604 line mdr-quote
 604-605 mark mdr-quote-mark ">"
 617-617 line mdr-quote
 617-618 mark mdr-quote-mark ">"
-619-620 hide "["
-619-626 mark mdr-link "[!note]"
-625-626 hide "]"
