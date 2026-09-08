@@ -103,14 +103,25 @@ describe('blocks', () => {
     );
   });
 
-  it('hides comments and keeps the text after one', () => {
-    expect(render('<!-- note: hi -->')).toBe(
-      '<span class="mdr-comment" hidden>&lt;!-- note: hi --&gt;</span>',
-    );
+  it('folds a comment away as the note it is, and keeps the text after one', () => {
+    const note =
+      '<span class="mdr-comment" data-kind="note" hidden>' +
+      '<span class="mdr-comment-kind">note</span>' +
+      '<span class="mdr-comment-text">hi</span></span>';
+    expect(render('<!-- note: hi -->')).toBe(note);
     expect(render('<!-- note: hi --> and text')).toBe(
-      '<div class="mdr-comment-block"><span class="mdr-comment" hidden>&lt;!-- note: hi --&gt;</span>' +
-        '<p> and text</p></div>',
+      `<div class="mdr-comment-block">${note}<p> and text</p></div>`,
     );
+  });
+
+  it('leaves a comment outside the vocabulary as its own source', () => {
+    expect(render('<!-- todo: hi -->')).toBe(
+      '<span class="mdr-comment" hidden>&lt;!-- todo: hi --&gt;</span>',
+    );
+  });
+
+  it('keeps a comment out of the heading id it sits in', () => {
+    expect(render('# Title <!-- question: why -->')).toContain('<h1 id="title"');
   });
 
   it('shows an HTML block as the literal text it is, until the whitelist of WP 1.5', () => {

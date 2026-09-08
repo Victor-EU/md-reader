@@ -1,4 +1,5 @@
 import type { SyntaxNode, Tree } from '@lezer/common';
+import { commentParts } from '../annotate/comments.ts';
 import { calloutType } from './callouts.ts';
 import { FootnoteNumbers, footnoteDefinitions } from './footnotes.ts';
 import {
@@ -555,8 +556,10 @@ export class Renderer {
   }
 
   /**
-   * Comments are folded away in Read mode (design 4.3); the element is here
-   * so the toggle of WP 1.6 has something to show.
+   * Comments are folded away in Read mode (design 4.3), and the reader's
+   * toggle shows them: `hidden` is on the element rather than a decision
+   * not to render it, so turning them on is a class on the article and no
+   * re-render.
    *
    * A comment block ends at the line that closes it, so anything the author
    * wrote after `-->` on that line is ordinary visible text and is rendered
@@ -566,15 +569,47 @@ export class Renderer {
     const source = this.slice(node.from, node.to);
     const close = source.indexOf('-->');
     const commentTo = close === -1 ? node.to : node.from + close + 3;
-    const hidden = element('span', { class: 'mdr-comment', hidden: '' }, node.from, commentTo, [
-      text(this.slice(node.from, commentTo), node.from, commentTo),
-    ]);
+    const hidden = this.note(node.from, commentTo);
     const trailing = this.slice(commentTo, node.to);
     if (trailing.trim() === '') return hidden;
     return element('div', { class: 'mdr-comment-block' }, node.from, node.to, [
       hidden,
       element('p', {}, commentTo, node.to, [text(trailing, commentTo, node.to)]),
     ]);
+  }
+
+  /**
+   * One comment, as the note it is when it speaks the vocabulary and as
+   * its own source when it does not. Splitting the kind from the words
+   * is what lets the shown form read as a note rather than as markup,
+   * and it is the same shape the editor's margin note has.
+   */
+  private note(from: number, to: number): RenderElement {
+    const source = this.slice(from, to);
+    const parts = commentParts(source);
+    if (!parts) {
+      return element('span', { class: 'mdr-comment', hidden: '' }, from, to, [
+        text(source, from, to),
+      ]);
+    }
+    const kindFrom = from + parts.kindFrom;
+    const kindTo = from + parts.kindTo;
+    const textFrom = from + parts.textFrom;
+    const textTo = from + parts.textTo;
+    return element(
+      'span',
+      { class: 'mdr-comment', 'data-kind': parts.kind, hidden: '' },
+      from,
+      to,
+      [
+        element('span', { class: 'mdr-comment-kind' }, kindFrom, kindTo, [
+          text(this.slice(kindFrom, kindTo), kindFrom, kindTo),
+        ]),
+        element('span', { class: 'mdr-comment-text' }, textFrom, textTo, [
+          text(parts.text, textFrom, textTo),
+        ]),
+      ],
+    );
   }
 
   private table(node: SyntaxNode): RenderElement {

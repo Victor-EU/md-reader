@@ -1,0 +1,25 @@
+A paragraph <!-- note: inline after text --> continues.
+
+<!-- question: on its own line, anchored to the next block -->
+The next block.
+
+<!-- rewrite: too long
+spanning lines -->
+
+<!-- Attention: capitalized kind -->
+
+<!-- todo: unknown kind -->
+
+<!-- no colon -->
+
+<!-- keep: trailing text on the line --> keeps text inside the block
+
+Highlight ==with a note== <!-- remove: cut this --> after.
+
+---
+Annotations (5):
+1. Comment — note: inline after text
+2. Comment, "The next block." — question: on its own line, anchored to the next block
+3. Comment — rewrite: too long spanning lines
+4. Comment — attention: capitalized kind
+5. Highlight, "with a note" — remove: cut this

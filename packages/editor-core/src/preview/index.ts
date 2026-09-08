@@ -1,5 +1,6 @@
 import type { Extension } from '@codemirror/state';
 import { blockWidgetsField } from './blocks/state.ts';
+import { commentNotes } from './comment.ts';
 import { previewPlugin } from './plugin.ts';
 import { tableWidgets } from './table/index.ts';
 import { previewTheme } from './theme.ts';
@@ -9,6 +10,13 @@ export { addProperty, PropertiesWidget, setProperty } from './blocks/properties.
 export { blockWidgetsField, changedRegion } from './blocks/state.ts';
 export { DiagramWidget, ImageWidget, MathWidget } from './blocks/widgets.ts';
 export { buildDecorations, type PreviewDecorations, type VisibleRange } from './build.ts';
+export {
+  type AnchorRange,
+  CommentWidget,
+  commentNotes,
+  hoveredAnchor,
+  setHoveredAnchor,
+} from './comment.ts';
 export { type RevealRange, revealRanges } from './reveal.ts';
 export {
   type ActiveCell,
@@ -35,5 +43,5 @@ export { type CommandTarget, toggleTaskAt } from './widgets.ts';
  * switch to Source and back does not have to carry it.
  */
 export function livePreview(): Extension {
-  return [previewPlugin, blockWidgetsField, tableWidgets(), previewTheme];
+  return [previewPlugin, blockWidgetsField, tableWidgets(), commentNotes(), previewTheme];
 }

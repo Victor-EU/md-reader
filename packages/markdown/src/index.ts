@@ -1,11 +1,42 @@
 export {
-  type Annotation,
+  type Anchor,
+  type AnchorKind,
+  colorOf,
+  colorSpanOpening,
+  commentAnchor,
+  type Read,
+} from './annotate/anchor.ts';
+export {
   type AnnotationKind,
   annotationKinds,
-  annotations,
+  type CommentParts,
+  type CommentRecord,
   classifyComment,
+  commentParts,
+  comments,
   type TextSource,
-} from './annotations.ts';
+} from './annotate/comments.ts';
+export {
+  annotationLabel,
+  annotationLine,
+  annotationsSection,
+  copyForAi,
+} from './annotate/copy.ts';
+export {
+  type Annotation,
+  type AnnotationMark,
+  anchorText,
+  extractAnnotations,
+} from './annotate/extract.ts';
+export {
+  colorStyle,
+  meaningOfColor,
+  type PaletteEntry,
+  type PaletteMeaning,
+  palette,
+  paletteEntry,
+  paletteMeanings,
+} from './annotate/palette.ts';
 export { type CorpusFile, corpusFiles, goldenSet } from './corpus.ts';
 export { Callout } from './extensions/callout.ts';
 export { Footnote } from './extensions/footnote.ts';
@@ -48,6 +79,7 @@ export {
   type HtmlStackOptions,
   type HtmlTag,
   type HtmlToken,
+  pairTags,
   parseTag,
   tagRenders,
   tokenizeHtml,

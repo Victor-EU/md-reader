@@ -1,9 +1,29 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
-import { EditorSelection, type Transaction } from '@codemirror/state';
+import { EditorSelection, type EditorState, type Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { type EditorMode, setModeEffect } from '@mdreader/editor-core';
+import {
+  type AnnotationEdit,
+  colorEdit,
+  commentEdit,
+  type EditorMode,
+  highlightEdit,
+  setModeEffect,
+  strikethroughEdit,
+} from '@mdreader/editor-core';
 import type { Commands, DocumentMeta, FileFormat } from '@mdreader/ipc';
-import { headings, type ImageResolver, type OutlineEntry } from '@mdreader/markdown';
+import {
+  type AnnotationKind,
+  copyForAi,
+  extractAnnotations,
+  headings,
+  type ImageResolver,
+  type OutlineEntry,
+  type PaletteMeaning,
+  parser,
+  renderDocument,
+  toHtml,
+} from '@mdreader/markdown';
+import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
 import { imageResolver } from './images.ts';
 import { basename, dirname, shortenDir, tabLabels } from './paths.ts';
@@ -69,6 +89,8 @@ export interface WorkspaceOptions {
    * is what a browser build and the tests want.
    */
   assetUrl?: (path: string) => string;
+  /** Where copies go. The system clipboard unless a test says otherwise. */
+  clipboard?: ClipboardWriter;
 }
 
 /** What a file we create ourselves looks like until the user says otherwise. */
@@ -102,6 +124,8 @@ export class Workspace {
   words = $state(0);
   saving = $state(false);
   sidebar = $state(false);
+  /** Whether Read mode shows the comments it folds away (design 4.3). */
+  comments = $state(false);
   outline = $state<OutlineEntry[]>([]);
   /** False while a long document is still being parsed in the background. */
   outlineComplete = $state(true);
@@ -432,6 +456,7 @@ export class Workspace {
         tab.folded = ids;
       },
       onLink: (href, external) => this.openLink(href, external),
+      comments: this.comments,
       render: { image: this.imageRules(doc) },
     });
     this.reading = { view, tab };
@@ -582,6 +607,134 @@ export class Workspace {
     this.epoch += 1;
     this.status = `Converted ${basename(doc.path)} to UTF-8`;
     return true;
+  }
+
+  // --- annotations --------------------------------------------------------
+
+  /** Show or fold away the comments in Read mode. A reading preference, not a document one. */
+  toggleComments(): void {
+    this.comments = !this.comments;
+    this.reading?.view.setComments(this.comments);
+    this.status = this.comments ? 'Showing comments' : 'Comments folded away';
+  }
+
+  /**
+   * Apply one annotation command (design 4.3) to the document in front,
+   * from whichever view is showing it.
+   *
+   * In Edit and Source the editor has the selection and dispatches. In
+   * Read there is no editor, so the reader's selection in the page is
+   * turned into a source range and the plan is applied to the document's
+   * own state; the buffer, and its undo history, are the same either way.
+   *
+   * `type` says the command leaves the reader with something to write —
+   * a comment, or the reason behind a colour — which is the one case
+   * worth taking them out of Read mode for.
+   */
+  private annotate(plan: (state: EditorState) => AnnotationEdit | null, type: boolean): boolean {
+    const tab = this.activeTab;
+    if (!tab) return false;
+    const doc = this.doc(tab);
+    if (doc.meta?.read_only) {
+      this.status = `${doc.label} is read-only`;
+      return false;
+    }
+    const view = this.mounted?.view;
+    if (view) {
+      const edit = plan(view.state);
+      if (!edit) return false;
+      view.dispatch(view.state.update({ ...edit, userEvent: 'input.annotate' }));
+      view.focus();
+      return true;
+    }
+    const reading = this.reading?.view;
+    const range = reading?.sourceSelection();
+    if (!reading || !range) {
+      this.status = 'Select the text to annotate';
+      return false;
+    }
+    const based = doc.state.update({
+      selection: EditorSelection.range(range.from, range.to),
+    }).state;
+    const edit = plan(based);
+    if (!edit) return false;
+    doc.state = based.update({ ...edit, userEvent: 'input.annotate' }).state;
+    const at = doc.state.selection.main.head;
+    this.unmountRead();
+    if (type) {
+      tab.mode = 'edit';
+      tab.selection = EditorSelection.single(at);
+      tab.anchor = { offset: at, y: 0 };
+    }
+    this.epoch += 1;
+    return true;
+  }
+
+  highlight(): boolean {
+    return this.annotate(highlightEdit, false);
+  }
+
+  strikethrough(): boolean {
+    return this.annotate(strikethroughEdit, false);
+  }
+
+  color(meaning: PaletteMeaning): boolean {
+    return this.annotate((state) => colorEdit(state, meaning), true);
+  }
+
+  comment(kind: AnnotationKind): boolean {
+    return this.annotate((state) => commentEdit(state, kind), true);
+  }
+
+  // --- the clipboard ------------------------------------------------------
+
+  /** The selected source, or the whole document when nothing is selected. */
+  private selectedSource(): string {
+    const doc = this.activeDoc;
+    if (!doc) return '';
+    const range = this.mounted?.view.state.selection.main ?? this.reading?.view.sourceSelection();
+    if (!range || range.from >= range.to) return doc.text;
+    return doc.state.doc.sliceString(range.from, range.to);
+  }
+
+  async copyMarkdown(): Promise<boolean> {
+    const source = this.selectedSource();
+    if (source === '') return false;
+    const ok = await copyText(source, this.options.clipboard ?? navigator.clipboard);
+    this.status = ok ? 'Copied as markdown' : 'Could not reach the clipboard';
+    return ok;
+  }
+
+  /** The same renderer Read mode uses, so what is pasted is what was on screen. */
+  async copyRichText(): Promise<boolean> {
+    const source = this.selectedSource();
+    if (source === '') return false;
+    const html = toHtml(renderDocument(parser.parse(source), source), { ranges: false });
+    const ok = await copyRich(html, source, this.options.clipboard ?? navigator.clipboard);
+    this.status = ok ? 'Copied as rich text' : 'Could not reach the clipboard';
+    return ok;
+  }
+
+  /**
+   * Copy for AI (design 4.3): the whole document, then the generated list
+   * of what the reader marked. The list is about the document, so this one
+   * ignores the selection.
+   */
+  async copyForAi(): Promise<boolean> {
+    const doc = this.activeDoc;
+    if (!doc) return false;
+    const source = doc.text;
+    const found = extractAnnotations(parser.parse(source), source);
+    const ok = await copyText(
+      copyForAi(source, found),
+      this.options.clipboard ?? navigator.clipboard,
+    );
+    this.status = ok
+      ? found.length === 0
+        ? 'Copied for AI · no annotations'
+        : `Copied for AI · ${found.length} annotation${found.length === 1 ? '' : 's'}`
+      : 'Could not reach the clipboard';
+    return ok;
   }
 
   // --- the palette --------------------------------------------------------

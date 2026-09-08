@@ -82,8 +82,9 @@ function countNodes(nodes: readonly RenderNode[], match: (node: RenderNode) => b
  * Nodes whose source text the renderer is entitled not to show: a link's
  * destination and title, the label of a reference link, the language of a
  * fence, the tags of inline HTML, a footnote's label, the source of an
- * entity, a list marker the list element draws itself, and the two blocks
- * that render as something other than their text. Everything else in a
+ * entity, a list marker the list element draws itself, a comment the
+ * reader folds away, and the two blocks that render as something other
+ * than their text. Everything else in a
  * document has to reach the page — the rest of this test is there because
  * a renderer that quietly drops an email address is worse than one that
  * shows it as the wrong thing.
@@ -102,6 +103,8 @@ const hidden: ReadonlySet<string> = new Set([
   'Frontmatter',
   'CalloutType',
   'CalloutFold',
+  'Comment',
+  'CommentBlock',
 ]);
 
 /** The source with every hidden range blanked out. */

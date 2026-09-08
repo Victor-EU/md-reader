@@ -31,6 +31,56 @@ export const previewTheme = EditorView.baseTheme({
   '&dark .mdr-mark': { background: 'var(--mdr-highlight, #5a4a00)' },
   '.mdr-del': { textDecoration: 'line-through', opacity: '0.7' },
   '.mdr-comment, .mdr-comment-block': { opacity: '0.55', fontSize: '0.9em' },
+  // A note is a bubble in the text; at widths that have room for it the
+  // rule below moves it out into the margin beside its line.
+  '.cm-line': { position: 'relative' },
+  '.mdr-comment-widget': {
+    display: 'inline-flex',
+    gap: '4px',
+    alignItems: 'baseline',
+    maxWidth: '100%',
+    verticalAlign: 'baseline',
+    margin: '0 2px',
+    padding: '0 6px',
+    borderRadius: '9px',
+    fontSize: '0.8em',
+    lineHeight: '1.5',
+    cursor: 'text',
+    background: 'color-mix(in srgb, var(--mdr-note, #7a7a7a) 12%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--mdr-note, #7a7a7a) 35%, transparent)',
+    color: 'var(--mdr-note-fg, inherit)',
+  },
+  '.mdr-comment-kind': { fontWeight: '600', color: 'var(--mdr-note, #7a7a7a)' },
+  '.mdr-comment-text': { whiteSpace: 'pre-wrap' },
+  '.mdr-comment-widget[data-kind=attention]': { '--mdr-note': '#d97706' },
+  '.mdr-comment-widget[data-kind=question]': { '--mdr-note': '#8b5cf6' },
+  '.mdr-comment-widget[data-kind=remove]': { '--mdr-note': '#dc2626' },
+  '.mdr-comment-widget[data-kind=keep]': { '--mdr-note': '#16a34a' },
+  '.mdr-comment-widget[data-kind=rewrite]': { '--mdr-note': '#0ea5e9' },
+  // The span a note points at, while the pointer is on the note. An
+  // underline rather than a tint alone: the anchor of a highlight is
+  // already on a yellow ground, and a tint over that says nothing.
+  '.mdr-anchor-hover': {
+    background: 'color-mix(in srgb, var(--mdr-link, #2a6ad9) 14%, transparent)',
+    boxShadow: 'inset 0 -2px 0 0 var(--mdr-link, #2a6ad9)',
+    borderRadius: '2px',
+  },
+  // Wide enough for a margin: the note leaves the line and sits beside it.
+  '@media (min-width: 1000px)': {
+    '.mdr-comment-widget': {
+      position: 'absolute',
+      left: 'calc(100% + 16px)',
+      top: 'calc(var(--mdr-note-index, 0) * 1.7em)',
+      width: '15ch',
+      margin: '0',
+      whiteSpace: 'normal',
+      display: 'block',
+    },
+    // Laid out as a block, so the flex gap between the kind and the words
+    // is gone and the margin has to be its own.
+    '.mdr-comment-kind': { marginRight: '0.35em' },
+    '.mdr-comment-kind::after': { content: '":"' },
+  },
   '.mdr-syntax, .mdr-dim, .mdr-quote-mark': { opacity: '0.45' },
   '.mdr-quote': {
     borderLeft: '3px solid var(--mdr-quote, #c9c9c9)',

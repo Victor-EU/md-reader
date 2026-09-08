@@ -1,0 +1,25 @@
+Plain ==highlighted== text and ==two words== here.
+
+Inside *emphasis ==and highlight== nested* and ==highlight with **strong**==.
+
+Not a highlight: a == b == c, nor ==, nor == spaced ==. Three ===like strikethrough=== follow the GFM rule.
+
+Punctuation: (==paren==) and ==end==. Unclosed ==stays plain.
+
+Link text [==in a link==](https://example.com) and `==not in code==`.
+
+| a | b |
+|---|---|
+| ==cell== | plain |
+
+---
+Annotations (9):
+1. Highlight, "highlighted"
+2. Highlight, "two words"
+3. Highlight, "and highlight"
+4. Highlight, "highlight with **strong**"
+5. Highlight, "like strikethrough="
+6. Highlight, "paren"
+7. Highlight, "end"
+8. Highlight, "in a link"
+9. Highlight, "cell"

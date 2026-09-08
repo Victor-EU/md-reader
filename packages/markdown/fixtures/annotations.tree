@@ -1,0 +1,37 @@
+Document 0-825
+  ATXHeading1 0-16
+    HeaderMark 0-1 "#"
+  Paragraph 18-155
+    Highlight 36-79
+      HighlightMark 36-38 "=="
+      HighlightMark 77-79 "=="
+    Comment 80-126 "<!-- note: too ambitious, cut to two weeks -->"
+  Paragraph 157-176 "Steps we agreed on:"
+  BulletList 178-405
+    ListItem 178-208
+      ListMark 178-179 "-"
+      Paragraph 180-208
+        Strikethrough 180-208
+          StrikethroughMark 180-182 "~~"
+          StrikethroughMark 206-208 "~~"
+    ListItem 209-338
+      ListMark 209-210 "-"
+      Paragraph 211-338
+        HTMLTag 229-257 "<span style=\"color:#8b5cf6\">"
+        HTMLTag 294-301 "</span>"
+        Comment 301-338 "<!-- question: is this still used -->"
+    ListItem 339-405
+      ListMark 339-340 "-"
+      Paragraph 341-405
+        HTMLTag 346-374 "<span style=\"color:#16a34a\">"
+        HTMLTag 389-396 "</span>"
+  CommentBlock 407-464 "<!-- rewrite: this section reads like a status update -->"
+  Paragraph 465-585 "The rollout window is the last week of the quarter, assum..."
+  Paragraph 587-761
+    Highlight 589-607
+      HighlightMark 589-591 "=="
+      HighlightMark 605-607 "=="
+    HTMLTag 624-652 "<span style=\"color:#123456\">"
+    HTMLTag 671-678 "</span>"
+    Comment 726-761 "<!-- attention: read this twice -->"
+  CommentBlock 763-824 "<!-- todo: not one of the six words, so not an annotation..."

@@ -23,6 +23,7 @@ export const inlineUnits: ReadonlySet<string> = new Set([
   'InlineMath',
   'Escape',
   'FootnoteReference',
+  'Comment',
 ]);
 
 /**

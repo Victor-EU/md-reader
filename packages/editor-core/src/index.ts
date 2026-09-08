@@ -1,11 +1,18 @@
 export {
-  commentInsertion,
-  insertCommentAfterSelection,
-  wrapBold,
-  wrapHighlight,
-  wrapSelection,
-  wrapStrikethrough,
-} from './commands/format.ts';
+  type AnnotationEdit,
+  applyColor,
+  applyComment,
+  applyHighlight,
+  applyStrikethrough,
+  blockCommentPos,
+  colorEdit,
+  commentEdit,
+  commentText,
+  highlightEdit,
+  strikethroughEdit,
+  toggleWrapEdit,
+} from './commands/annotate.ts';
+export { wrapBold, wrapSelection } from './commands/format.ts';
 export {
   continuation,
   insertNewlineMarkdown,
@@ -13,12 +20,16 @@ export {
   newlinePlan,
 } from './commands/newline.ts';
 export {
+  type AnchorRange,
   addProperty,
   blockWidgetsField,
   buildDecorations,
   type CommandTarget,
+  CommentWidget,
   changedRegion,
+  commentNotes,
   DiagramWidget,
+  hoveredAnchor,
   ImageWidget,
   livePreview,
   MathWidget,
@@ -30,6 +41,7 @@ export {
   previewTheme,
   type RevealRange,
   revealRanges,
+  setHoveredAnchor,
   setProperty,
   toggleTaskAt,
   type VisibleRange,

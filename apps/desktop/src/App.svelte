@@ -50,7 +50,7 @@ function drop(event: DragEvent) {
 
 <div class="frame" ondragover={(event) => event.preventDefault()} ondrop={drop} role="application">
   <TabStrip {workspace} />
-  <Toolbar {workspace} />
+  <Toolbar {workspace} {registry} />
   <div class="middle">
     {#if workspace.sidebar}
       <Sidebar {workspace} />

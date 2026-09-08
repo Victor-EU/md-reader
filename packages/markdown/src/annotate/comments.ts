@@ -16,7 +16,7 @@ export const annotationKinds = [
 
 export type AnnotationKind = (typeof annotationKinds)[number];
 
-export interface Annotation {
+export interface CommentRecord {
   kind: AnnotationKind;
   /** The remark after the colon, with surrounding whitespace removed. */
   text: string;
@@ -30,21 +30,48 @@ export interface Annotation {
 /** Anything a tree can be read against: a string or a CodeMirror `Text`. */
 export type TextSource = string | { sliceString(from: number, to: number): string };
 
-const commentRe = /^<!--\s*([A-Za-z]+)\s*:\s*([\s\S]*?)\s*-->$/;
+const commentRe = /^(<!--\s*)([A-Za-z]+)(\s*:\s*)([\s\S]*?)(\s*-->)$/;
 const kinds: ReadonlySet<string> = new Set(annotationKinds);
 
+/** Where the kind and the text sit inside a comment, for a renderer that shows them apart. */
+export interface CommentParts {
+  kind: AnnotationKind;
+  text: string;
+  /** Offsets of the kind word and of the text, relative to the start of the comment. */
+  kindFrom: number;
+  kindTo: number;
+  textFrom: number;
+  textTo: number;
+}
+
 /**
- * Classify one comment's source text. Returns null for a comment that is
- * not an annotation: no kind word, an unknown kind, or extra text outside
- * the comment. The kind is matched case-insensitively and normalized,
- * because models sometimes capitalize; the app always writes lowercase.
+ * Take one comment apart. Returns null for a comment that is not an
+ * annotation: no kind word, an unknown kind, or extra text outside the
+ * comment. The kind is matched case-insensitively and normalized, because
+ * models sometimes capitalize; the app always writes lowercase.
  */
-export function classifyComment(source: string): { kind: AnnotationKind; text: string } | null {
+export function commentParts(source: string): CommentParts | null {
   const m = commentRe.exec(source);
   if (!m) return null;
-  const kind = (m[1] ?? '').toLowerCase();
+  const kind = (m[2] ?? '').toLowerCase();
   if (!kinds.has(kind)) return null;
-  return { kind: kind as AnnotationKind, text: m[2] ?? '' };
+  const kindFrom = (m[1] as string).length;
+  const kindTo = kindFrom + (m[2] as string).length;
+  const textFrom = kindTo + (m[3] as string).length;
+  return {
+    kind: kind as AnnotationKind,
+    text: m[4] ?? '',
+    kindFrom,
+    kindTo,
+    textFrom,
+    textTo: textFrom + (m[4] as string).length,
+  };
+}
+
+/** The kind and the words of one comment, or null when it is not an annotation. */
+export function classifyComment(source: string): { kind: AnnotationKind; text: string } | null {
+  const parts = commentParts(source);
+  return parts && { kind: parts.kind, text: parts.text };
 }
 
 function slice(doc: TextSource, from: number, to: number): string {
@@ -52,8 +79,8 @@ function slice(doc: TextSource, from: number, to: number): string {
 }
 
 /**
- * Every annotation in a tree, in document order. A post-pass over the
- * stock `Comment` and `CommentBlock` nodes; the tree is not changed.
+ * Every annotation comment in a tree, in document order. A post-pass over
+ * the stock `Comment` and `CommentBlock` nodes; the tree is not changed.
  *
  * Two facts about the stock parser this relies on, pinned by tests: a
  * comment inside a paragraph is a `Comment` node, and a comment starting
@@ -62,8 +89,8 @@ function slice(doc: TextSource, from: number, to: number): string {
  * block is not an annotation; the app writes block comments on their own
  * line.
  */
-export function annotations(tree: Tree, doc: TextSource): Annotation[] {
-  const found: Annotation[] = [];
+export function comments(tree: Tree, doc: TextSource): CommentRecord[] {
+  const found: CommentRecord[] = [];
   tree.iterate({
     enter(node) {
       if (node.name !== 'Comment' && node.name !== 'CommentBlock') return;

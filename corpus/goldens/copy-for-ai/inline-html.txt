@@ -1,0 +1,16 @@
+Allowed: <mark>marked</mark>, <kbd>Cmd</kbd>, <sup>1</sup>, <span style="color: #c00">red</span>.
+
+Refused: <script>alert(1)</script> and <b onclick="x()">handler</b> and <div>block</div>.
+
+Unclosed <mark>runs on, and a crossed <sup>pair</mark> ends here</sup>.
+
+A break<br>and an image <img src="local.png" alt="x">.
+
+<details>
+<summary>Compact</summary>
+Body.
+</details>
+
+---
+Annotations (1):
+1. Colored, "red"

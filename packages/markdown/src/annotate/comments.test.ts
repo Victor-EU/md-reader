@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { annotations, classifyComment } from './annotations.ts';
-import { parser } from './parser.ts';
+import { parser } from '../parser.ts';
+import { classifyComment, comments } from './comments.ts';
 
 describe('classifyComment', () => {
   it.each([
@@ -20,10 +20,10 @@ describe('classifyComment', () => {
   });
 });
 
-describe('annotations', () => {
+describe('comments', () => {
   it('finds inline and block comments and skips the rest', () => {
-    const doc = readFileSync(new URL('../fixtures/comments.md', import.meta.url), 'utf8');
-    const found = annotations(parser.parse(doc), doc).map((a) => [
+    const doc = readFileSync(new URL('../../fixtures/comments.md', import.meta.url), 'utf8');
+    const found = comments(parser.parse(doc), doc).map((a) => [
       a.kind,
       a.text,
       a.block,
@@ -46,7 +46,7 @@ describe('annotations', () => {
   it('accepts a CodeMirror-like text source', () => {
     const doc = 'a <!-- keep: b --> c';
     const text = { sliceString: (from: number, to: number) => doc.slice(from, to) };
-    expect(annotations(parser.parse(doc), text)).toEqual([
+    expect(comments(parser.parse(doc), text)).toEqual([
       { kind: 'keep', text: 'b', from: 2, to: 18, block: false },
     ]);
   });

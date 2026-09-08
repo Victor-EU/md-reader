@@ -1,12 +1,15 @@
 import { syntaxTree } from '@codemirror/language';
 import { ChangeSet, EditorSelection, type EditorState } from '@codemirror/state';
 import type { SyntaxNode } from '@lezer/common';
+import { colorStyle, paletteEntry } from '@mdreader/markdown';
 import {
-  commentInsertion,
-  insertCommentAfterSelection,
-  wrapBold,
-  wrapHighlight,
-} from '../commands/format.ts';
+  applyColor,
+  applyComment,
+  applyHighlight,
+  applyStrikethrough,
+  commentText,
+} from '../commands/annotate.ts';
+import { wrapBold } from '../commands/format.ts';
 import { insertNewlineMarkdown, newlinePlan } from '../commands/newline.ts';
 import { escapePipes, rebaseCellChanges } from '../preview/table/commands.ts';
 import { tableModel } from '../preview/table/model.ts';
@@ -233,19 +236,70 @@ function wrapAction(
 }
 
 export const wrapInBold = wrapAction('wrap a selection in bold', '**', wrapBold);
-export const wrapInHighlight = wrapAction('wrap a selection in highlight', '==', wrapHighlight);
+export const wrapInHighlight = wrapAction('wrap a selection in highlight', '==', applyHighlight);
+export const wrapInStrikethrough = wrapAction(
+  'wrap a selection in strikethrough',
+  '~~',
+  applyStrikethrough,
+);
+
+/** The palette colour, its span, and the note it pre-fills (design 4.3). */
+export const colorSelection: Action = {
+  name: 'colour a selection from the palette',
+  plan(state, rng) {
+    const word = pickWord(state, rng);
+    if (!word) return null;
+    const meaning = rng.pick(['attention', 'question', 'remove', 'keep', 'rewrite'] as const);
+    const open = `<span style="${colorStyle(paletteEntry(meaning).color)}">`;
+    const close = `</span>${commentText(meaning, '')}`;
+    return {
+      description: `colour ${word.from}-${word.to} ${meaning}`,
+      expected: ChangeSet.of(
+        [
+          { from: word.from, insert: open },
+          { from: word.to, insert: close },
+        ],
+        state.doc.length,
+      ),
+      span: word,
+      run: withSelection(word.from, word.to, applyColor(meaning)),
+    };
+  },
+};
 
 export const insertComment: Action = {
   name: 'insert a comment after a selection',
   plan(state, rng) {
     const word = pickWord(state, rng);
     if (!word) return null;
-    const insert = commentInsertion(state.doc.toString(), word.to, 'note', 'corpus');
+    // `pickWord` returns a run of letters, so the character before the
+    // insertion point is never whitespace and the space is always added.
+    const insert = ` ${commentText('note', 'corpus')}`;
     return {
       description: `comment after ${word.from}-${word.to}`,
       expected: single(state, { from: word.to, insert }),
       span: word,
-      run: withSelection(word.from, word.to, insertCommentAfterSelection('note', 'corpus')),
+      run: withSelection(word.from, word.to, applyComment('note', 'corpus')),
+    };
+  },
+};
+
+export const insertBlockComment: Action = {
+  name: 'insert a comment above a block',
+  plan(state, rng) {
+    const blocks = nodesNamed(state, 'Paragraph').filter(
+      (node) => node.parent?.name === 'Document',
+    );
+    if (blocks.length === 0) return null;
+    const block = rng.pick(blocks);
+    const at = state.doc.lineAt(block.from).from;
+    const insert = `${commentText('note', 'corpus')}\n`;
+    const inside = rng.int(block.from, block.to);
+    return {
+      description: `comment above the block at ${at}, from a cursor at ${inside}`,
+      expected: single(state, { from: at, insert }),
+      span: { from: at, to: at },
+      run: withSelection(inside, inside, applyComment('note', 'corpus')),
     };
   },
 };
@@ -259,5 +313,8 @@ export const nodeActions: Action[] = [
   enterInListItem,
   wrapInBold,
   wrapInHighlight,
+  wrapInStrikethrough,
+  colorSelection,
   insertComment,
+  insertBlockComment,
 ];

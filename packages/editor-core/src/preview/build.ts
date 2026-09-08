@@ -2,7 +2,15 @@ import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Range } from '@codemirror/state';
 import { Decoration } from '@codemirror/view';
 import type { SyntaxNode, SyntaxNodeRef, Tree } from '@lezer/common';
-import { allowedAttrs, calloutType, parseTag } from '@mdreader/markdown';
+import {
+  allowedAttrs,
+  calloutType,
+  classifyComment,
+  commentAnchor,
+  pairTags,
+  parseTag,
+} from '@mdreader/markdown';
+import { CommentWidget } from './comment.ts';
 import { headingLevel } from './nodes.ts';
 import { type RevealRange, revealRanges } from './reveal.ts';
 import { BulletWidget, CheckboxWidget } from './widgets.ts';
@@ -148,6 +156,8 @@ function referenceLabels(tree: Tree, doc: EditorState['doc']): Set<string> {
 class Builder {
   readonly decorations: Range<Decoration>[] = [];
   readonly atomic: Range<Decoration>[] = [];
+  /** How many notes each line already carries, so they stack in the margin. */
+  private readonly notesPerLine = new Map<number, number>();
 
   constructor(
     private readonly state: EditorState,
@@ -245,7 +255,7 @@ class Builder {
       return;
     }
     // A tag nothing closes is text in Read mode, so it is text here too.
-    const close = this.closingTag(node, tag.name);
+    const close = this.closingTag(node);
     if (!close) return;
     this.decorations.push(M.dim.range(node.from, node.to));
     this.decorations.push(M.dim.range(close.from, close.to));
@@ -256,28 +266,53 @@ class Builder {
   }
 
   /**
-   * The tag that closes `open`, among the siblings after it, by the same
-   * rule the Read renderer's stack applies: a closing tag for something
-   * opened outside this element ends it, and abandons this one.
+   * A comment as a note in the margin (design 4.3), or as the dimmed text
+   * it is when the selection touches it or when it says nothing the
+   * vocabulary knows.
+   *
+   * A block comment whose line carries text after `-->` is left alone:
+   * that text is ordinary content, and replacing the whole node would
+   * take it off the page. So is a comment that runs over more than one
+   * line: decorations from a view plugin may not replace a line break,
+   * and its source is a fair rendering of a note too long for a chip.
    */
-  private closingTag(open: SyntaxNode, name: string): SyntaxNode | null {
-    const inside: string[] = [];
-    for (let next = open.nextSibling; next; next = next.nextSibling) {
-      if (next.name !== 'HTMLTag') continue;
-      const tag = parseTag(this.text(next.from, next.to));
-      if (!tag || tag.kind === 'void') continue;
-      if (tag.kind === 'open') {
-        inside.push(tag.name);
-        continue;
-      }
-      const at = inside.lastIndexOf(tag.name);
-      if (at >= 0) {
-        inside.length = at;
-        continue;
-      }
-      return tag.name === name ? next : null;
+  private comment(node: SyntaxNode, block: boolean): void {
+    const classified = classifyComment(this.text(node.from, node.to));
+    const at = this.state.doc.lineAt(node.from).number;
+    if (
+      !classified ||
+      this.revealed(node.from, node.to, block) ||
+      this.state.doc.lineAt(node.to).number !== at
+    ) {
+      this.decorations.push(M.comment.range(node.from, node.to));
+      return;
     }
-    return null;
+    const anchor = commentAnchor(node, (from, to) => this.text(from, to));
+    const index = this.notesPerLine.get(at) ?? 0;
+    this.notesPerLine.set(at, index + 1);
+    const widget = Decoration.replace({
+      widget: new CommentWidget(classified.kind, classified.text, anchor, index),
+      kind: 'widget',
+    });
+    this.pushAtomic(widget, node.from, node.to);
+  }
+
+  /**
+   * The tag that closes `open`, by the one pairing rule `pairTags` holds
+   * for the whole codebase. Edit mode and Read mode reading the same
+   * crossed tags differently is a bug the two views cannot show.
+   */
+  private closingTag(open: SyntaxNode): SyntaxNode | null {
+    const parent = open.parent;
+    if (!parent) return null;
+    const tags: SyntaxNode[] = [];
+    for (let node = parent.firstChild; node; node = node.nextSibling) {
+      if (node.name === 'HTMLTag') tags.push(node);
+    }
+    const closers = pairTags(tags.map((node) => parseTag(this.text(node.from, node.to))));
+    const at = tags.findIndex((node) => node.from === open.from);
+    const closer = at === -1 ? null : closers[at];
+    return closer === undefined || closer === null ? null : (tags[closer] as SyntaxNode);
   }
 
   visit(node: SyntaxNodeRef, vFrom: number, vTo: number): boolean {
@@ -434,7 +469,7 @@ class Builder {
         this.hideInline(node.from, node.from + 1);
         return false;
       case 'Comment':
-        this.decorations.push(M.comment.range(node.from, node.to));
+        this.comment(node.node, false);
         return false;
       case 'HTMLTag':
         this.htmlTag(node.node);
@@ -489,6 +524,7 @@ class Builder {
         return false;
       case 'CommentBlock':
         this.lines(node.from, node.to, line('mdr-comment-block'), vFrom, vTo);
+        this.comment(node.node, true);
         return false;
       default:
         return true;

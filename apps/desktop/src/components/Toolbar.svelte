@@ -1,8 +1,10 @@
 <script lang="ts">
+import { palette } from '@mdreader/markdown';
+import type { CommandRegistry } from '../lib/commands.ts';
 import { segments } from '../lib/paths.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
-let { workspace }: { workspace: Workspace } = $props();
+let { workspace, registry }: { workspace: Workspace; registry: CommandRegistry } = $props();
 
 /** Enough of the path to place the file, with the whole of it in the tooltip. */
 const DEPTH = 4;
@@ -12,6 +14,22 @@ const crumbs = $derived(path.slice(-DEPTH));
 const mode = $derived(workspace.activeTab?.mode ?? null);
 // WP 1.7 fills this in; the slot is here so the toolbar does not move later.
 const unreviewed = $derived(0);
+
+/**
+ * A toolbar button must not take the selection away before it acts: in
+ * Read mode the selection is the browser's own, and pressing a button
+ * would collapse it. Preventing the default on mousedown keeps both the
+ * selection and the keyboard where they were.
+ */
+function hold(event: MouseEvent): void {
+  event.preventDefault();
+}
+
+/** The command's own title and shortcut, so the toolbar cannot drift from the palette. */
+function tip(id: string): string {
+  const command = registry.get(id);
+  return command.shortcut === '' ? command.title : `${command.title} (${command.shortcut})`;
+}
 </script>
 
 <div class="bar toolbar">
@@ -56,6 +74,54 @@ const unreviewed = $derived(0);
       onclick={() => workspace.setMode('source')}
     >
       Source
+    </button>
+  </div>
+
+  <div class="annotate" role="group" aria-label="Annotate">
+    <button
+      type="button"
+      class="tool highlight"
+      title={tip('edit.highlight')}
+      aria-label="Highlight"
+      disabled={doc === null}
+      onmousedown={hold}
+      onclick={() => registry.run('edit.highlight')}
+    >
+      A
+    </button>
+    <button
+      type="button"
+      class="tool strike"
+      title={tip('edit.strikethrough')}
+      aria-label="Strikethrough"
+      disabled={doc === null}
+      onmousedown={hold}
+      onclick={() => registry.run('edit.strikethrough')}
+    >
+      A
+    </button>
+    {#each palette as entry (entry.meaning)}
+      <button
+        type="button"
+        class="tool swatch"
+        style="--swatch: {entry.color}"
+        title={tip(`edit.color.${entry.meaning}`)}
+        aria-label="Mark as {entry.title}"
+        disabled={doc === null}
+        onmousedown={hold}
+        onclick={() => registry.run(`edit.color.${entry.meaning}`)}
+      ></button>
+    {/each}
+    <button
+      type="button"
+      class="tool"
+      title={tip('edit.comment')}
+      aria-label="Add comment"
+      disabled={doc === null}
+      onmousedown={hold}
+      onclick={() => registry.run('edit.comment')}
+    >
+      ✎
     </button>
   </div>
 

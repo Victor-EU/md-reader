@@ -6,6 +6,7 @@ import {
   offsetFromPoint,
   Renderer,
   type RenderOptions,
+  resolveOffset,
   toDom,
 } from '@mdreader/markdown';
 import type { Enhancer } from './enhance.ts';
@@ -36,6 +37,12 @@ const SCROLL_MARGIN = 12;
  * folds away, and folding a section must not bring them back.
  */
 const FOLDED_AWAY = 'mdr-folded-away';
+/**
+ * What showing the comments puts on the article. The renderer marks every
+ * comment `hidden`, so the toggle is one class and no re-render — which
+ * is what lets it act on a document still being rendered in chunks.
+ */
+const SHOW_COMMENTS = 'mdr-show-comments';
 
 interface Block {
   el: HTMLElement;
@@ -49,6 +56,8 @@ export interface ReadViewOptions {
   parent: HTMLElement;
   state: EditorState;
   folded?: readonly string[];
+  /** Show the comments the renderer folds away (design 4.3). */
+  comments?: boolean;
   /** A click in the text: switch to Edit at this offset, `y` px down the pane. */
   onEdit?: (offset: number, y: number) => void;
   onOutline?: (entries: OutlineEntry[], complete: boolean) => void;
@@ -106,6 +115,7 @@ export class ReadView {
     this.folded = new Set(options.folded ?? []);
     this.body = document.createElement('article');
     this.body.className = 'read';
+    this.body.classList.toggle(SHOW_COMMENTS, options.comments === true);
     this.body.tabIndex = -1;
     this.body.addEventListener('click', this.onClick);
     this.parent.appendChild(this.body);
@@ -277,6 +287,31 @@ export class ReadView {
 
   get foldedIds(): string[] {
     return [...this.folded];
+  }
+
+  /** Show or fold away the comments, without touching what is rendered. */
+  setComments(shown: boolean): void {
+    this.body.classList.toggle(SHOW_COMMENTS, shown);
+  }
+
+  /**
+   * What the reader has selected, as a source range, so the annotation
+   * commands work from Read mode too (design scenario S2 begins there).
+   *
+   * A caret gives an empty range at that offset; a selection that reaches
+   * outside the page, or whose ends the offset map cannot place, gives
+   * null rather than a range that would mark the wrong text.
+   */
+  sourceSelection(): { from: number; to: number } | null {
+    const selection = this.body.ownerDocument.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    if (!this.body.contains(range.commonAncestorContainer)) return null;
+    const from = resolveOffset(range.startContainer, range.startOffset, this.offsets);
+    if (from === null) return null;
+    if (range.collapsed) return { from, to: from };
+    const to = resolveOffset(range.endContainer, range.endOffset, this.offsets);
+    return to === null || to < from ? null : { from, to };
   }
 
   // --- scrolling ----------------------------------------------------------

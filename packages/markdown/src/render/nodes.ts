@@ -54,9 +54,18 @@ export function isElement(node: RenderNode): node is RenderElement {
   return node.kind === 'element';
 }
 
-/** The visible text of a rendered subtree, for heading ids and the outline. */
+/**
+ * The visible text of a rendered subtree, for heading ids and the outline.
+ *
+ * An element the renderer marked `hidden` contributes nothing: a comment
+ * inside a heading is folded away in Read mode, so it has no business in
+ * that heading's id or in the outline entry the reader clicks.
+ */
 export function textOf(nodes: readonly RenderNode[]): string {
   let out = '';
-  for (const node of nodes) out += node.kind === 'text' ? node.text : textOf(node.children);
+  for (const node of nodes) {
+    if (node.kind === 'text') out += node.text;
+    else if (node.attrs.hidden === undefined) out += textOf(node.children);
+  }
   return out;
 }

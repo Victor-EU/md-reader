@@ -1,0 +1,29 @@
+# Migration plan
+
+The team believes ==the migration can be done in one sprint== <!-- note: too ambitious, cut to two weeks --> and has staffed it that way.
+
+Steps we agreed on:
+
+- ~~Rewrite the auth service~~
+- Move the exporter <span style="color:#8b5cf6">Do we still need the legacy exporter?</span><!-- question: is this still used -->
+- Keep <span style="color:#16a34a">the nightly job</span> as it is
+
+<!-- rewrite: this section reads like a status update -->
+The rollout window is the last week of the quarter, assuming the staging
+soak finishes on time and nobody is on holiday.
+
+A ==bare highlight== with no note, a <span style="color:#123456">colour of
+their own</span>, and a stray note about nothing in particular. <!-- attention: read this twice -->
+
+<!-- todo: not one of the six words, so not an annotation -->
+
+---
+Annotations (8):
+1. Highlight, "the migration can be done in one sprint" — note: too ambitious, cut to two weeks
+2. Removed (strikethrough), "Rewrite the auth service"
+3. Question, "Do we still need the legacy exporter?" — question: is this still used
+4. Keep, "the nightly job"
+5. Comment, "The rollout window is the last week of the quarter, assuming the staging soak finishes on time and…" — rewrite: this section reads like a status update
+6. Highlight, "bare highlight"
+7. Colored, "colour of their own"
+8. Comment — attention: read this twice

@@ -17,7 +17,7 @@
 74-75 hide "$"
 74-84 mark mdr-math "$E = mc^2$"
 83-84 hide "$"
-97-122 mark mdr-comment "<!-- question: units? -->"
+97-122 widget CommentWidget "<!-- question: units? -->"
 123-123 line mdr-quote mdr-callout {"data-callout":"note"}
 123-124 mark mdr-quote-mark ">"
 125-125 line mdr-quote mdr-callout {"data-callout":"note"}
@@ -65,4 +65,4 @@
 397-399 hide "=="
 397-416 mark mdr-mark "==and highlighted=="
 414-416 hide "=="
-417-436 mark mdr-comment "<!-- keep: good -->"
+417-436 widget CommentWidget "<!-- keep: good -->"

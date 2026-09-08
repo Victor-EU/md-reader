@@ -1,12 +1,18 @@
-12-44 mark mdr-comment "<!-- note: inline after text -->"
+12-44 widget CommentWidget "<!-- note: inline after text -->"
 57-57 line mdr-comment-block
+57-119 widget CommentWidget "<!-- question: on its own line, anchored to the next block -->"
 137-137 line mdr-comment-block
+137-178 mark mdr-comment "<!-- rewrite: too long\nspanning lines -->"
 160-160 line mdr-comment-block
 180-180 line mdr-comment-block
+180-216 widget CommentWidget "<!-- Attention: capitalized kind -->"
 218-218 line mdr-comment-block
+218-245 mark mdr-comment "<!-- todo: unknown kind -->"
 247-247 line mdr-comment-block
+247-264 mark mdr-comment "<!-- no colon -->"
 266-266 line mdr-comment-block
+266-334 mark mdr-comment "<!-- keep: trailing text on the line --> keeps text inside the block"
 346-348 hide "=="
 346-361 mark mdr-mark "==with a note=="
 359-361 hide "=="
-362-387 mark mdr-comment "<!-- remove: cut this -->"
+362-387 widget CommentWidget "<!-- remove: cut this -->"

@@ -1,3 +1,4 @@
+import { palette } from '@mdreader/markdown';
 import type { CommandRegistry, CommandSpec } from './commands.ts';
 import type { Workspace } from './workspace.svelte.ts';
 
@@ -55,6 +56,61 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       run: () => workspace.reopenClosed(),
     },
     {
+      id: 'edit.highlight',
+      title: 'Highlight',
+      group: 'Edit',
+      key: 'Mod+Shift+H',
+      enabled: hasTab,
+      run: () => workspace.highlight(),
+    },
+    {
+      id: 'edit.strikethrough',
+      title: 'Strikethrough',
+      group: 'Edit',
+      key: 'Mod+Shift+X',
+      enabled: hasTab,
+      run: () => workspace.strikethrough(),
+    },
+    {
+      id: 'edit.comment',
+      title: 'Add Comment',
+      group: 'Edit',
+      key: 'Mod+Shift+M',
+      enabled: hasTab,
+      run: () => workspace.comment('note'),
+    },
+    // The five-meaning palette (design 4.3). Each colours the selection
+    // and pre-fills the comment that carries the meaning to a model.
+    ...palette.map((entry) => ({
+      id: `edit.color.${entry.meaning}`,
+      title: `Mark as ${entry.title}`,
+      group: 'Edit' as const,
+      enabled: hasTab,
+      run: () => workspace.color(entry.meaning),
+    })),
+    {
+      id: 'edit.copyForAi',
+      title: 'Copy for AI',
+      group: 'Edit',
+      key: 'Mod+Shift+C',
+      enabled: hasTab,
+      run: () => workspace.copyForAi(),
+    },
+    {
+      id: 'edit.copyMarkdown',
+      title: 'Copy as Markdown',
+      group: 'Edit',
+      enabled: hasTab,
+      run: () => workspace.copyMarkdown(),
+    },
+    {
+      id: 'edit.copyRichText',
+      title: 'Copy as Rich Text',
+      group: 'Edit',
+      enabled: hasTab,
+      run: () => workspace.copyRichText(),
+    },
+    {
       id: 'view.read',
       title: 'Read Mode',
       group: 'View',
@@ -84,6 +140,12 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       group: 'View',
       key: 'Mod+Shift+B',
       run: () => workspace.toggleSidebar(),
+    },
+    {
+      id: 'view.comments',
+      title: 'Show Comments',
+      group: 'View',
+      run: () => workspace.toggleComments(),
     },
     {
       id: 'view.remoteImages',

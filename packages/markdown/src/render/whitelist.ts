@@ -129,6 +129,40 @@ export function parseTag(source: string): HtmlTag | null {
 }
 
 /**
+ * Pair opening tags with their closing tags among a run of tags in one
+ * container, by the rule `HtmlStack` applies: a close tag ends the
+ * innermost open element of that name and abandons everything opened
+ * inside it, and a close tag for nothing that is open is dropped.
+ *
+ * Returns, for each tag, the index of the tag that closes it, or null.
+ * Entries that are not tags at all are passed as null and paired with
+ * nothing, so a caller can hand in a whole token run unfiltered.
+ */
+export function pairTags(tags: readonly (HtmlTag | null)[]): (number | null)[] {
+  const closer: (number | null)[] = tags.map(() => null);
+  const open: number[] = [];
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i];
+    if (!tag || tag.kind === 'void') continue;
+    if (tag.kind === 'open') {
+      open.push(i);
+      continue;
+    }
+    let at = -1;
+    for (let k = open.length - 1; k >= 0; k--) {
+      if ((tags[open[k] as number] as HtmlTag).name === tag.name) {
+        at = k;
+        break;
+      }
+    }
+    if (at === -1) continue;
+    closer[open[at] as number] = i;
+    open.length = at;
+  }
+  return closer;
+}
+
+/**
  * The attributes an allowed tag renders with, or null when the tag is not
  * allowed to render at all.
  */

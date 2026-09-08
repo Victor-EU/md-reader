@@ -1,0 +1,33 @@
+0-0 line mdr-h1
+0-2 hide "# "
+36-38 hide "=="
+36-79 mark mdr-mark "==the migration can be done in one sprint=="
+77-79 hide "=="
+80-126 widget CommentWidget "<!-- note: too ambitious, cut to two weeks -->"
+178-178 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+178-180 widget BulletWidget "- "
+180-182 hide "~~"
+180-208 mark mdr-del "~~Rewrite the auth service~~"
+206-208 hide "~~"
+209-209 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+209-211 widget BulletWidget "- "
+229-257 mark mdr-dim "<span style=\"color:#8b5cf6\">"
+257-294 mark mdr-html-style "Do we still need the legacy exporter?"
+294-301 mark mdr-dim "</span>"
+301-338 widget CommentWidget "<!-- question: is this still used -->"
+339-339 line mdr-li {"style":"padding-left:2ch;text-indent:-2ch"}
+339-341 widget BulletWidget "- "
+346-374 mark mdr-dim "<span style=\"color:#16a34a\">"
+374-389 mark mdr-html-style "the nightly job"
+389-396 mark mdr-dim "</span>"
+407-407 line mdr-comment-block
+407-464 widget CommentWidget "<!-- rewrite: this section reads like a status update -->"
+589-591 hide "=="
+589-607 mark mdr-mark "==bare highlight=="
+605-607 hide "=="
+624-652 mark mdr-dim "<span style=\"color:#123456\">"
+652-671 mark mdr-html-style "colour of\ntheir own"
+671-678 mark mdr-dim "</span>"
+726-761 widget CommentWidget "<!-- attention: read this twice -->"
+763-763 line mdr-comment-block
+763-824 mark mdr-comment "<!-- todo: not one of the six words, so not an annotation -->"
