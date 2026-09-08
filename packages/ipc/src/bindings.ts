@@ -139,7 +139,7 @@ export type MergeResult = {
 	conflicts: Conflict[],
 };
 
-/**  One position-based edit the frontend applies as a CodeMirror change. */
+/**  One position-based edit the frontend applies as a `CodeMirror` change. */
 export type PositionEdit = {
 	/**  UTF-16 offsets into the document the edit applies to. */
 	from: number,
