@@ -33,10 +33,16 @@ pub struct MergeResult {
 }
 
 /// Who wrote a snapshot.
+///
+/// `Autosave` is separate from `User` because it is the one author that
+/// writes on a timer rather than because somebody decided to: the history
+/// coalesces a run of those into one version, and never coalesces onto a
+/// version anybody asked for (design 6.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum SnapshotAuthor {
     User,
+    Autosave,
     External,
     Agent,
 }

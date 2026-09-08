@@ -13,15 +13,22 @@ const cursor = $derived.by(() => {
   return `Ln ${line.number}, Col ${head - line.from + 1}`;
 });
 const format = $derived(doc?.meta ? describeFormat(doc.meta.format) : doc ? 'UTF-8 · LF' : '');
-// Autosave itself arrives in WP 1.11; this is the field it will report in.
+/**
+ * Where the document stands with its file (design 4.1). With autosave
+ * on this is the autosave state: `Unsaved changes` is the second before
+ * the timer fires. With it off it is the dirty dot, and the cell beside
+ * it says why nothing is happening.
+ */
 const saveState = $derived.by(() => {
   if (!doc) return '';
   if (workspace.saving) return 'Saving…';
   if (doc.meta?.read_only) return 'Read only';
   // A file that is gone is not "saved", however clean the buffer is.
   if (doc.missing) return 'File is gone';
-  if (doc.dirty) return 'Unsaved changes';
-  return doc.path === null ? 'Not saved yet' : 'Saved';
+  // A document with no file has nothing to be unsaved against; what it
+  // has is nowhere to be, which is a different sentence.
+  if (doc.path === null) return 'Not saved yet';
+  return doc.dirty ? 'Unsaved changes' : 'Saved';
 });
 </script>
 
@@ -31,6 +38,7 @@ const saveState = $derived.by(() => {
     {#if cursor}<span class="cell">{cursor}</span>{/if}
     <span class="cell">{format}</span>
     <span class="cell" class:dirty={doc.dirty || doc.missing}>{saveState}</span>
+    {#if !workspace.settings.autosave}<span class="cell">Autosave off</span>{/if}
   {/if}
   <span class="message">{workspace.status}</span>
 </div>

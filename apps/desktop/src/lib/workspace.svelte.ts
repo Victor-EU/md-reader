@@ -49,7 +49,8 @@ import {
 import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
 import { imageResolver } from './images.ts';
-import { basename, dirname, shortenDir, tabLabels } from './paths.ts';
+import { proposeFileName } from './naming.ts';
+import { basename, dirname, resolvePath, shortenDir, tabLabels } from './paths.ts';
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
 import { count, countWords, describeError, describeFormat } from './text.ts';
@@ -93,6 +94,23 @@ interface ClosedTab {
   index: number;
 }
 
+/** How one write of a document differs from another. */
+interface WriteOptions {
+  /**
+   * Whether a document with no file may open the save panel. Only the
+   * reader's own Save does; autosave has nowhere to put it and waits.
+   */
+  ask?: boolean;
+  /**
+   * Set when the timer asked rather than the reader. It says nothing
+   * when it works, and the version it records is one the history may
+   * fold into the run it belongs to.
+   */
+  auto?: boolean;
+  /** Set on the retry after a merge, so a second refusal is reported. */
+  retrying?: boolean;
+}
+
 export type PaletteKind = 'files' | 'commands';
 
 export interface FileChoice {
@@ -134,6 +152,13 @@ const NEW_FILE_FORMAT: FileFormat = {
 
 const CLOSED_LIMIT = 20;
 const RECENTS_LIMIT = 50;
+/**
+ * How long after the last keystroke autosave writes the file (design
+ * 6.6). Short, because the file on disk is the channel to the AI and an
+ * unsaved buffer is a state it cannot see; long enough that a sentence
+ * is one write rather than forty.
+ */
+const AUTOSAVE_DELAY = 800;
 /** Long enough that a fast typist counts once per pause, not once per key. */
 const WORD_COUNT_DELAY = 250;
 /**
@@ -210,6 +235,9 @@ export class Workspace {
   private reading: { view: ReadView; tab: Tab } | null = null;
   private untitledCount = 0;
   private epoch = $state(0);
+  /** Writes in flight, per document, so two of them cannot race. */
+  private readonly writing = new Map<string, Promise<boolean>>();
+  private readonly autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private countTimer: ReturnType<typeof setTimeout> | null = null;
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -426,9 +454,13 @@ export class Workspace {
 
   activate(id: string | null): void {
     if (id === this.activeId) return;
+    const leaving = this.activeTab ? this.docOf(this.activeTab) : null;
     this.activeId = id;
     this.countNow();
     this.touch();
+    // Switching tabs is one of the moments autosave writes (design 6.6).
+    // Two tabs on the same document are not leaving it.
+    if (leaving && leaving.id !== this.activeDoc?.id) this.autosaveOnLeave(leaving);
   }
 
   /** Cmd+1..8 jump to that tab, Cmd+9 to the last one, as browsers do. */
@@ -456,7 +488,11 @@ export class Workspace {
     }
     this.tabs.splice(index, 1);
     this.closed = [{ tab: { ...tab }, doc, index }, ...this.closed].slice(0, CLOSED_LIMIT);
-    if (doc && !this.tabs.some((other) => other.docId === doc.id)) {
+    const alone = doc !== null && !this.tabs.some((other) => other.docId === doc.id);
+    // Closing the last tab on a document is the strongest form of
+    // leaving it, so autosave writes it (design 6.6) before it goes.
+    const saved = alone && this.autosaveOnLeave(doc);
+    if (doc && alone) {
       this.docs.delete(doc.id);
       if (doc.path !== null) void this.options.commands.unwatch(doc.path);
     }
@@ -470,10 +506,12 @@ export class Workspace {
       this.status = 'Closed Settings';
       return;
     }
-    // No dialog asks about unsaved work; the buffer is kept and can be reopened.
-    this.status = doc.dirty
-      ? `Closed ${doc.label} with unsaved changes · reopen the tab to get them back`
-      : `Closed ${doc.label}`;
+    // No dialog asks about unsaved work; the buffer is kept and can be
+    // reopened, and with autosave on it is already on disk.
+    this.status =
+      doc.dirty && !saved
+        ? `Closed ${doc.label} with unsaved changes · reopen the tab to get them back`
+        : `Closed ${doc.label}`;
   }
 
   closeActive(): void {
@@ -702,6 +740,7 @@ export class Workspace {
     if (changed) {
       this.scheduleWordCount();
       this.scheduleChangeScan();
+      this.scheduleAutosave(doc);
       // Only a document with no file has text the session has to carry.
       if (doc.path === null) this.touchSoon();
     }
@@ -714,51 +753,66 @@ export class Workspace {
     return doc !== null && !doc.meta?.read_only;
   }
 
-  async save(retrying = false): Promise<boolean> {
+  /** Cmd+S: the one save that may ask where a new file should go. */
+  save(): Promise<boolean> {
     const doc = this.activeDoc;
-    if (!doc) return false;
+    return doc ? this.write(doc, { ask: true }) : Promise.resolve(false);
+  }
+
+  /**
+   * Write one document, and never two writes of it at once.
+   *
+   * Overlapping writes would race: the second reads its expected hash
+   * before the first has changed it, and arrives to find a file it does
+   * not recognise — our own save, reported back to us as somebody
+   * else's. So a write that finds one already running waits for it.
+   */
+  private write(doc: Doc, options: WriteOptions = {}): Promise<boolean> {
+    const queued = (this.writing.get(doc.id) ?? Promise.resolve(false)).then(() =>
+      this.writeNow(doc, options),
+    );
+    this.writing.set(doc.id, queued);
+    this.saving = true;
+    const settled = () => {
+      if (this.writing.get(doc.id) !== queued) return;
+      this.writing.delete(doc.id);
+      this.saving = this.writing.size > 0;
+    };
+    queued.then(settled, settled);
+    return queued;
+  }
+
+  private async writeNow(doc: Doc, options: WriteOptions): Promise<boolean> {
     if (doc.meta?.read_only) {
       this.status = `${doc.label} is ${doc.meta.format.encoding}; convert to UTF-8 to edit`;
       return false;
     }
     let path = doc.path;
     if (path === null) {
-      path = (await this.options.pickSaveTarget?.(`${doc.untitledName}.md`)) ?? null;
+      // Autosave has nowhere to put a document nobody has named. The
+      // session carries the text until somebody says where it goes,
+      // which is the same promise by another route.
+      if (!options.ask) return false;
+      path = (await this.options.pickSaveTarget?.(this.saveTarget(doc))) ?? null;
       if (path === null) return false;
     }
     const written = doc.state.doc;
+    // Once, not twice: on a megabyte of markdown saved every pause in
+    // typing, flattening the rope is the expensive part of a save.
+    const text = written.toString();
     const format = doc.meta?.format ?? NEW_FILE_FORMAT;
     // An untitled document has never been watched; one that just got its
     // name has to be, from this save on.
     const wasWatched = doc.path !== null;
-    this.saving = true;
     const result = await this.options.commands.saveDocument(
       path,
-      written.toString(),
+      text,
       doc.meta?.hash ?? null,
       format,
     );
-    this.saving = false;
     if (result.status === 'error') {
-      // Somebody wrote to the file between our last look and this save.
-      // The design says the reader never sees that (7.2): their write is
-      // merged in and the save is tried once more.
-      if (result.error.kind === 'hash_mismatch' && !retrying) {
-        const fresh = await this.options.commands.openDocument(path);
-        if (fresh.status === 'ok') {
-          await this.externalChange({
-            path,
-            content: fresh.data.content,
-            hash: fresh.data.meta.hash,
-            changes: [],
-          });
-          const merged = this.status;
-          if (await this.save(true)) {
-            this.status = `${this.status} · ${merged}`;
-            return true;
-          }
-          return false;
-        }
+      if (result.error.kind === 'hash_mismatch' && options.retrying !== true) {
+        return this.mergeAndRetry(doc, path, options);
       }
       this.status = describeError(result.error);
       return false;
@@ -772,14 +826,148 @@ export class Workspace {
       read_only: false,
       format,
     };
-    doc.markSaved(written);
+    doc.markSaved(written, options.auto !== true);
     this.pushChanges(doc);
     this.remember(path);
-    // A save is a version too, and the one a later restore compares with.
-    void this.options.commands.snapshot(path, written.toString(), 'user');
+    // A save is a version too, and the one a later restore compares
+    // with. An autosave says which it is, because the history keeps a
+    // run of those as one version rather than one per pause in typing.
+    void this.options.commands.snapshot(path, text, options.auto === true ? 'autosave' : 'user');
     if (!wasWatched) void this.options.commands.watch(path);
-    this.status = `Saved ${basename(path)}`;
+    if (options.auto !== true) this.status = `Saved ${basename(path)}`;
     return true;
+  }
+
+  /**
+   * Somebody wrote to the file between our last look at it and this save
+   * (design 7.2). Their write is merged into the buffer and the save is
+   * tried once more. What the reader is told is what changed on disk,
+   * never that a save failed, because none of it did.
+   */
+  private async mergeAndRetry(doc: Doc, path: string, options: WriteOptions): Promise<boolean> {
+    const fresh = await this.options.commands.openDocument(path);
+    if (fresh.status !== 'ok') {
+      this.status = describeError(fresh.error);
+      return false;
+    }
+    await this.externalChange({
+      path,
+      content: fresh.data.content,
+      hash: fresh.data.meta.hash,
+      changes: [],
+    });
+    const merged = this.status;
+    if (!(await this.writeNow(doc, { ...options, retrying: true }))) return false;
+    if (options.auto !== true) this.status = `${this.status} · ${merged}`;
+    return true;
+  }
+
+  /**
+   * What the save panel opens on for a document with no file yet
+   * (design 4.5, scenario S8): a name from its first heading, in a
+   * folder this window is already working in. There is no folder
+   * workspace until WP 2.4, so that is the nearest open document's.
+   */
+  private saveTarget(doc: Doc): string {
+    const name = proposeFileName(this.firstHeading(doc), doc.untitledName);
+    const folder = this.saveFolder();
+    return folder === '' ? name : resolvePath(folder, name);
+  }
+
+  private firstHeading(doc: Doc): string | null {
+    const length = doc.state.doc.length;
+    const tree = ensureSyntaxTree(doc.state, length, OUTLINE_TIMEOUT) ?? syntaxTree(doc.state);
+    return headings(tree, doc.text)[0]?.text ?? null;
+  }
+
+  private saveFolder(): string {
+    for (const tab of this.tabs) {
+      const path = this.docOf(tab)?.path;
+      if (path) return dirname(path);
+    }
+    const recent = this.recents[0];
+    return recent === undefined ? '' : dirname(recent);
+  }
+
+  // --- autosave -----------------------------------------------------------
+
+  /**
+   * Whether the timer writes this document (design 6.6).
+   *
+   * Not one nobody has named: the first save is where the reader says
+   * where it goes. Not one the app cannot write either, which is the
+   * read-only encodings of WP 1.1.
+   */
+  private autosaves(doc: Doc): boolean {
+    return this.settings.autosave && doc.path !== null && doc.meta?.read_only !== true;
+  }
+
+  /** The buffer moved ahead of the file; put it back in `AUTOSAVE_DELAY`. */
+  private scheduleAutosave(doc: Doc): void {
+    if (!this.autosaves(doc)) return;
+    this.cancelAutosave(doc);
+    this.autosaveTimers.set(
+      doc.id,
+      setTimeout(() => {
+        this.autosaveTimers.delete(doc.id);
+        // An undo can have taken the buffer back to the file by now.
+        if (doc.dirty) void this.write(doc, { auto: true });
+      }, AUTOSAVE_DELAY),
+    );
+  }
+
+  private cancelAutosave(doc: Doc): void {
+    const timer = this.autosaveTimers.get(doc.id);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.autosaveTimers.delete(doc.id);
+  }
+
+  /**
+   * The reader is leaving this document: another tab came to the front,
+   * or this one is closing. Design 6.6 writes then as well, because the
+   * pause the timer is waiting for may never come.
+   *
+   * Says whether it started a write, which is what tells the tab it just
+   * closed whether it had unsaved work.
+   */
+  private autosaveOnLeave(doc: Doc | null): boolean {
+    if (!doc) return false;
+    this.cancelAutosave(doc);
+    if (!this.autosaves(doc) || !doc.dirty) return false;
+    void this.write(doc, { auto: true });
+    return true;
+  }
+
+  /**
+   * Everything the disk is owed, now: the window lost focus, or it is
+   * closing. The one call that waits for the writes to land.
+   */
+  async flushAutosave(): Promise<void> {
+    const writes: Promise<unknown>[] = [];
+    for (const doc of this.docs.values()) {
+      this.cancelAutosave(doc);
+      if (this.autosaves(doc) && doc.dirty) writes.push(this.write(doc, { auto: true }));
+    }
+    await Promise.all(writes);
+  }
+
+  /**
+   * Autosave on or off (design 6.6). Off is the dirty dot and Cmd+S,
+   * for a reader who would rather decide themselves when a version of
+   * their file exists. On writes what is dirty already, because turning
+   * it on is that decision made once.
+   */
+  setAutosave(on: boolean): void {
+    if (on === this.settings.autosave) return;
+    this.updateSettings({ autosave: on });
+    if (on) {
+      void this.flushAutosave();
+      this.status = 'Autosave on';
+      return;
+    }
+    for (const doc of this.docs.values()) this.cancelAutosave(doc);
+    this.status = 'Autosave off · saving is by hand from here';
   }
 
   /** A non-UTF-8 file opens read-only; this rewrites it and reopens it. */
@@ -999,6 +1187,9 @@ export class Workspace {
     const edit = plan(based);
     if (!edit) return false;
     doc.state = based.update({ ...edit, userEvent: 'input.annotate' }).state;
+    // The editor is not mounted here, so this is the one edit that does
+    // not pass through `applyTransactions` on its way to the buffer.
+    this.scheduleAutosave(doc);
     const at = doc.state.selection.main.head;
     this.unmountRead();
     if (type) {
@@ -1379,11 +1570,14 @@ export class Workspace {
   /**
    * Everything not on disk yet, now, because the window is closing.
    *
-   * Autosave joins this in WP 1.11. Until then the session is all there
-   * is to write: the buffer of a named file that was never saved is lost
-   * on close, exactly as it is when its tab is closed.
+   * The files first, because a file is where the work belongs; then the
+   * session, which by that point records a window whose documents are
+   * already written. Rust holds the close open until this answers
+   * (WP 1.8), which is what makes Cmd+Q with a half-typed sentence in
+   * front of you safe.
    */
   async flushPending(): Promise<void> {
+    await this.flushAutosave();
     if (this.sessionTimer !== null) {
       clearTimeout(this.sessionTimer);
       this.sessionTimer = null;
@@ -1420,6 +1614,8 @@ export class Workspace {
     for (const timer of [this.countTimer, this.changeTimer, this.sessionTimer]) {
       if (timer !== null) clearTimeout(timer);
     }
+    for (const timer of this.autosaveTimers.values()) clearTimeout(timer);
+    this.autosaveTimers.clear();
     this.countTimer = null;
     this.changeTimer = null;
     this.sessionTimer = null;

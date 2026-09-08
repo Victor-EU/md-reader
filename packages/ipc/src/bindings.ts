@@ -328,8 +328,15 @@ export type Settings = {
 	measure?: number,
 };
 
-/**  Who wrote a snapshot. */
-export type SnapshotAuthor = "user" | "external" | "agent";
+/**
+ *  Who wrote a snapshot.
+ * 
+ *  `Autosave` is separate from `User` because it is the one author that
+ *  writes on a timer rather than because somebody decided to: the history
+ *  coalesces a run of those into one version, and never coalesces onto a
+ *  version anybody asked for (design 6.6).
+ */
+export type SnapshotAuthor = "user" | "autosave" | "external" | "agent";
 
 export type SnapshotInfo = {
 	id: string,

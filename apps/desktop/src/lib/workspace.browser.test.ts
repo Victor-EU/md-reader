@@ -125,6 +125,10 @@ describe('tabs', () => {
 
   it('reopens a closed tab where it was, with its buffer', () => {
     workspace.activateIndex(2);
+    // With autosave off the buffer is the only copy of an edit, which is
+    // the case reopening a tab is for. What closing does with autosave on
+    // is in `autosave.browser.test.ts`.
+    workspace.setAutosave(false);
     edit();
     workspace.view?.dispatch({ changes: { from: 0, insert: 'edited ' } });
     workspace.closeActive();

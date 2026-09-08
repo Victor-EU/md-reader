@@ -27,6 +27,17 @@ const ZSTD_LEVEL: i32 = 3;
 /// last snapshot of each day survives (design 6.3).
 const KEEP_ALL_DAYS: u64 = 30;
 
+/// How long one autosaved version stands for.
+///
+/// Autosave writes the file a second after every pause in typing (design
+/// 6.6), and a snapshot per write would make this a log of keystrokes
+/// rather than a history of versions: hundreds of rows an hour, each a
+/// compressed copy of the document. So a run of autosaves updates the
+/// version it started, and a new one begins once that version is this
+/// old. What a reader can go back to is every couple of minutes of their
+/// own typing, plus every version anybody asked for.
+const COALESCE_MS: u64 = 2 * 60 * 1000;
+
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// The schema, one statement per version. Only ever append: the store on
@@ -68,17 +79,34 @@ fn now_ms() -> u64 {
 fn author_name(author: SnapshotAuthor) -> &'static str {
     match author {
         SnapshotAuthor::User => "user",
+        SnapshotAuthor::Autosave => "autosave",
         SnapshotAuthor::External => "external",
         SnapshotAuthor::Agent => "agent",
     }
 }
 
+/// An unknown name reads as `User`, so a store written by another build
+/// still lists, and the worst a name we do not know can do is decline to
+/// be coalesced.
 fn author_from(name: &str) -> SnapshotAuthor {
     match name {
+        "autosave" => SnapshotAuthor::Autosave,
         "external" => SnapshotAuthor::External,
         "agent" => SnapshotAuthor::Agent,
         _ => SnapshotAuthor::User,
     }
+}
+
+/// Whether a snapshot updates the newest one rather than following it.
+///
+/// Only an autosave onto an autosave, and only while the run it would
+/// join is younger than [`COALESCE_MS`]. Nothing ever coalesces onto a
+/// version somebody asked for: opening a file and saving it by hand are
+/// both moments a reader may want back exactly as they were.
+fn coalesces(previous: &SnapshotInfo, author: SnapshotAuthor, at_ms: u64) -> bool {
+    author == SnapshotAuthor::Autosave
+        && previous.author == SnapshotAuthor::Autosave
+        && at_ms.saturating_sub(previous.timestamp_ms) < COALESCE_MS
 }
 
 /// The document history for one app data directory.
@@ -121,6 +149,9 @@ impl History {
     /// already there: opening a file the app just saved should not add a
     /// second row saying nothing changed.
     ///
+    /// A run of autosaves updates one row rather than filling the history
+    /// with one version per pause in typing; see [`COALESCE_MS`].
+    ///
     /// # Errors
     /// Fails when the blob cannot be written or the index cannot be read
     /// or written.
@@ -146,12 +177,17 @@ impl History {
     ) -> Result<SnapshotInfo, Error> {
         let key = key_of(path);
         let hash = hash_bytes(content.as_bytes());
-        if let Some(latest) = self.latest(&key)?
+        let latest = self.latest(&key)?;
+        if let Some(latest) = &latest
             && latest.hash == hash
         {
-            return Ok(latest);
+            return Ok(latest.clone());
         }
         self.write_blob(&hash, content)?;
+        // A run of autosaves is one version (see `COALESCE_MS`).
+        if let Some(previous) = latest.filter(|previous| coalesces(previous, author, at_ms)) {
+            return self.repoint(previous, hash, content.len() as u64);
+        }
         self.seq += 1;
         let info = SnapshotInfo {
             id: format!("{at_ms:013}-{:06}", self.seq),
@@ -176,6 +212,29 @@ impl History {
             )
             .map_err(|e| failed("record the snapshot", &e))?;
         Ok(info)
+    }
+
+    /// Point a row at new content, leaving its id and its time where they
+    /// are: a coalesced run stands for the version the pause before it
+    /// left behind, which is the moment a reader would go back to. The
+    /// blob it used to point at is left for `collect_blobs`.
+    fn repoint(
+        &self,
+        previous: SnapshotInfo,
+        hash: String,
+        byte_len: u64,
+    ) -> Result<SnapshotInfo, Error> {
+        self.db
+            .execute(
+                "UPDATE snapshots SET hash = ?2, byte_len = ?3 WHERE id = ?1",
+                params![previous.id, hash, sql(byte_len)],
+            )
+            .map_err(|e| failed("update the snapshot", &e))?;
+        Ok(SnapshotInfo {
+            hash,
+            byte_len,
+            ..previous
+        })
     }
 
     /// Every snapshot of `path`, newest first.
@@ -442,6 +501,105 @@ mod tests {
         history
             .snapshot(Path::new("/notes/b.md"), "shared", SnapshotAuthor::User)
             .expect("b");
+        assert_eq!(blob_count(dir.path()), 1);
+    }
+
+    #[test]
+    fn a_run_of_autosaves_is_one_version() {
+        let (_dir, mut history) = store();
+        let path = Path::new("/notes/a.md");
+        let opened = history
+            .snapshot_at(path, "# Brief\n", SnapshotAuthor::User, 0)
+            .expect("open");
+        // Ten minutes of typing, saved every pause.
+        for minute in 0..10u64 {
+            history
+                .snapshot_at(
+                    path,
+                    &format!("# Brief\n\nparagraph {minute}\n"),
+                    SnapshotAuthor::Autosave,
+                    minute * 60_000,
+                )
+                .expect("autosave");
+        }
+        let listed = history.list(path).expect("list");
+        // The file as it was opened, and one version per two minutes of
+        // typing, rather than one per pause.
+        assert_eq!(listed.len(), 6, "{listed:#?}");
+        assert_eq!(listed.last().map(|first| first.id.clone()), Some(opened.id));
+        assert!(
+            listed[..5]
+                .iter()
+                .all(|info| info.author == SnapshotAuthor::Autosave)
+        );
+    }
+
+    #[test]
+    fn a_coalesced_version_holds_the_newest_content_at_the_time_it_started() {
+        let (_dir, mut history) = store();
+        let path = Path::new("/notes/a.md");
+        let first = history
+            .snapshot_at(path, "one", SnapshotAuthor::Autosave, 60_000)
+            .expect("first");
+        let second = history
+            .snapshot_at(path, "two", SnapshotAuthor::Autosave, 90_000)
+            .expect("second");
+        assert_eq!(first.id, second.id);
+        assert_eq!(second.timestamp_ms, 60_000);
+        assert_eq!(history.read(&second.id).expect("read"), "two");
+        assert_eq!(second.byte_len, 3);
+    }
+
+    #[test]
+    fn autosave_never_coalesces_onto_a_version_somebody_asked_for() {
+        let (_dir, mut history) = store();
+        let path = Path::new("/notes/a.md");
+        let saved = history
+            .snapshot_at(path, "by hand", SnapshotAuthor::User, 1_000)
+            .expect("save");
+        history
+            .snapshot_at(path, "and then some", SnapshotAuthor::Autosave, 2_000)
+            .expect("autosave");
+        assert_eq!(history.list(path).expect("list").len(), 2);
+        assert_eq!(history.read(&saved.id).expect("read"), "by hand");
+    }
+
+    #[test]
+    fn a_save_by_hand_during_a_run_of_autosaves_is_its_own_version() {
+        let (_dir, mut history) = store();
+        let path = Path::new("/notes/a.md");
+        history
+            .snapshot_at(path, "one", SnapshotAuthor::Autosave, 1_000)
+            .expect("autosave");
+        history
+            .snapshot_at(path, "two", SnapshotAuthor::User, 2_000)
+            .expect("by hand");
+        history
+            .snapshot_at(path, "three", SnapshotAuthor::Autosave, 3_000)
+            .expect("autosave again");
+        let listed = history.list(path).expect("list");
+        assert_eq!(
+            listed.iter().map(|info| info.author).collect::<Vec<_>>(),
+            vec![
+                SnapshotAuthor::Autosave,
+                SnapshotAuthor::User,
+                SnapshotAuthor::Autosave
+            ]
+        );
+    }
+
+    #[test]
+    fn the_blob_a_coalesced_version_left_behind_is_collected() {
+        let (dir, mut history) = store();
+        let path = Path::new("/notes/a.md");
+        history
+            .snapshot_at(path, "one", SnapshotAuthor::Autosave, 1_000)
+            .expect("first");
+        history
+            .snapshot_at(path, "two", SnapshotAuthor::Autosave, 2_000)
+            .expect("second");
+        assert_eq!(blob_count(dir.path()), 2);
+        history.sweep_at(3_000).expect("sweep");
         assert_eq!(blob_count(dir.path()), 1);
     }
 

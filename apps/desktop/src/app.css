@@ -383,6 +383,22 @@ body,
   font-size: 13px;
 }
 
+.blank .start {
+  margin-top: 10px;
+  padding: 5px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bar-bg);
+  color: var(--bar-fg);
+  font-family: var(--family-sans);
+  font-size: 13px;
+  cursor: default;
+}
+
+.blank .start:hover {
+  background: var(--hover-bg);
+}
+
 /* --- read mode ---------------------------------------------------------- */
 
 /*

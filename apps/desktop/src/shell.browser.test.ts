@@ -95,6 +95,23 @@ describe('the window', () => {
     expect(tabs()).toEqual([]);
   });
 
+  /**
+   * The blank window offers a new file in words, so it offers one to
+   * click. Cmd+N and the command palette are the other two ways in
+   * until the sidebar arrives in Phase 2 (plan WP 1.11).
+   */
+  it('starts a new file from the blank window', async () => {
+    start();
+    click('.blank .start');
+    await settle();
+    expect(labels()).toEqual(['Untitled 1 •']);
+    expect(target.querySelector('.cm-editor')).not.toBeNull();
+    expect(target.querySelector('.blank')).toBeNull();
+    // Nowhere to be yet, which is not the same as having unsaved changes.
+    const cells = [...target.querySelectorAll('.status .cell')].map((cell) => cell.textContent);
+    expect(cells).toEqual(['0 words', 'UTF-8 · LF', 'Not saved yet']);
+  });
+
   it('opens files through the OS panel, in Read mode', async () => {
     start({ '/a/one.md': '# One\n', '/a/two.md': 'two\n' });
     picked = ['/a/one.md', '/a/two.md'];
@@ -301,6 +318,39 @@ describe('the status bar', () => {
     shell.workspace.view?.dispatch({ selection: { anchor: 4 } });
     await settle();
     expect(cells()).toEqual(['3 words', 'Ln 1, Col 5', 'UTF-8 · LF', 'Saved']);
+  });
+});
+
+describe('autosave', () => {
+  /**
+   * The switch, the setting that is written down, and the status bar
+   * field design 4.1 puts autosave state in (plan WP 1.11).
+   */
+  it('is turned off from the settings tab, and the status bar says so', async () => {
+    start({ '/a/one.md': '# One\n' });
+    picked = ['/a/one.md'];
+    await press('KeyO');
+    await press('Comma');
+
+    const page = target.querySelector('.settings') as HTMLElement;
+    const group = page.querySelector('[aria-labelledby="autosave-heading"]') as HTMLElement;
+    const options = [...group.querySelectorAll<HTMLButtonElement>('.choice')];
+    expect(options.map((choice) => choice.textContent?.trim())).toEqual(['On', 'Off']);
+    expect(options.map((choice) => choice.getAttribute('aria-checked'))).toEqual(['true', 'false']);
+
+    options[1]?.click();
+    await settle();
+    expect(shell.workspace.settings.autosave).toBe(false);
+    expect(ipc.settings.autosave).toBe(false);
+    expect(options.map((choice) => choice.getAttribute('aria-checked'))).toEqual(['false', 'true']);
+
+    shell.workspace.activate(shell.workspace.tabs[0]?.id ?? null);
+    await press('KeyE', { alt: true });
+    shell.workspace.view?.dispatch({ changes: { from: 0, insert: 'typed ' } });
+    await settle();
+    const cells = [...target.querySelectorAll('.status .cell')].map((cell) => cell.textContent);
+    expect(cells).toEqual(['1 words', 'UTF-8 · LF', 'Unsaved changes', 'Autosave off']);
+    expect(ipc.files.get('/a/one.md')?.content).toBe('# One\n');
   });
 });
 

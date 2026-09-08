@@ -58,7 +58,13 @@ function drop(event: DragEvent) {
 }
 </script>
 
-<svelte:window onkeydown={keydown} />
+<!--
+  Losing focus is one of the moments autosave writes (design 6.6): the
+  reader has gone to the agent's window, and what it reads should be
+  what they left behind. Element blur does not bubble, so this fires
+  only when the window itself goes.
+-->
+<svelte:window onkeydown={keydown} onblur={() => void workspace.flushAutosave()} />
 
 <div class="frame" ondragover={(event) => event.preventDefault()} ondrop={drop} role="application">
   <TabStrip {workspace} />
@@ -72,6 +78,14 @@ function drop(event: DragEvent) {
         <div class="blank">
           <h1>MD Reader</h1>
           <p>Open a markdown file, drop one on the window, or start a new one.</p>
+          <!--
+            The window says a new file can be started here, so there is a
+            way to start one. Until the sidebar arrives in Phase 2 the
+            other two are Cmd+N and the command palette.
+          -->
+          <button type="button" class="start" onclick={() => workspace.newUntitled()}>
+            New File
+          </button>
         </div>
       </main>
     {:else if settings}

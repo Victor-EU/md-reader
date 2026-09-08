@@ -96,11 +96,21 @@ export class Doc {
     return this.path === null ? this.untitledName : basename(this.path);
   }
 
-  /** Record the content that a save has just put on disk. */
-  markSaved(written: Text): void {
+  /**
+   * Record what a save has just put on disk.
+   *
+   * `seen` says whether that also means the reader has looked at it. A
+   * save they asked for does: they were here, and they pressed the key.
+   * A save on a timer does not, so the marks on a write that arrived
+   * from somebody else stay where they are until it has been read
+   * (design 4.4) rather than being cleared by a clock.
+   */
+  markSaved(written: Text, seen: boolean): void {
     this.base = written;
-    this.reviewed = written;
-    this.changes = [];
+    if (seen) {
+      this.reviewed = written;
+      this.changes = [];
+    }
     this.missing = false;
   }
 

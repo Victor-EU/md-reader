@@ -28,6 +28,11 @@ const PAPERS = [
   { value: 'black', label: 'Black' },
 ] as const;
 
+const AUTOSAVE = [
+  { value: true, label: 'On' },
+  { value: false, label: 'Off' },
+] as const;
+
 const FAMILIES = [
   { value: 'sans', label: 'Sans', note: 'Inter' },
   { value: 'serif', label: 'Serif', note: 'Source Serif 4' },
@@ -144,6 +149,28 @@ const largest = $derived(settings.size >= (SIZES.at(-1) ?? 0));
             style="color: var(--tok-comment)">// characters to the line</span
           ></code
         ></pre>
+    </section>
+
+    <section>
+      <h2 id="autosave-heading">Autosave</h2>
+      <p class="hint">
+        On writes the file a moment after you stop typing, and again when you leave the
+        document or close the window. The file is what an agent reads, so an unsaved buffer
+        is work it cannot see. Off keeps the dirty dot and waits to be asked.
+      </p>
+      <div class="row" role="radiogroup" aria-labelledby="autosave-heading">
+        {#each AUTOSAVE as choice (choice.label)}
+          <button
+            type="button"
+            class="choice"
+            role="radio"
+            aria-checked={settings.autosave === choice.value}
+            onclick={() => workspace.setAutosave(choice.value)}
+          >
+            {choice.label}
+          </button>
+        {/each}
+      </div>
     </section>
 
     <p class="colophon">
