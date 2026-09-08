@@ -5,6 +5,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { mount } from 'svelte';
 import App from './App.svelte';
+// Which pulls in theme one's colours and the bundled faces.
 import './app.css';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
@@ -24,11 +25,22 @@ const shell = createShell({
   openExternal: (url) => {
     void openUrl(url);
   },
-  enhancer: createEnhancer(),
+  enhancer: createEnhancer({ dark: () => shell.workspace.darkPage }),
   // Images load over the asset protocol, whose scope Rust widens to each
   // opened document's folder (design 8). Outside Tauri nothing local loads.
   assetUrl: isTauri() ? (path) => convertFileSrc(path) : undefined,
 });
+
+// The system's light and dark, kept current for the settings that follow
+// it. The paper is what decides whether the page is dark, but "system" is
+// the appearance the app starts with and most readers leave it there.
+if (typeof matchMedia === 'function') {
+  const query = matchMedia('(prefers-color-scheme: dark)');
+  shell.workspace.systemDark = query.matches;
+  query.addEventListener('change', (event) => {
+    shell.workspace.systemDark = event.matches;
+  });
+}
 
 // What the watcher has to say about the open files (design 7.2). The
 // window listens for as long as it exists, so nothing unsubscribes.
@@ -64,7 +76,7 @@ if (isTauri()) {
  */
 async function boot(): Promise<void> {
   const restore = await commands.loadWindow();
-  shell.workspace.settings = restore.settings;
+  shell.workspace.applySettings(restore.settings);
   if (restore.content) await shell.workspace.restore(restore.content, restore.recents);
   const paths = await commands.takeLaunchPaths();
   if (paths.length > 0) await shell.workspace.openPaths(paths);

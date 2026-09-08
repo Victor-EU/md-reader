@@ -30,24 +30,100 @@ pub const INTERVAL: Duration = Duration::from_secs(1);
 
 // --- what is stored ---------------------------------------------------------
 
-/// Preferences that outlive every window.
-///
-/// Thin on purpose: the design names exactly one preference so far
-/// (design 6.6, autosave on by default), and this work package is the
-/// file and the plumbing rather than a guess at what belongs in it. The
-/// theme and typography fields arrive with WP 1.9, autosave is read by
-/// WP 1.11, and both are one `#[serde(default)]` field away.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+/// Whether the window follows the system or was told which to be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// The page's own background (design 11), which is a setting of its own
+/// rather than a consequence of light or dark: paper colour changes
+/// reading comfort more than most people expect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum Paper {
+    #[default]
+    White,
+    Cream,
+    /// A yellow legal pad.
+    Pad,
+    /// The high-contrast one, dark in a light window as well as a dark.
+    Black,
+}
+
+/// Which of the three bundled families the page is set in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum Family {
+    #[default]
+    Sans,
+    Serif,
+    Mono,
+}
+
+/// What the reading size may be, in CSS pixels. The step is the zoom
+/// (design 4.5): Cmd+= and Cmd+- move along it and nowhere else, so a
+/// zoomed window is always a size the type scale was drawn for.
+pub const SIZES: [u32; 11] = [12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 28];
+pub const DEFAULT_SIZE: u32 = 16;
+/// Design 11 asks for a measure around 68 characters. The ends are where
+/// a line stops being one: too short to hold a clause, too long to find
+/// the next one.
+pub const MEASURE_RANGE: (u32, u32) = (45, 110);
+pub const DEFAULT_MEASURE: u32 = 68;
+
+/// Preferences that outlive every window (design 11, design 6.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct Settings {
     /// Design 6.6: on, because the file on disk is the channel to the AI
     /// and an unsaved buffer is a state the AI cannot see.
     pub autosave: bool,
+    pub appearance: Appearance,
+    pub paper: Paper,
+    pub family: Family,
+    /// Reading size in CSS pixels; one of [`SIZES`].
+    pub size: u32,
+    /// Line length in characters, within [`MEASURE_RANGE`].
+    pub measure: u32,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { autosave: true }
+        Self {
+            autosave: true,
+            appearance: Appearance::default(),
+            paper: Paper::default(),
+            family: Family::default(),
+            size: DEFAULT_SIZE,
+            measure: DEFAULT_MEASURE,
+        }
+    }
+}
+
+impl Settings {
+    /// The same preferences with the two numbers made possible again.
+    ///
+    /// The settings file is a file: it can be edited by hand, written by
+    /// an older build, or half-written by a crash. A size of zero would
+    /// give a window nobody can read their way out of, so the numbers are
+    /// put back on the scale on the way in and on the way out.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        let size = SIZES
+            .iter()
+            .copied()
+            .min_by_key(|step| step.abs_diff(self.size))
+            .unwrap_or(DEFAULT_SIZE);
+        Self {
+            size,
+            measure: self.measure.clamp(MEASURE_RANGE.0, MEASURE_RANGE.1),
+            ..self
+        }
     }
 }
 
@@ -94,11 +170,22 @@ pub struct DocumentState {
     pub untitled: Option<Untitled>,
 }
 
+/// What a tab is showing. Settings open as a tab rather than a modal
+/// (plan WP 1.9), so not every tab has a document behind it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum TabKind {
+    #[default]
+    Document,
+    Settings,
+}
+
 /// One tab: a view onto a document, with the state that is per view
 /// (design 6.5).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
 pub struct TabState {
+    pub kind: TabKind,
     /// Index into the window's `documents`. Two tabs naming the same one
     /// restore as two views of one buffer, sharing undo.
     pub document: u32,
@@ -545,7 +632,52 @@ mod tests {
     fn settings_default_to_autosave_on() {
         let path = dir("settings").join("settings.json");
         let store: Store<Settings> = Store::open(path);
-        assert_eq!(store.get(), Settings { autosave: true });
+        assert_eq!(store.get(), Settings::default());
+        assert!(store.get().autosave);
+    }
+
+    #[test]
+    fn settings_start_on_white_paper_at_a_readable_size() {
+        let settings = Settings::default();
+        assert_eq!(settings.appearance, Appearance::System);
+        assert_eq!(settings.paper, Paper::White);
+        assert_eq!(settings.family, Family::Sans);
+        assert_eq!(settings.size, DEFAULT_SIZE);
+        assert_eq!(settings.measure, DEFAULT_MEASURE);
+    }
+
+    /// A file that has been edited by hand, or written by a build that
+    /// used a different scale, still has to open a window.
+    #[test]
+    fn a_size_that_is_not_on_the_scale_moves_to_the_nearest_one() {
+        let odd = Settings {
+            size: 19,
+            measure: 4000,
+            ..Settings::default()
+        };
+        let sane = odd.clamped();
+        assert_eq!(sane.size, 18);
+        assert_eq!(sane.measure, MEASURE_RANGE.1);
+        assert_eq!(
+            Settings {
+                size: 0,
+                ..Settings::default()
+            }
+            .clamped()
+            .size,
+            SIZES[0]
+        );
+    }
+
+    #[test]
+    fn a_settings_file_written_before_the_theme_still_reads() {
+        let path = dir("old-settings").join("settings.json");
+        fs::write(&path, br#"{"autosave":false}"#).expect("fixture");
+        let store: Store<Settings> = Store::open(path);
+        let settings = store.get();
+        assert!(!settings.autosave);
+        assert_eq!(settings.paper, Paper::White);
+        assert_eq!(settings.size, DEFAULT_SIZE);
     }
 
     #[test]
@@ -559,7 +691,10 @@ mod tests {
     #[test]
     fn a_store_with_nowhere_to_write_still_holds_its_value() {
         let store: Store<Settings> = Store::memory();
-        store.set(Settings { autosave: false });
+        store.set(Settings {
+            autosave: false,
+            ..Settings::default()
+        });
         store.flush().expect("flush");
         assert!(!store.get().autosave);
         assert_eq!(store.writes(), 0);

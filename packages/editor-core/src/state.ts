@@ -15,6 +15,8 @@ import { changeMarkers } from './changes/index.ts';
 import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 import { insertNewlineMarkdown } from './commands/newline.ts';
 import {
+  codeHighlightDark,
+  codeHighlightLight,
   livePreview,
   markdownHighlightStyle,
   type PreviewOptions,
@@ -25,6 +27,7 @@ import {
 export type EditorMode = 'edit' | 'source';
 
 const modeCompartment = new Compartment();
+const darkCompartment = new Compartment();
 
 function modeExtension(mode: EditorMode): Extension {
   return mode === 'edit' ? livePreview() : [];
@@ -33,6 +36,17 @@ function modeExtension(mode: EditorMode): Extension {
 /** The effect that switches an existing state between Edit and Source. */
 export function setModeEffect(mode: EditorMode): StateEffect<unknown> {
   return modeCompartment.reconfigure(modeExtension(mode));
+}
+
+/**
+ * Tell an editor which of theme one's two code palettes it is on.
+ *
+ * The question is the paper's, not the system's: the high-contrast black
+ * paper is dark inside a light window, and the code on it has to be
+ * highlighted for what it is written on (plan WP 1.9).
+ */
+export function setDarkEffect(dark: boolean): StateEffect<unknown> {
+  return darkCompartment.reconfigure(EditorView.darkTheme.of(dark));
 }
 
 /**
@@ -80,6 +94,7 @@ export const markdownKeymap = [
 export function baseExtensions(
   mode: EditorMode = 'edit',
   preview: PreviewOptions = {},
+  options: { dark?: boolean } = {},
 ): Extension[] {
   return [
     // Outside the compartment: what the widgets render with does not
@@ -91,7 +106,12 @@ export function baseExtensions(
     EditorView.lineWrapping,
     keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
     markdownSupport(),
+    // Shapes from the first, colours from whichever of the other two
+    // matches the page. `themeType` is what keeps the wrong one quiet.
     syntaxHighlighting(markdownHighlightStyle),
+    syntaxHighlighting(codeHighlightLight),
+    syntaxHighlighting(codeHighlightDark),
+    darkCompartment.of(EditorView.darkTheme.of(options.dark ?? false)),
     // What has changed since the reader last looked, in both Edit and
     // Source: a change is a change whichever projection is in front.
     changeMarkers(),
@@ -105,12 +125,17 @@ export interface StateOptions {
   selection?: EditorSelection;
   /** KaTeX, Mermaid, and the image rules the block widgets need. */
   preview?: PreviewOptions;
+  /** Whether the page this editor is on is a dark one (plan WP 1.9). */
+  dark?: boolean;
 }
 
 export function createEditorState(doc: string, options: StateOptions = {}): EditorState {
   return EditorState.create({
     doc,
     selection: options.selection ?? EditorSelection.single(0),
-    extensions: [baseExtensions(options.mode ?? 'edit', options.preview), options.extra ?? []],
+    extensions: [
+      baseExtensions(options.mode ?? 'edit', options.preview, { dark: options.dark }),
+      options.extra ?? [],
+    ],
   });
 }

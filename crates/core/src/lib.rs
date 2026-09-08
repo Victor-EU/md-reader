@@ -18,8 +18,8 @@ pub use document::{
 pub use eol::Eol;
 pub use history::History;
 pub use state::{
-    Bounds, Cursor, DocumentState, Restore, Session, Settings, Store, TabMode, TabState, Untitled,
-    WindowContent, WindowState,
+    Appearance, Bounds, Cursor, DocumentState, Family, Paper, Restore, Session, Settings, Store,
+    TabKind, TabMode, TabState, Untitled, WindowContent, WindowState,
 };
 pub use types::{
     Block, BlockOp, Conflict, DirEntry, ExternalChange, FileRemoved, FileRenamed, MergeResult,

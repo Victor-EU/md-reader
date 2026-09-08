@@ -11,7 +11,8 @@ const DEPTH = 4;
 const doc = $derived(workspace.activeDoc);
 const path = $derived(doc?.path ? segments(doc.path) : []);
 const crumbs = $derived(path.slice(-DEPTH));
-const mode = $derived(workspace.activeTab?.mode ?? null);
+// A tab that is not a document has no mode, whatever its tab says.
+const mode = $derived(doc === null ? null : (workspace.activeTab?.mode ?? null));
 /** How much of the document the reader has not marked seen (design 4.4). */
 const unreviewed = $derived(workspace.unreviewed);
 

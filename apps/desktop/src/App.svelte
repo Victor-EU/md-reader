@@ -2,16 +2,28 @@
 import EditorPane from './components/EditorPane.svelte';
 import Palette from './components/Palette.svelte';
 import ReadPane from './components/ReadPane.svelte';
+import Settings from './components/Settings.svelte';
 import Sidebar from './components/Sidebar.svelte';
 import StatusBar from './components/StatusBar.svelte';
 import TabStrip from './components/TabStrip.svelte';
 import Toolbar from './components/Toolbar.svelte';
+import { applyAppearance } from './lib/appearance.ts';
 import { fileUrlToPath } from './lib/paths.ts';
 import type { Shell } from './lib/shell.svelte.ts';
 
 let { shell }: { shell: Shell } = $props();
 const workspace = $derived(shell.workspace);
 const registry = $derived(shell.registry);
+const settings = $derived(workspace.activeTab?.kind === 'settings');
+
+/**
+ * Dress the window (design 11). Two attributes and three custom
+ * properties on the root element; theme one's own stylesheet holds every
+ * colour, so nothing here computes one.
+ */
+$effect(() => {
+  applyAppearance(document.documentElement, workspace.settings, workspace.systemDark);
+});
 
 /**
  * The whole keymap, derived from the command registry. A key the editor
@@ -62,6 +74,8 @@ function drop(event: DragEvent) {
           <p>Open a markdown file, drop one on the window, or start a new one.</p>
         </div>
       </main>
+    {:else if settings}
+      <Settings {workspace} />
     {:else if workspace.readMode}
       <ReadPane {workspace} />
     {:else}

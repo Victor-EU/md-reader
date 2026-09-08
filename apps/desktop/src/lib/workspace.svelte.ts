@@ -9,6 +9,7 @@ import {
   highlightEdit,
   lineChanges,
   setChanges,
+  setDarkEffect,
   setModeEffect,
   strikethroughEdit,
 } from '@mdreader/editor-core';
@@ -22,6 +23,7 @@ import type {
   FileRenamed,
   PositionEdit,
   Settings,
+  TabKind,
   WindowContent,
 } from '@mdreader/ipc';
 import {
@@ -36,6 +38,14 @@ import {
   renderDocument,
   toHtml,
 } from '@mdreader/markdown';
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_SIZE,
+  pageIsDark,
+  type Reading,
+  readingSettings,
+  zoomed,
+} from './appearance.ts';
 import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
 import { imageResolver } from './images.ts';
@@ -60,6 +70,12 @@ export interface Anchor {
 /** One tab: a view onto a document, with the state that is per view. */
 export interface Tab {
   id: string;
+  /**
+   * What this tab shows. Settings open as a tab rather than a modal
+   * (plan WP 1.9), so `docId` is empty for one of those and every
+   * document command asks `activeDoc` rather than `activeTab`.
+   */
+  kind: TabKind;
   docId: string;
   mode: ViewMode;
   pinned: boolean;
@@ -72,7 +88,8 @@ export interface Tab {
 
 interface ClosedTab {
   tab: Tab;
-  doc: Doc;
+  /** Null for a tab that was not a document, which is Settings today. */
+  doc: Doc | null;
   index: number;
 }
 
@@ -140,9 +157,6 @@ const OUTLINE_TIMEOUT = 30;
  */
 const SESSION_DELAY = 500;
 
-/** What the app starts with until a launch says otherwise (design 6.6). */
-const DEFAULT_SETTINGS: Settings = { autosave: true };
-
 /** `Untitled 3` -> 3, so a new document does not reuse a restored name. */
 function untitledNumber(name: string): number {
   const digits = /(\d+)$/.exec(name);
@@ -167,14 +181,19 @@ export class Workspace {
   /** Whether Read mode shows the comments it folds away (design 4.3). */
   comments = $state(false);
   /**
-   * The reader's preferences, as the launch found them (WP 1.8).
+   * The reader's preferences, as the launch found them (WP 1.8, WP 1.9).
    *
-   * Nothing acts on them yet: `autosave` is the one the design names and
-   * WP 1.11 is what reads it, WP 1.9 is what fills in theme and
-   * typography. What this work package owes them is the file, the round
-   * trip, and somewhere current to live.
+   * Always complete and always in range: what comes off the IPC has every
+   * field optional, and a settings file can be edited by hand, so it goes
+   * through `readingSettings` on the way in.
    */
-  settings = $state<Settings>({ ...DEFAULT_SETTINGS });
+  settings = $state<Reading>({ ...DEFAULT_SETTINGS });
+  /**
+   * What the OS says about light and dark. `main.ts` keeps it current; a
+   * window with nobody listening reads as light, which is what a browser
+   * build and the tests both want.
+   */
+  systemDark = $state(false);
   outline = $state<OutlineEntry[]>([]);
   /** False while a long document is still being parsed in the background. */
   outlineComplete = $state(true);
@@ -199,14 +218,14 @@ export class Workspace {
   constructor(readonly options: WorkspaceOptions) {}
 
   activeTab: Tab | null = $derived(this.tabs.find((tab) => tab.id === this.activeId) ?? null);
-  activeDoc: Doc | null = $derived(this.activeTab ? this.doc(this.activeTab) : null);
+  activeDoc: Doc | null = $derived(this.activeTab ? this.docOf(this.activeTab) : null);
   /** What the Changes badge counts: runs the reader has not marked seen. */
   unreviewed: number = $derived(this.activeDoc?.changes.length ?? 0);
   /** Tab labels, disambiguated against each other. */
   labels: string[] = $derived(
     tabLabels(
-      this.tabs.map((tab) => this.doc(tab).path),
-      this.tabs.map((tab) => this.doc(tab).untitledName),
+      this.tabs.map((tab) => this.docOf(tab)?.path ?? null),
+      this.tabs.map((tab) => this.docOf(tab)?.untitledName ?? 'Settings'),
     ),
   );
   canReopen: boolean = $derived(this.closed.length > 0);
@@ -219,9 +238,22 @@ export class Workspace {
   );
   /** Read mode is a different view, so it is a different mount. */
   readMode: boolean = $derived(this.activeTab?.mode === 'read');
+  /** The settings tab, when this window has one open (plan WP 1.9). */
+  settingsTab: Tab | null = $derived(this.tabs.find((tab) => tab.kind === 'settings') ?? null);
+  /**
+   * Whether the page is a dark one — not the same question as whether the
+   * window is. The high-contrast paper is dark inside a light window, and
+   * what the reader is reading on decides how the code on it is coloured.
+   */
+  darkPage: boolean = $derived(pageIsDark(this.settings, this.systemDark));
+
+  /** The document a tab shows, or null for a tab that is not one. */
+  docOf(tab: Tab): Doc | null {
+    return this.docs.get(tab.docId) ?? null;
+  }
 
   doc(tab: Tab): Doc {
-    const doc = this.docs.get(tab.docId);
+    const doc = this.docOf(tab);
     if (!doc) throw new Error(`tab ${tab.id} has no document`);
     return doc;
   }
@@ -234,7 +266,7 @@ export class Workspace {
   }
 
   async openPath(path: string): Promise<boolean> {
-    const open = this.tabs.find((tab) => this.doc(tab).path === path);
+    const open = this.tabs.find((tab) => this.docOf(tab)?.path === path);
     if (open) {
       this.activate(open.id);
       return true;
@@ -343,9 +375,29 @@ export class Workspace {
   }
 
   private addTab(doc: Doc, mode: ViewMode = 'read', at?: number): Tab {
-    const tab: Tab = {
+    return this.insert(Workspace.blankTab('document', doc.id, mode), at);
+  }
+
+  /**
+   * The preferences, as a tab (plan WP 1.9). There are no modals in this
+   * app (build plan rule 5), and a settings page is a place the reader
+   * goes rather than something that happens to them: it takes a tab, it
+   * can be pinned, and it comes back with the session.
+   */
+  openSettings(): Tab {
+    const open = this.settingsTab;
+    if (open) {
+      this.activate(open.id);
+      return open;
+    }
+    return this.insert(Workspace.blankTab('settings', '', 'read'));
+  }
+
+  private static blankTab(kind: TabKind, docId: string, mode: ViewMode): Tab {
+    return {
       id: nextId('tab'),
-      docId: doc.id,
+      kind,
+      docId,
       mode,
       pinned: false,
       selection: EditorSelection.single(0),
@@ -353,6 +405,10 @@ export class Workspace {
       anchor: null,
       folded: [],
     };
+  }
+
+  /** Put a tab in the strip, after the pinned block, and go to it. */
+  private insert(tab: Tab, at?: number): Tab {
     const pinned = this.pinnedCount();
     const index = Math.min(Math.max(at ?? this.tabs.length, pinned), this.tabs.length);
     this.tabs.splice(index, 0, tab);
@@ -392,7 +448,7 @@ export class Workspace {
     const index = this.tabs.findIndex((tab) => tab.id === id);
     if (index === -1) return;
     const tab = this.tabs[index] as Tab;
-    const doc = this.doc(tab);
+    const doc = this.docOf(tab);
     const wasActive = this.activeId === tab.id;
     if (wasActive) {
       this.unmount();
@@ -400,7 +456,7 @@ export class Workspace {
     }
     this.tabs.splice(index, 1);
     this.closed = [{ tab: { ...tab }, doc, index }, ...this.closed].slice(0, CLOSED_LIMIT);
-    if (!this.tabs.some((other) => other.docId === doc.id)) {
+    if (doc && !this.tabs.some((other) => other.docId === doc.id)) {
       this.docs.delete(doc.id);
       if (doc.path !== null) void this.options.commands.unwatch(doc.path);
     }
@@ -410,6 +466,10 @@ export class Workspace {
       this.countNow();
     }
     this.touch();
+    if (!doc) {
+      this.status = 'Closed Settings';
+      return;
+    }
     // No dialog asks about unsaved work; the buffer is kept and can be reopened.
     this.status = doc.dirty
       ? `Closed ${doc.label} with unsaved changes · reopen the tab to get them back`
@@ -424,15 +484,17 @@ export class Workspace {
     const [record, ...rest] = this.closed;
     if (!record) return;
     this.closed = rest;
-    this.docs.set(record.doc.id, record.doc);
-    // Closing the last tab on a document stopped the watch; reopening it
-    // starts one again.
-    if (record.doc.path !== null) void this.options.commands.watch(record.doc.path);
+    if (record.doc) {
+      this.docs.set(record.doc.id, record.doc);
+      // Closing the last tab on a document stopped the watch; reopening
+      // it starts one again.
+      if (record.doc.path !== null) void this.options.commands.watch(record.doc.path);
+    }
     const tab: Tab = { ...record.tab, id: nextId('tab') };
     this.tabs.splice(Math.min(record.index, this.tabs.length), 0, tab);
     this.activate(tab.id);
     this.touch();
-    this.status = `Reopened ${record.doc.label}`;
+    this.status = `Reopened ${record.doc?.label ?? 'Settings'}`;
   }
 
   /** Drag to reorder. Pinned tabs keep their block at the front of the strip. */
@@ -467,7 +529,7 @@ export class Workspace {
 
   setMode(mode: ViewMode): void {
     const tab = this.activeTab;
-    if (!tab || tab.mode === mode) return;
+    if (tab?.kind !== 'document' || tab.mode === mode) return;
     // Read is a different view; Edit and Source are the same view
     // reconfigured, which is what keeps switching between them instant.
     if (tab.mode === 'read') this.unmountRead();
@@ -495,7 +557,7 @@ export class Workspace {
   /** Mount the active tab's view. The component calls this from an effect. */
   mount(parent: HTMLElement): void {
     const tab = this.activeTab;
-    if (!tab || this.mounted || tab.mode === 'read') return;
+    if (tab?.kind !== 'document' || this.mounted || tab.mode === 'read') return;
     const doc = this.doc(tab);
     const view: EditorView = new EditorView({
       state: doc.state,
@@ -505,7 +567,13 @@ export class Workspace {
     this.mounted = { view, tab };
     view.dispatch({
       selection: tab.selection,
-      effects: [setModeEffect(tab.mode), setChanges.of(doc.changes)],
+      effects: [
+        setModeEffect(tab.mode),
+        // The paper a document state was built under may not be the one
+        // it is being shown on, so every mount says which it is.
+        setDarkEffect(this.darkPage),
+        setChanges.of(doc.changes),
+      ],
     });
     const anchor = tab.anchor;
     if (anchor) {
@@ -527,7 +595,7 @@ export class Workspace {
   /** Mount Read mode for the active tab. */
   mountRead(parent: HTMLElement): void {
     const tab = this.activeTab;
-    if (!tab || this.reading || tab.mode !== 'read') return;
+    if (tab?.kind !== 'document' || this.reading || tab.mode !== 'read') return;
     const doc = this.doc(tab);
     const view = new ReadView({
       parent,
@@ -543,6 +611,7 @@ export class Workspace {
         tab.folded = ids;
       },
       onLink: (href, external) => this.openLink(href, external),
+      onCopyCode: (text) => void this.copyCode(text),
       comments: this.comments,
       render: { image: this.imageRules(doc) },
     });
@@ -568,7 +637,7 @@ export class Workspace {
   /** A click in Read mode: the same buffer, at the character clicked. */
   editAt(offset: number, y = 0): void {
     const tab = this.activeTab;
-    if (!tab) return;
+    if (tab?.kind !== 'document') return;
     const doc = this.doc(tab);
     const at = Math.max(0, Math.min(offset, doc.state.doc.length));
     this.unmountRead();
@@ -1008,6 +1077,14 @@ export class Workspace {
     return ok;
   }
 
+  /** The copy button on a fence in Read mode (design 11). */
+  private async copyCode(text: string): Promise<void> {
+    // The button says so itself when this works; the status line is only
+    // needed for the case it cannot.
+    const ok = await copyText(text, this.options.clipboard ?? navigator.clipboard);
+    if (!ok) this.status = 'Could not reach the clipboard';
+  }
+
   // --- the palette --------------------------------------------------------
 
   openPalette(kind: PaletteKind): void {
@@ -1022,14 +1099,17 @@ export class Workspace {
 
   /** Open tabs first, then the recents that are not open (build plan, WP 1.3). */
   fileChoices(): FileChoice[] {
-    const choices: FileChoice[] = this.tabs.map((tab, i) => {
-      const doc = this.doc(tab);
-      return {
-        label: this.labels[i] ?? doc.label,
-        detail: doc.path === null ? 'not saved yet' : shortenDir(dirname(doc.path)),
-        tabId: tab.id,
-        path: doc.path,
-      };
+    const choices: FileChoice[] = this.tabs.flatMap((tab, i) => {
+      const doc = this.docOf(tab);
+      if (!doc) return [];
+      return [
+        {
+          label: this.labels[i] ?? doc.label,
+          detail: doc.path === null ? 'not saved yet' : shortenDir(dirname(doc.path)),
+          tabId: tab.id,
+          path: doc.path,
+        },
+      ];
     });
     const open = new Set(choices.map((choice) => choice.path));
     for (const path of this.recents) {
@@ -1121,8 +1201,8 @@ export class Workspace {
     const documents: DocumentState[] = [];
     const at = new Map<string, number>();
     for (const tab of this.tabs) {
-      const doc = this.doc(tab);
-      if (at.has(doc.id)) continue;
+      const doc = this.docOf(tab);
+      if (!doc || at.has(doc.id)) continue;
       at.set(doc.id, documents.length);
       documents.push(
         doc.path === null
@@ -1135,6 +1215,7 @@ export class Workspace {
     return {
       documents,
       tabs: this.tabs.map((tab) => ({
+        kind: tab.kind,
         document: at.get(tab.docId) ?? 0,
         mode: tab.mode,
         pinned: tab.pinned,
@@ -1169,19 +1250,24 @@ export class Workspace {
     }
     let active: string | null = null;
     for (const saved of content.tabs ?? []) {
-      const doc = docs[saved.document ?? 0];
-      if (!doc) continue;
-      const tab = this.addTab(doc, saved.mode ?? 'read');
+      let tab: Tab;
+      if (saved.kind === 'settings') {
+        tab = this.openSettings();
+      } else {
+        const doc = docs[saved.document ?? 0];
+        if (!doc) continue;
+        tab = this.addTab(doc, saved.mode ?? 'read');
+        // The file may have changed since; a position past its end is
+        // not a reason to lose the tab.
+        const grip = (n: number) => Math.max(0, Math.min(n, doc.state.doc.length));
+        tab.selection = EditorSelection.single(
+          grip(saved.selection?.anchor ?? 0),
+          grip(saved.selection?.head ?? 0),
+        );
+        tab.anchor = { offset: grip(saved.anchor ?? 0), y: 0 };
+        tab.folded = [...(saved.folded ?? [])];
+      }
       tab.pinned = saved.pinned ?? false;
-      // The file may have changed since; a position past its end is not
-      // a reason to lose the tab.
-      const grip = (n: number) => Math.max(0, Math.min(n, doc.state.doc.length));
-      tab.selection = EditorSelection.single(
-        grip(saved.selection?.anchor ?? 0),
-        grip(saved.selection?.head ?? 0),
-      );
-      tab.anchor = { offset: grip(saved.anchor ?? 0), y: 0 };
-      tab.folded = [...(saved.folded ?? [])];
       if (saved.active ?? false) active = tab.id;
     }
     this.activate(active ?? this.tabs[0]?.id ?? null);
@@ -1207,10 +1293,49 @@ export class Workspace {
     return (await this.load(entry.path))?.doc ?? null;
   }
 
-  /** The preferences, changed and written down (WP 1.9, WP 1.11). */
+  /**
+   * The preferences as a launch found them. Nothing is written back:
+   * this is the file being read, not the reader changing anything.
+   */
+  applySettings(settings: Settings | null | undefined): void {
+    this.settings = readingSettings(settings);
+    this.repaint();
+  }
+
+  /** The preferences, changed and written down (design 11, design 6.6). */
   updateSettings(change: Partial<Settings>): void {
-    this.settings = { ...this.settings, ...change };
+    this.settings = readingSettings({ ...this.settings, ...change });
+    this.repaint();
     void this.options.commands.saveSettings(this.settings);
+  }
+
+  /**
+   * Tell the live editor which paper it is on. Only the mounted view
+   * needs telling: every other document state is told at its mount, and
+   * Read mode takes its colours from the stylesheet.
+   */
+  private repaint(): void {
+    this.mounted?.view.dispatch({ effects: setDarkEffect(this.darkPage) });
+  }
+
+  /**
+   * Cmd+= and Cmd+- (design 4.5). Zoom is the reading size and not a
+   * second number beside it: one thing to set, one thing to remember,
+   * and the type scale is drawn for the sizes it steps through.
+   */
+  zoom(steps: number): void {
+    const size = zoomed(this.settings.size, steps);
+    if (size === this.settings.size) {
+      this.status = `Text size ${size}px · that is as ${steps > 0 ? 'large' : 'small'} as it goes`;
+      return;
+    }
+    this.updateSettings({ size });
+    this.status = `Text size ${size}px`;
+  }
+
+  resetZoom(): void {
+    if (this.settings.size !== DEFAULT_SIZE) this.updateSettings({ size: DEFAULT_SIZE });
+    this.status = `Text size ${DEFAULT_SIZE}px`;
   }
 
   /**

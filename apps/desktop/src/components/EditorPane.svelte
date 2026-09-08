@@ -17,4 +17,5 @@ $effect(() => {
 });
 </script>
 
-<main class="page" bind:this={host}></main>
+<!-- Source mode is set in the monospace, so the pane says which it is. -->
+<main class="page" class:source={workspace.activeTab?.mode === 'source'} bind:this={host}></main>

@@ -1,39 +1,36 @@
+/* Theme one's colours and the bundled faces, before any rule uses them. */
+@import "@mdreader/theme/css";
+@import "./fonts.css";
+
 /*
- * The shell's own styling: enough to make the window read as a document
- * window. Theme one, the type scale, and the page backgrounds are WP 1.9.
+ * The shell's own styling: the shapes, the spacing and the type scale.
+ * Every colour comes from theme one, which is generated into its own
+ * stylesheet from JSON and loaded before this file (plan WP 1.9); this
+ * one only ever names a variable.
+ */
+
+/*
+ * The three bundled families of design 11, each with the system stacks
+ * behind it: a document in a script the bundled faces do not cover, or a
+ * build with the fonts missing, still reads.
  */
 :root {
-  color-scheme: light dark;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --bar-bg: #f3f3f1;
-  --bar-fg: #333;
-  --muted: #6b6b6b;
-  --page-bg: #fff;
-  --border: #ddd;
-  --active-bg: #fff;
-  --hover-bg: #e8e8e6;
-  --accent: #3b6ea8;
-  --dirty: #c07000;
-  --shadow: rgb(0 0 0 / 25%);
-  --code-bg: #f7f7f5;
-  --highlight: #fff3a3;
-}
+  --family-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --family-serif: "Source Serif 4 Variable", ui-serif, Georgia, "Times New Roman", serif;
+  --family-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bar-bg: #1f1f1f;
-    --bar-fg: #ddd;
-    --muted: #999;
-    --page-bg: #171717;
-    --border: #333;
-    --active-bg: #171717;
-    --hover-bg: #2a2a2a;
-    --accent: #6fa8dc;
-    --dirty: #e0a44c;
-    --shadow: rgb(0 0 0 / 60%);
-    --code-bg: #1b1b1b;
-    --highlight: #6b5a1e;
-  }
+  /*
+   * What the reader chose, until the settings arrive a moment later.
+   * `applyAppearance` writes these three onto the root element.
+   */
+  --read-family: var(--family-sans);
+  --read-size: 16px;
+  --read-measure: 68ch;
+
+  /* The chrome is the sans, always: it is furniture, not the document. */
+  font-family: var(--family-sans);
 }
 
 html,
@@ -242,7 +239,7 @@ body,
 
 .tool.highlight {
   background: var(--highlight);
-  color: #333;
+  color: var(--bar-fg);
 }
 
 .tool.strike {
@@ -338,16 +335,25 @@ body,
 
 .page .cm-editor {
   height: 100%;
-  font-size: 15px;
+  font-size: var(--read-size);
+  color: var(--page-fg);
 }
 
 .page .cm-scroller {
-  font-family: inherit;
+  font-family: var(--read-family);
   line-height: 1.6;
 }
 
+/*
+ * Source mode is the file as the model sees it, so it is set in the
+ * monospace whatever the reading family is.
+ */
+.page.source .cm-scroller {
+  font-family: var(--family-mono);
+}
+
 .page .cm-content {
-  max-width: 68ch;
+  max-width: var(--read-measure);
   margin: 0 auto;
   padding: 32px 24px;
 }
@@ -363,7 +369,7 @@ body,
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--muted);
+  color: var(--page-muted);
 }
 
 .blank h1 {
@@ -380,9 +386,9 @@ body,
 /* --- read mode ---------------------------------------------------------- */
 
 /*
- * Enough typography to read by. Theme one, the bundled families, and the
- * page backgrounds are WP 1.9; the measure, the scale and the spacing here
- * follow design 11 so the mode is honest about what it will look like.
+ * The typography of design 11: a measure the reader sets, line height
+ * 1.6, and a scale that keeps four heading levels apart without being
+ * loud. The size and the measure are settings, so both are variables.
  */
 
 .page-read {
@@ -390,12 +396,13 @@ body,
 }
 
 .read {
-  max-width: 68ch;
+  max-width: var(--read-measure);
   margin: 0 auto;
   padding: 32px 24px 50vh;
-  font-size: 15px;
+  font-family: var(--read-family);
+  font-size: var(--read-size);
   line-height: 1.6;
-  color: var(--bar-fg);
+  color: var(--page-fg);
   outline: none;
 }
 
@@ -409,10 +416,11 @@ body,
  * The comment toggle (design 4.3). Showing them is one class on the
  * article: the notes are already in the page, folded away, so the switch
  * costs nothing and works on a document still rendering in chunks.
+ *
+ * What each meaning is coloured comes from theme one, on the `data-kind`
+ * attribute the editor's own note widgets carry too.
  */
 .read.mdr-show-comments .mdr-comment[data-kind] {
-  --mdr-note: #7a7a7a;
-
   display: inline-flex;
   gap: 4px;
   align-items: baseline;
@@ -432,26 +440,6 @@ body,
 
 .read.mdr-show-comments .mdr-comment-kind::after {
   content: ":";
-}
-
-.read.mdr-show-comments .mdr-comment[data-kind="attention"] {
-  --mdr-note: #d97706;
-}
-
-.read.mdr-show-comments .mdr-comment[data-kind="question"] {
-  --mdr-note: #8b5cf6;
-}
-
-.read.mdr-show-comments .mdr-comment[data-kind="remove"] {
-  --mdr-note: #dc2626;
-}
-
-.read.mdr-show-comments .mdr-comment[data-kind="keep"] {
-  --mdr-note: #16a34a;
-}
-
-.read.mdr-show-comments .mdr-comment[data-kind="rewrite"] {
-  --mdr-note: #0ea5e9;
 }
 
 /* A block comment is a note of its own, so it sits on its own line. */
@@ -504,7 +492,7 @@ body,
 .read h5,
 .read h6 {
   font-size: 1em;
-  color: var(--muted);
+  color: var(--page-muted);
 }
 
 .mdr-fold {
@@ -516,7 +504,7 @@ body,
   padding: 0;
   border: 0;
   background: none;
-  color: var(--muted);
+  color: var(--page-muted);
   opacity: 0;
   cursor: default;
 }
@@ -539,62 +527,102 @@ body,
 }
 
 .read a {
-  color: var(--accent);
-  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--page-accent);
+  text-decoration-color: color-mix(in srgb, var(--page-accent) 40%, transparent);
 }
 
 .read code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-family: var(--family-mono);
   font-size: 0.9em;
 }
 
 .read :not(pre) > code {
-  background: var(--hover-bg);
+  /* The paper's own code ground, not the chrome's: a grey chip on a
+     yellow page belongs to a different window. */
+  background: var(--code-bg);
   border-radius: 4px;
   padding: 0.1em 0.3em;
 }
 
 .read pre {
+  position: relative;
   background: var(--code-bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--page-border);
   border-radius: 6px;
-  padding: 10px 12px;
+  /* Room at the top for the language and the copy button. */
+  padding: 24px 12px 10px;
   overflow-x: auto;
   /* AI output has long lines; design 11 wraps them by default. */
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.read pre.mdr-html {
-  color: var(--muted);
-}
-
 /*
- * Shiki writes both themes onto the spans as custom properties and leaves
- * the choice to the page, so one highlighting pass serves light and dark.
- * The block keeps the app's own background; only the tokens come from the
- * theme, and WP 1.9 replaces the pair with the shared token colours.
+ * A fence's language and its copy button (design 11). Both are put in
+ * the `pre` by the Read view and taken out of flow, so the block's text
+ * is still exactly the code — which is what the copy button copies and
+ * what a selection across the page picks up.
  */
-.read pre.mdr-code span {
-  color: var(--shiki-light);
+.read .mdr-code-lang,
+.read .mdr-copy {
+  position: absolute;
+  top: 3px;
+  font-family: var(--family-sans);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
 }
 
-@media (prefers-color-scheme: dark) {
-  .read pre.mdr-code span {
-    color: var(--shiki-dark);
-  }
+.read .mdr-code-lang {
+  left: 12px;
+  color: var(--page-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.read .mdr-copy {
+  right: 8px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--page-muted);
+  cursor: default;
+  /* Quiet until the pointer is on the block, and always there for the
+     keyboard. */
+  opacity: 0;
+}
+
+.read pre:hover .mdr-copy,
+.read .mdr-copy:focus-visible {
+  opacity: 1;
+}
+
+.read .mdr-copy:hover {
+  border-color: var(--page-border);
+  background: var(--hover-bg);
+  color: var(--page-fg);
+}
+
+.read pre.mdr-html {
+  color: var(--page-muted);
 }
 
 .read blockquote {
-  border-left: 3px solid var(--border);
+  border-left: 3px solid var(--page-border);
   padding-left: 14px;
-  color: var(--muted);
+  color: var(--page-muted);
 }
 
+/*
+ * One colour per canonical callout type (design 5.1), from theme one, on
+ * the `data-callout` attribute — the same attribute and the same colour
+ * the editor's live preview uses, so the two modes agree.
+ */
 .read blockquote.mdr-callout {
   border-left-width: 4px;
-  border-left-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-left-color: var(--mdr-callout);
+  background: color-mix(in srgb, var(--mdr-callout) 7%, transparent);
   border-radius: 0 6px 6px 0;
   padding: 8px 14px;
   color: inherit;
@@ -602,51 +630,14 @@ body,
 
 .mdr-callout-title {
   font-weight: 650;
-  color: var(--accent);
+  color: var(--mdr-callout);
   margin-bottom: 0.3em;
-}
-
-/*
- * One colour per canonical callout type (design 5.1). The renderer
- * resolves every alias to one of these names, so this list is the whole
- * set and an unknown type arrives here as `note`.
- */
-.mdr-callout[data-callout="warning"],
-.mdr-callout[data-callout="question"] {
-  --accent: #c07000;
-}
-
-.mdr-callout[data-callout="tip"],
-.mdr-callout[data-callout="success"] {
-  --accent: #2f8f4e;
-}
-
-/* GitHub's CAUTION is the red one; its WARNING is the amber one. */
-.mdr-callout[data-callout="caution"],
-.mdr-callout[data-callout="danger"],
-.mdr-callout[data-callout="failure"],
-.mdr-callout[data-callout="bug"] {
-  --accent: #c0392b;
-}
-
-/* GitHub styles IMPORTANT apart from a tip, which is why it is canonical. */
-.mdr-callout[data-callout="important"],
-.mdr-callout[data-callout="example"] {
-  --accent: #8250c8;
-}
-
-.mdr-callout[data-callout="abstract"] {
-  --accent: #0f8ea8;
-}
-
-.mdr-callout[data-callout="quote"] {
-  --accent: #7a7a7a;
 }
 
 /* A folded callout: `details` in place of `blockquote`, same skin. */
 .read details.mdr-callout {
-  border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-left: 4px solid var(--mdr-callout);
+  background: color-mix(in srgb, var(--mdr-callout) 7%, transparent);
   border-radius: 0 6px 6px 0;
   padding: 8px 14px;
   margin: 0.9em 0;
@@ -690,31 +681,34 @@ body,
 
 .read th,
 .read td {
-  border: 1px solid var(--border);
+  border: 1px solid var(--page-border);
   padding: 4px 10px;
   text-align: left;
+  /* Design 11's aligned numerics: a column of figures lines up. */
+  font-variant-numeric: tabular-nums;
 }
 
+/* Striping, mixed from the page's own ink so it works on every paper. */
 .read tbody tr:nth-child(even) {
-  background: var(--hover-bg);
+  background: color-mix(in srgb, var(--page-fg) 5%, transparent);
 }
 
 .read mark {
-  background: var(--highlight);
+  background: var(--mark);
   color: inherit;
   border-radius: 2px;
 }
 
 .read hr {
   border: 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--page-border);
   margin: 1.6em 0;
 }
 
 .read .mdr-frontmatter {
-  border-left: 3px solid var(--border);
+  border-left: 3px solid var(--page-border);
   padding-left: 14px;
-  color: var(--muted);
+  color: var(--page-muted);
   font-size: 0.9em;
 }
 
@@ -741,7 +735,6 @@ body,
 }
 
 .read .mdr-property-value {
-  color: var(--fg);
   word-break: break-word;
 }
 
@@ -750,7 +743,7 @@ body,
   display: grid;
   grid-template-columns: 2em 1fr;
   font-size: 0.92em;
-  color: var(--muted);
+  color: var(--page-muted);
   margin: 0.4em 0;
 }
 
@@ -787,9 +780,9 @@ body,
 
 /* The inline HTML whitelist of design 5.3, styled as the elements they are. */
 .read kbd {
-  font-family: ui-monospace, monospace;
+  font-family: var(--family-mono);
   font-size: 0.85em;
-  border: 1px solid var(--border);
+  border: 1px solid var(--page-border);
   border-bottom-width: 2px;
   border-radius: 4px;
   padding: 0 4px;
@@ -806,7 +799,7 @@ body,
 }
 
 .read .mdr-image {
-  color: var(--muted);
+  color: var(--page-muted);
   font-style: italic;
 }
 
@@ -832,9 +825,9 @@ body,
 .read .mdr-mermaid {
   min-height: 2em;
   text-align: center;
-  font-family: ui-monospace, monospace;
+  font-family: var(--family-mono);
   font-size: 0.9em;
-  color: var(--muted);
+  color: var(--page-muted);
   white-space: pre-wrap;
 }
 
@@ -974,4 +967,182 @@ body,
   padding: 12px;
   color: var(--muted);
   font-size: 13px;
+}
+
+/* --- settings ----------------------------------------------------------- */
+
+/*
+ * The preferences, as a page rather than a modal (plan WP 1.9). It is
+ * set in the paper, the family and the size it is editing, so every
+ * choice previews itself the moment it is made.
+ */
+
+.page-settings {
+  overflow-y: auto;
+}
+
+.settings {
+  max-width: var(--read-measure);
+  margin: 0 auto;
+  padding: 32px 24px 25vh;
+  font-family: var(--read-family);
+  font-size: var(--read-size);
+  line-height: 1.6;
+  color: var(--page-fg);
+}
+
+.settings h1 {
+  margin: 0 0 1.2em;
+  font-size: 1.6em;
+  font-weight: 650;
+}
+
+.settings h2 {
+  margin: 1.6em 0 0.4em;
+  font-size: 1em;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.settings section:first-of-type h2:first-child {
+  margin-top: 0;
+}
+
+.settings .hint {
+  margin: 0 0 0.6em;
+  font-size: 0.85em;
+  color: var(--page-muted);
+}
+
+.settings .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings .choice {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bar-bg);
+  color: var(--bar-fg);
+  font-family: var(--family-sans);
+  font-size: 13px;
+  cursor: default;
+}
+
+.settings .choice:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.settings .choice[aria-checked="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bar-bg));
+  color: var(--bar-fg);
+}
+
+.settings .choice:disabled {
+  opacity: 0.4;
+}
+
+.settings .choice .note {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/*
+ * A dab of the paper itself on each swatch. The colours are theme one's,
+ * read from the same variables the page uses, so a swatch cannot claim a
+ * colour the paper does not have.
+ */
+.settings .paper .dab {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  align-self: center;
+}
+
+.settings .paper[data-swatch="white"] .dab {
+  background: var(--paper-white);
+}
+
+.settings .paper[data-swatch="cream"] .dab {
+  background: var(--paper-cream);
+}
+
+.settings .paper[data-swatch="pad"] .dab {
+  background: var(--paper-pad);
+}
+
+.settings .paper[data-swatch="black"] .dab {
+  background: var(--paper-black);
+}
+
+.settings .field {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 0.8em;
+  font-family: var(--family-sans);
+  font-size: 13px;
+}
+
+.settings .field .label {
+  width: 6em;
+  flex: none;
+  color: var(--muted);
+}
+
+.settings .field .value {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings .stepper {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings .stepper .choice {
+  min-width: 2em;
+  justify-content: center;
+}
+
+.settings input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.settings .specimen {
+  margin: 0;
+}
+
+.settings .specimen-code {
+  margin: 0.8em 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--page-border);
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-family: var(--family-mono);
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.settings .specimen-code code {
+  font: inherit;
+}
+
+.settings .colophon {
+  margin: 2.4em 0 0;
+  font-family: var(--family-sans);
+  font-size: 11px;
+  color: var(--page-muted);
 }

@@ -220,7 +220,10 @@ fn load_window(services: tauri::State<'_, Services>, window: tauri::WebviewWindo
     Restore {
         content,
         recents: session.recents,
-        settings: services.settings.get(),
+        // Clamped on the way out as well as in: the file can be edited
+        // by hand, and a size of zero is a window nobody can read their
+        // way out of.
+        settings: services.settings.get().clamped(),
     }
 }
 
@@ -255,7 +258,7 @@ fn save_window(
 #[tauri::command]
 #[specta::specta]
 fn save_settings(services: tauri::State<'_, Services>, settings: Settings) {
-    services.settings.set(settings);
+    services.settings.set(settings.clamped());
 }
 
 /// Write the settings and the session now, rather than at the next

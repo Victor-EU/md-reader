@@ -1,0 +1,21 @@
+{
+  "name": "@mdreader/theme",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Theme one as data: the palette both Shiki and the CodeMirror highlighter read, and the stylesheet generated from it.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./css": "./src/theme.css"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@lezer/highlight": "~1.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "~5.9.3"
+  }
+}

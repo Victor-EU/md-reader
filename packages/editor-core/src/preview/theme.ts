@@ -2,14 +2,27 @@ import { HighlightStyle } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { calloutTypeTag, highlightTag, mathTag } from '@mdreader/markdown';
+import { codeHighlight, themeOne } from '@mdreader/theme';
 
-const mono = 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
+/**
+ * The bundled monospace, with the system stacks behind it. The window
+ * defines the variable; the fallback is what a bare editor in a test
+ * gets, and is the stack this file used before there were bundled
+ * families at all.
+ */
+const mono =
+  'var(--family-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace)';
 
 /**
  * Structural styling for the live preview classes. Colours go through
  * CSS variables with plain fallbacks so the app's theme can restyle
  * without touching this file; the shapes (sizes, borders, indents) are
  * the editor's own.
+ *
+ * What a comment meaning or a callout type is coloured is not here
+ * either: theme one puts those on the same `data-kind` and
+ * `data-callout` attributes the rendered page carries, so a note is the
+ * same colour whichever projection of the document it is seen in.
  */
 export const previewTheme = EditorView.baseTheme({
   '.mdr-h1': { fontSize: '1.7em', fontWeight: '700', lineHeight: '1.3' },
@@ -28,7 +41,6 @@ export const previewTheme = EditorView.baseTheme({
   '.mdr-link': { color: 'var(--mdr-link, #2a6ad9)', textDecoration: 'underline' },
   '.mdr-image': { color: 'var(--mdr-muted, #888)' },
   '.mdr-mark': { background: 'var(--mdr-highlight, #fff3a3)', borderRadius: '2px' },
-  '&dark .mdr-mark': { background: 'var(--mdr-highlight, #5a4a00)' },
   '.mdr-del': { textDecoration: 'line-through', opacity: '0.7' },
   '.mdr-comment, .mdr-comment-block': { opacity: '0.55', fontSize: '0.9em' },
   // A note is a bubble in the text; at widths that have room for it the
@@ -52,11 +64,6 @@ export const previewTheme = EditorView.baseTheme({
   },
   '.mdr-comment-kind': { fontWeight: '600', color: 'var(--mdr-note, #7a7a7a)' },
   '.mdr-comment-text': { whiteSpace: 'pre-wrap' },
-  '.mdr-comment-widget[data-kind=attention]': { '--mdr-note': '#d97706' },
-  '.mdr-comment-widget[data-kind=question]': { '--mdr-note': '#8b5cf6' },
-  '.mdr-comment-widget[data-kind=remove]': { '--mdr-note': '#dc2626' },
-  '.mdr-comment-widget[data-kind=keep]': { '--mdr-note': '#16a34a' },
-  '.mdr-comment-widget[data-kind=rewrite]': { '--mdr-note': '#0ea5e9' },
   // The span a note points at, while the pointer is on the note. An
   // underline rather than a tint alone: the anchor of a highlight is
   // already on a yellow ground, and a tint over that says nothing.
@@ -92,21 +99,6 @@ export const previewTheme = EditorView.baseTheme({
     borderLeftColor: 'var(--mdr-callout, #2a6ad9)',
   },
   '.mdr-callout-header': { fontWeight: '600' },
-  // The canonical type set of design 5.1, with the same hues Read mode
-  // uses. WP 1.9 replaces both with the shared token theme.
-  '.mdr-callout[data-callout=warning], .mdr-callout[data-callout=question]': {
-    '--mdr-callout': '#c07000',
-  },
-  '.mdr-callout[data-callout=tip], .mdr-callout[data-callout=success]': {
-    '--mdr-callout': '#2f8f4e',
-  },
-  '.mdr-callout[data-callout=caution], .mdr-callout[data-callout=danger], .mdr-callout[data-callout=failure], .mdr-callout[data-callout=bug]':
-    { '--mdr-callout': '#c0392b' },
-  '.mdr-callout[data-callout=important], .mdr-callout[data-callout=example]': {
-    '--mdr-callout': '#8250c8',
-  },
-  '.mdr-callout[data-callout=abstract]': { '--mdr-callout': '#0f8ea8' },
-  '.mdr-callout[data-callout=quote]': { '--mdr-callout': '#7a7a7a' },
   '.mdr-callout-marker': { opacity: '0.55', fontSize: '0.85em' },
   '.mdr-fence, .mdr-math-block, .mdr-frontmatter, .mdr-table': {
     fontFamily: mono,
@@ -223,10 +215,10 @@ export const previewTheme = EditorView.baseTheme({
 });
 
 /**
- * Syntax colours for Source mode and for fenced code in both modes. The
- * markdown structure tags get the same intent as the preview classes
- * (bold headings, italic emphasis) so the two never disagree; code token
- * colours follow CodeMirror's default palette.
+ * What the markdown structure looks like, in Source mode and under the
+ * live preview: shapes only, no colour. Bold headings and italic
+ * emphasis are the same intent the preview classes carry, so the two
+ * projections of one buffer never disagree.
  */
 export const markdownHighlightStyle = HighlightStyle.define([
   { tag: tags.processingInstruction, class: 'mdr-syntax' },
@@ -238,17 +230,22 @@ export const markdownHighlightStyle = HighlightStyle.define([
   { tag: [tags.monospace, mathTag], fontFamily: mono },
   { tag: highlightTag, class: 'mdr-mark' },
   { tag: calloutTypeTag, fontWeight: '600' },
-  { tag: tags.keyword, color: '#708' },
-  { tag: [tags.atom, tags.bool, tags.url, tags.contentSeparator, tags.labelName], color: '#219' },
-  { tag: [tags.literal, tags.inserted], color: '#164' },
-  { tag: [tags.string, tags.deleted], color: '#a11' },
-  { tag: [tags.regexp, tags.escape, tags.special(tags.string)], color: '#e40' },
-  { tag: tags.definition(tags.variableName), color: '#00f' },
-  { tag: tags.local(tags.variableName), color: '#30a' },
-  { tag: [tags.typeName, tags.namespace], color: '#085' },
-  { tag: tags.className, color: '#167' },
-  { tag: [tags.special(tags.variableName), tags.macroName], color: '#256' },
-  { tag: tags.definition(tags.propertyName), color: '#00c' },
-  { tag: tags.comment, color: '#940' },
-  { tag: tags.invalid, color: '#f00' },
 ]);
+
+/**
+ * The code token colours, from theme one (plan WP 1.9).
+ *
+ * Two styles rather than CSS variables, because `HighlightStyle` writes
+ * generated classes and a variable would have to be resolved for every
+ * token; `themeType` lets CodeMirror keep the one that matches the page
+ * and ignore the other. Shiki is given the same palette from the same
+ * file, which is what makes a fence look the same in Read mode as the
+ * source of it does in Source mode.
+ */
+export const codeHighlightLight = HighlightStyle.define(codeHighlight(themeOne, 'light'), {
+  themeType: 'light',
+});
+
+export const codeHighlightDark = HighlightStyle.define(codeHighlight(themeOne, 'dark'), {
+  themeType: 'dark',
+});

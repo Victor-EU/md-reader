@@ -93,6 +93,9 @@ export const events = {
 };
 
 /* Types */
+/**  Whether the window follows the system or was told which to be. */
+export type Appearance = "system" | "light" | "dark";
+
 /**
  *  The window is about to close. Write down whatever is not on disk yet,
  *  then call `confirm_close`.
@@ -200,6 +203,9 @@ export type ExternalChange = {
 /**  The watcher's report of a write by another process (design 6.4). */
 export type ExternalChangeEvent = ExternalChange;
 
+/**  Which of the three bundled families the page is set in. */
+export type Family = "sans" | "serif" | "mono";
+
 /**
  *  How a file is stored, so a save can restore it. Returned on open and
  *  passed back on save; the app may change fields the user asked to change.
@@ -250,6 +256,17 @@ export type MergeResult = {
  */
 export type OpenPathsEvent = string[];
 
+/**
+ *  The page's own background (design 11), which is a setting of its own
+ *  rather than a consequence of light or dark: paper colour changes
+ *  reading comfort more than most people expect.
+ */
+export type Paper = "white" | "cream" | 
+/**  A yellow legal pad. */
+"pad" | 
+/**  The high-contrast one, dark in a light window as well as a dark. */
+"black";
+
 /**  One position-based edit the frontend applies as a `CodeMirror` change. */
 export type PositionEdit = {
 	/**  UTF-16 offsets into the document the edit applies to. */
@@ -295,21 +312,20 @@ export type SearchOptions = {
 	max_results: number,
 };
 
-/**
- *  Preferences that outlive every window.
- * 
- *  Thin on purpose: the design names exactly one preference so far
- *  (design 6.6, autosave on by default), and this work package is the
- *  file and the plumbing rather than a guess at what belongs in it. The
- *  theme and typography fields arrive with WP 1.9, autosave is read by
- *  WP 1.11, and both are one `#[serde(default)]` field away.
- */
+/**  Preferences that outlive every window (design 11, design 6.6). */
 export type Settings = {
 	/**
 	 *  Design 6.6: on, because the file on disk is the channel to the AI
 	 *  and an unsaved buffer is a state the AI cannot see.
 	 */
 	autosave?: boolean,
+	appearance?: Appearance,
+	paper?: Paper,
+	family?: Family,
+	/**  Reading size in CSS pixels; one of [`SIZES`]. */
+	size?: number,
+	/**  Line length in characters, within [`MEASURE_RANGE`]. */
+	measure?: number,
 };
 
 /**  Who wrote a snapshot. */
@@ -324,6 +340,12 @@ export type SnapshotInfo = {
 	byte_len: number,
 };
 
+/**
+ *  What a tab is showing. Settings open as a tab rather than a modal
+ *  (plan WP 1.9), so not every tab has a document behind it.
+ */
+export type TabKind = "document" | "settings";
+
 /**  Which projection of a document a tab was showing (design 4.2). */
 export type TabMode = "read" | "edit" | "source";
 
@@ -332,6 +354,7 @@ export type TabMode = "read" | "edit" | "source";
  *  (design 6.5).
  */
 export type TabState = {
+	kind?: TabKind,
 	/**
 	 *  Index into the window's `documents`. Two tabs naming the same one
 	 *  restore as two views of one buffer, sharing undo.

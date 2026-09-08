@@ -1,0 +1,15 @@
+// a line comment
+  read   17×#9b9488
+  source 17×#9b9488
+const answer: number = 42;
+  read   5×#97428f 7×#1f1d1a 1×#7b7568 7×#1f7a7a 2×#7b7568 3×#8a5a12 1×#7b7568
+  source 5×#97428f 7×#1f1d1a 1×#7b7568 1×#1f1d1a 6×#1f7a7a 1×#1f1d1a 1×#7b7568 1×#1f1d1a 2×#8a5a12 1×#7b7568
+function greet(name: string) {
+  read   8×#97428f 6×#2f66c9 1×#7b7568 4×#1f1d1a 1×#7b7568 7×#1f7a7a 3×#7b7568
+  source 8×#97428f 1×#1f1d1a 5×#2f66c9 1×#7b7568 4×#1f1d1a 1×#7b7568 1×#1f1d1a 6×#1f7a7a 1×#7b7568 1×#1f1d1a 1×#7b7568
+  return `hello ${name}`;
+  read   8×#97428f 8×#3f7d4a 2×#7b7568 4×#1f1d1a 1×#7b7568 1×#3f7d4a 1×#7b7568
+  source 2×#1f1d1a 6×#97428f 1×#1f1d1a 7×#3f7d4a 2×#7b7568 4×#1f1d1a 1×#7b7568 1×#3f7d4a 1×#7b7568
+}
+  read   1×#7b7568
+  source 1×#7b7568

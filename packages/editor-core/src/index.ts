@@ -35,6 +35,8 @@ export {
   type CommandTarget,
   CommentWidget,
   changedRegion,
+  codeHighlightDark,
+  codeHighlightLight,
   commentNotes,
   DiagramWidget,
   hoveredAnchor,
@@ -61,6 +63,7 @@ export {
   markdownKeymap,
   markdownSupport,
   type StateOptions,
+  setDarkEffect,
   setModeEffect,
 } from './state.ts';
 export { createEditor, type Editor, type EditorOptions } from './view.ts';

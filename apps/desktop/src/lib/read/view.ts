@@ -43,6 +43,8 @@ const FOLDED_AWAY = 'mdr-folded-away';
  * is what lets it act on a document still being rendered in chunks.
  */
 const SHOW_COMMENTS = 'mdr-show-comments';
+/** How long a fence's copy button says it copied. */
+const COPIED_FOR = 1200;
 
 interface Block {
   el: HTMLElement;
@@ -64,6 +66,8 @@ export interface ReadViewOptions {
   onFolded?: (ids: string[]) => void;
   /** A link that is not an anchor in this document. */
   onLink?: (href: string, external: boolean) => void;
+  /** The copy button on a fence (design 11). */
+  onCopyCode?: (text: string) => void;
   enhance?: Enhancer;
   /** Design 8's image rules for the document being read. */
   render?: RenderOptions;
@@ -228,6 +232,12 @@ export class ReadView {
     };
     this.blocks.push(block);
     if (block.level !== null && block.id !== null) this.addFoldControl(el, block.id);
+    for (const pre of [
+      ...(el.matches('pre.mdr-code') ? [el] : []),
+      ...Array.from(el.querySelectorAll<HTMLElement>('pre.mdr-code')),
+    ]) {
+      ReadView.addCodeChrome(pre);
+    }
     for (const heading of [
       ...(block.level !== null ? [el] : []),
       ...Array.from(el.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')),
@@ -242,6 +252,33 @@ export class ReadView {
         to: Number(heading.dataset.to ?? 0),
       });
     }
+  }
+
+  /**
+   * A fence's language and its copy button (design 11).
+   *
+   * Both go inside the `pre` and out of flow, rather than in a header
+   * element wrapped around it: the renderer's HTML is the document, it is
+   * what the goldens pin, and a `div` is not allowed in a `pre` anyway.
+   * The label is the fence's own info string — what the file says, not
+   * our name for it — so there is no table here to drift.
+   */
+  private static addCodeChrome(pre: HTMLElement): void {
+    if (pre.querySelector(':scope > .mdr-copy')) return;
+    const language = pre.dataset.lang ?? '';
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'mdr-copy';
+    copy.textContent = 'Copy';
+    copy.setAttribute('aria-label', 'Copy this code');
+    if (language !== '') {
+      const label = document.createElement('span');
+      label.className = 'mdr-code-lang';
+      label.setAttribute('aria-hidden', 'true');
+      label.textContent = language;
+      pre.prepend(label);
+    }
+    pre.prepend(copy);
   }
 
   // --- folding ------------------------------------------------------------
@@ -380,6 +417,18 @@ export class ReadView {
     const fold = target.closest<HTMLElement>('button.mdr-fold');
     if (fold?.dataset.fold) {
       this.toggleFold(fold.dataset.fold);
+      return;
+    }
+    const copy = target.closest<HTMLElement>('button.mdr-copy');
+    if (copy) {
+      const code = copy.closest('pre')?.querySelector('code');
+      this.options.onCopyCode?.(code?.textContent ?? '');
+      // Said on the button rather than in the status bar: the pointer is
+      // already here, and this is the only answer the gesture needs.
+      copy.textContent = 'Copied';
+      setTimeout(() => {
+        if (copy.isConnected) copy.textContent = 'Copy';
+      }, COPIED_FOR);
       return;
     }
     const link = target.closest<HTMLAnchorElement>('a[href]');

@@ -32,7 +32,7 @@ function auxclick(event: MouseEvent, id: string) {
 
 <div class="tabs" role="tablist" aria-label="Open documents" bind:this={strip}>
   {#each workspace.tabs as tab, index (tab.id)}
-    {@const doc = workspace.doc(tab)}
+    {@const doc = workspace.docOf(tab)}
     <div
       class="tab"
       class:active={tab.id === workspace.activeId}
@@ -52,13 +52,14 @@ function auxclick(event: MouseEvent, id: string) {
         class="label"
         role="tab"
         aria-selected={tab.id === workspace.activeId}
-        title={doc.path ?? doc.untitledName}
+        title={doc?.path ?? doc?.untitledName ?? 'Settings'}
         onclick={() => workspace.activate(tab.id)}
         ondblclick={() => workspace.togglePin(tab.id)}
       >
         {#if tab.pinned}<span class="pin" aria-hidden="true">▪</span>{/if}
         {workspace.labels[index]}
-        <span class="dot" class:dirty={doc.dirty} aria-hidden="true">•</span>
+        <!-- Only a document can be unsaved, so only a document has a dot. -->
+        {#if doc}<span class="dot" class:dirty={doc.dirty} aria-hidden="true">•</span>{/if}
       </button>
       <button
         type="button"

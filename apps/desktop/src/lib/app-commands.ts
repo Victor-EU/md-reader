@@ -9,6 +9,12 @@ import type { Workspace } from './workspace.svelte.ts';
  */
 export function appCommands(workspace: Workspace): CommandSpec[] {
   const hasTab = () => workspace.activeTab !== null;
+  /**
+   * Not every tab is a document — Settings is one too (plan WP 1.9) — so
+   * anything that acts on the text asks for the document rather than the
+   * tab that would usually have one.
+   */
+  const hasDoc = () => workspace.activeDoc !== null;
   return [
     {
       id: 'file.new',
@@ -56,11 +62,18 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       run: () => workspace.reopenClosed(),
     },
     {
+      id: 'file.settings',
+      title: 'Settings',
+      group: 'File',
+      key: 'Mod+,',
+      run: () => workspace.openSettings(),
+    },
+    {
       id: 'edit.highlight',
       title: 'Highlight',
       group: 'Edit',
       key: 'Mod+Shift+H',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.highlight(),
     },
     {
@@ -68,7 +81,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Strikethrough',
       group: 'Edit',
       key: 'Mod+Shift+X',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.strikethrough(),
     },
     {
@@ -76,7 +89,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Add Comment',
       group: 'Edit',
       key: 'Mod+Shift+M',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.comment('note'),
     },
     // The five-meaning palette (design 4.3). Each colours the selection
@@ -85,7 +98,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       id: `edit.color.${entry.meaning}`,
       title: `Mark as ${entry.title}`,
       group: 'Edit' as const,
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.color(entry.meaning),
     })),
     {
@@ -100,21 +113,21 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Copy for AI',
       group: 'Edit',
       key: 'Mod+Shift+C',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.copyForAi(),
     },
     {
       id: 'edit.copyMarkdown',
       title: 'Copy as Markdown',
       group: 'Edit',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.copyMarkdown(),
     },
     {
       id: 'edit.copyRichText',
       title: 'Copy as Rich Text',
       group: 'Edit',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.copyRichText(),
     },
     {
@@ -122,7 +135,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Read Mode',
       group: 'View',
       key: 'Mod+Alt+R',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.setMode('read'),
     },
     {
@@ -130,7 +143,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Edit Mode',
       group: 'View',
       key: 'Mod+Alt+E',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.setMode('edit'),
     },
     {
@@ -138,7 +151,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Source Mode',
       group: 'View',
       key: 'Mod+Alt+S',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.setMode('source'),
     },
     {
@@ -158,14 +171,37 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       id: 'view.remoteImages',
       title: 'Load Remote Images in This Document',
       group: 'View',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.toggleRemoteImages(),
+    },
+    // Zoom is the reading size (design 4.5): one number, which the
+    // settings tab shows and the session remembers.
+    {
+      id: 'view.zoomIn',
+      title: 'Zoom In',
+      group: 'View',
+      key: 'Mod+=',
+      run: () => workspace.zoom(1),
+    },
+    {
+      id: 'view.zoomOut',
+      title: 'Zoom Out',
+      group: 'View',
+      key: 'Mod+-',
+      run: () => workspace.zoom(-1),
+    },
+    {
+      id: 'view.zoomReset',
+      title: 'Actual Size',
+      group: 'View',
+      key: 'Mod+0',
+      run: () => workspace.resetZoom(),
     },
     {
       id: 'view.duplicate',
       title: 'Open a Second View',
       group: 'View',
-      enabled: hasTab,
+      enabled: hasDoc,
       run: () => workspace.duplicateView(),
     },
     {

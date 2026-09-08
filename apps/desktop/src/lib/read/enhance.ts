@@ -8,7 +8,12 @@
  * second pass over the same chunk is free.
  */
 
+import { shikiTheme, shikiThemeName, themeOne } from '@mdreader/theme';
+
 const DONE = 'data-enhanced';
+
+const LIGHT = shikiThemeName(themeOne, 'light');
+const DARK = shikiThemeName(themeOne, 'dark');
 
 type Highlighter = Awaited<ReturnType<typeof loadShiki>>;
 
@@ -99,13 +104,15 @@ function languageId(info: string): LanguageId | null {
 }
 
 async function loadShiki() {
-  const [core, engine, themes] = await Promise.all([
+  const [core, engine] = await Promise.all([
     import('shiki/core'),
     import('shiki/engine/javascript'),
-    import('shiki/themes'),
   ]);
   const highlighter = await core.createHighlighterCore({
-    themes: [themes.bundledThemes['github-light'](), themes.bundledThemes['github-dark']()],
+    // Theme one, not one of Shiki's own: the same JSON the CodeMirror
+    // highlighter reads, so a fence looks the same in Read mode as its
+    // source does in Source mode (plan WP 1.9).
+    themes: [shikiTheme(themeOne, 'light'), shikiTheme(themeOne, 'dark')],
     langs: [],
     // The JavaScript engine, not the WebAssembly one: a webview under a
     // `default-src 'self'` policy cannot compile WebAssembly, and the
@@ -120,14 +127,16 @@ async function loadKatex() {
   return module.default;
 }
 
-async function loadMermaid() {
+async function loadMermaid(dark: boolean) {
   const module = await import('mermaid');
   module.default.initialize({
     startOnLoad: false,
     // Untrusted input: a diagram in a document an agent wrote is not a
     // reason to let it into the page as markup.
     securityLevel: 'strict',
-    theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default',
+    // The paper's darkness, not the system's: a diagram on the
+    // high-contrast page is on a dark ground in a light window.
+    theme: dark ? 'dark' : 'default',
   });
   return module.default;
 }
@@ -150,7 +159,16 @@ export interface Enhancer {
   destroy(): void;
 }
 
-export function createEnhancer(): Enhancer {
+export interface EnhancerOptions {
+  /**
+   * Whether the page is a dark one, asked when Mermaid first loads.
+   * Mermaid bakes its palette into the SVG it produces, so unlike Shiki
+   * it cannot be given both and left to the stylesheet.
+   */
+  dark?: () => boolean;
+}
+
+export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
   let alive = true;
 
   function targets(roots: readonly HTMLElement[], selector: string): HTMLElement[] {
@@ -172,22 +190,32 @@ export function createEnhancer(): Enhancer {
       if (!alive || !block.isConnected) continue;
       const id = languageId(block.closest('pre')?.dataset.lang ?? '');
       if (id === null) continue;
-      if (!loaded.has(id)) {
+      const fresh = !loaded.has(id);
+      if (fresh) {
         await highlighter.loadLanguage(await LANGUAGES[id]());
         loaded.add(id);
       }
       if (!alive || !block.isConnected) continue;
+      const source = block.textContent ?? '';
+      // Both palettes at once as custom properties, so one pass serves a
+      // light page and a dark one; the stylesheet picks between them.
+      const render = () =>
+        highlighter.codeToHtml(source, {
+          lang: id,
+          themes: { light: LIGHT, dark: DARK },
+          defaultColor: false,
+        });
       try {
-        swapCode(
-          block,
-          highlighter.codeToHtml(block.textContent ?? '', {
-            lang: id,
-            // Both themes at once as CSS variables, so the page follows the
-            // system without highlighting twice (WP 1.9 replaces the pair).
-            themes: { light: 'github-light', dark: 'github-dark' },
-            defaultColor: false,
-          }),
-        );
+        // The first tokenization after a grammar is loaded sometimes
+        // carries the first line's end state into the second, which
+        // paints the whole of that line in the first one's colour: a
+        // fence whose first line is a comment comes out as a block of
+        // grey. It happens with Shiki's own bundled themes too, and
+        // only ever to the first call, so the first block through a new
+        // grammar is tokenized once and thrown away. That is one extra
+        // block per language per session.
+        if (fresh) render();
+        swapCode(block, render());
       } catch {
         // A grammar the JavaScript engine cannot run leaves plain code,
         // which is what the block already shows.
@@ -221,7 +249,7 @@ export function createEnhancer(): Enhancer {
     const nodes = targets(roots, '.mdr-mermaid');
     if (nodes.length === 0) return;
     for (const node of nodes) node.setAttribute(DONE, '');
-    mermaid ??= loadMermaid();
+    mermaid ??= loadMermaid(options.dark?.() ?? false);
     const engine = await mermaid;
     for (const node of nodes) {
       if (!alive || !node.isConnected) continue;

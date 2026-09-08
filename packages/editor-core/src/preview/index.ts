@@ -33,7 +33,12 @@ export {
   tableModel,
   tableModelAt,
 } from './table/index.ts';
-export { markdownHighlightStyle, previewTheme } from './theme.ts';
+export {
+  codeHighlightDark,
+  codeHighlightLight,
+  markdownHighlightStyle,
+  previewTheme,
+} from './theme.ts';
 export { type CommandTarget, toggleTaskAt } from './widgets.ts';
 
 /**

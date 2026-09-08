@@ -79,6 +79,13 @@ afterEach(async () => {
   await unmount(app, { outro: false });
   shell.workspace.destroy();
   target.remove();
+  // The window dresses the root element, which outlives the component.
+  const root = document.documentElement;
+  root.removeAttribute('data-appearance');
+  root.removeAttribute('data-paper');
+  for (const name of ['--read-family', '--read-size', '--read-measure']) {
+    root.style.removeProperty(name);
+  }
 });
 
 describe('the window', () => {
@@ -294,5 +301,39 @@ describe('the status bar', () => {
     shell.workspace.view?.dispatch({ selection: { anchor: 4 } });
     await settle();
     expect(cells()).toEqual(['3 words', 'Ln 1, Col 5', 'UTF-8 · LF', 'Saved']);
+  });
+});
+
+describe('the settings tab', () => {
+  /**
+   * Settings are a tab, not a modal (plan WP 1.9), and the page is
+   * dressed by the settings it is editing — so a choice shows itself the
+   * moment it is made.
+   */
+  it('opens on the keyboard and dresses the window from what is chosen', async () => {
+    start({ '/a/one.md': '# One\n' });
+    picked = ['/a/one.md'];
+    await press('KeyO');
+    await press('Comma');
+
+    expect(labels()).toEqual(['one.md •', 'Settings']);
+    expect(activeLabel()).toBe('Settings');
+    const page = target.querySelector('.settings') as HTMLElement;
+    expect(page.querySelector('h1')?.textContent).toBe('Settings');
+
+    const paper = (name: string) =>
+      page.querySelector<HTMLButtonElement>(`.paper[data-swatch="${name}"]`);
+    expect(paper('white')?.getAttribute('aria-checked')).toBe('true');
+    paper('pad')?.click();
+    await settle();
+    expect(document.documentElement.dataset.paper).toBe('pad');
+    expect(paper('pad')?.getAttribute('aria-checked')).toBe('true');
+    expect(shell.workspace.settings.paper).toBe('pad');
+
+    // And the reading size is the zoom, so the two cannot disagree.
+    await press('Equal');
+    await settle();
+    expect(document.documentElement.style.getPropertyValue('--read-size')).toBe('17px');
+    expect(page.querySelector('.stepper .value')?.textContent).toBe('17px');
   });
 });

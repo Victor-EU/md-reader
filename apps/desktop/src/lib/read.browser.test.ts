@@ -31,16 +31,23 @@ const answer = 42;
 let host: HTMLDivElement;
 let workspace: Workspace;
 let opened: string[] = [];
+let copied: string[] = [];
 let calls: { command: string; args: unknown[] }[] = [];
 
 function start(files: Record<string, string>) {
   const ipc = createFakeIpc(files);
   opened = [];
+  copied = [];
   calls = ipc.calls;
   workspace = new Workspace({
     commands: ipc.commands,
     openExternal: (url) => opened.push(url),
     assetUrl: (path) => `asset://localhost/${path}`,
+    clipboard: {
+      writeText: async (text) => {
+        copied.push(text);
+      },
+    },
   });
 }
 
@@ -197,6 +204,29 @@ describe('read mode', () => {
     expect(workspace.activeTab?.mode).toBe('edit');
     const head = workspace.activeTab?.selection.main.head ?? -1;
     expect(SAMPLE.slice(head - 7, head + 7)).toContain('opening');
+  });
+
+  /**
+   * Design 11: a fence says what language it is in and offers to copy
+   * itself. Both go inside the `pre` and out of flow, so the block's
+   * text is still exactly the code — which is what a selection across
+   * the page picks up, and what the button copies.
+   */
+  it('gives a fence its language and a button that copies it', async () => {
+    start({ '/a.md': SAMPLE });
+    await workspace.openPath('/a.md');
+    mountRead();
+    const pre = read().querySelector('pre.mdr-code') as HTMLElement;
+    expect(pre.querySelector('.mdr-code-lang')?.textContent).toBe('js');
+    expect(pre.querySelector('code')?.textContent).toBe('const answer = 42;');
+
+    const button = pre.querySelector('button.mdr-copy') as HTMLButtonElement;
+    button.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(copied).toEqual(['const answer = 42;']);
+    // The button says so itself rather than borrowing the status line.
+    expect(button.textContent).toBe('Copied');
+    expect(workspace.status).not.toContain('clipboard');
   });
 
   it('opens an external link in the system browser instead of navigating', async () => {

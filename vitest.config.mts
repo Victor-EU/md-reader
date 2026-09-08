@@ -30,6 +30,15 @@ export default defineConfig({
         },
       },
       {
+        // Theme one is data; these are the invariants that keep the two
+        // highlighters reading it the same way (plan WP 1.9).
+        test: {
+          name: 'theme',
+          environment: 'node',
+          include: ['packages/theme/src/**/*.test.ts'],
+        },
+      },
+      {
         test: {
           name: 'ipc',
           environment: 'node',

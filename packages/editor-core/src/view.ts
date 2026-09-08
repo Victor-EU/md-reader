@@ -20,17 +20,23 @@ export interface EditorOptions {
   mode?: EditorMode;
   /** What the block widgets render with: KaTeX, Mermaid, the image rules. */
   preview?: PreviewOptions;
+  /** Whether the page this editor is on is a dark one (plan WP 1.9). */
+  dark?: boolean;
 }
 
 export function createEditor(parent: HTMLElement, doc = '', options: EditorOptions = {}): Editor {
   const extra = options.extra ?? [];
   const preview = options.preview;
   let mode: EditorMode = options.mode ?? 'edit';
-  const view = new EditorView({ state: createEditorState(doc, { extra, mode, preview }), parent });
+  const dark = options.dark;
+  const view = new EditorView({
+    state: createEditorState(doc, { extra, mode, preview, dark }),
+    parent,
+  });
   return {
     view,
     getDoc: () => view.state.doc.toString(),
-    setDoc: (next) => view.setState(createEditorState(next, { extra, mode, preview })),
+    setDoc: (next) => view.setState(createEditorState(next, { extra, mode, preview, dark })),
     getMode: () => mode,
     setMode: (next) => {
       if (next === mode) return;
