@@ -387,3 +387,75 @@ describe('the settings tab', () => {
     expect(page.querySelector('.stepper .value')?.textContent).toBe('17px');
   });
 });
+
+describe('the find bar', () => {
+  /**
+   * Typing into the field must not re-select it. The whole find state is
+   * replaced on every keystroke, so an effect watching it would select
+   * the query back and the next character would replace it rather than
+   * follow it (plan WP 1.10).
+   */
+  it('opens on Cmd+F and takes a query one character at a time', async () => {
+    start({ '/a/one.md': '# One\n\nOne two one.\n' });
+    picked = ['/a/one.md'];
+    await press('KeyO');
+    await press('KeyE', { alt: true });
+    await press('KeyF');
+
+    const field = target.querySelector<HTMLInputElement>('.find input[type=search]');
+    if (!field) throw new Error('the find bar has no field');
+    expect(document.activeElement).toBe(field);
+
+    for (const character of 'one') {
+      field.value += character;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      await settle();
+    }
+    expect(field.value).toBe('one');
+    expect(shell.workspace.find.query).toBe('one');
+    // Three: the heading's One, the paragraph's One, and its one. The
+    // search is case-insensitive until the Aa button says otherwise.
+    expect(target.querySelector('.find .summary')?.textContent).toBe('3 matches');
+
+    // And Escape gives the keyboard back.
+    field.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+    );
+    await settle();
+    expect(target.querySelector('.find')).toBeNull();
+    expect(shell.workspace.find.query).toBe('one');
+  });
+});
+
+describe('the marks on the keyboard', () => {
+  /**
+   * Pressed on the editor itself, not on the window: that is the path
+   * that broke. CodeMirror's own keymap sees the key first, and until
+   * `Mod-i` was taken out of it Cmd+I selected the parent block and
+   * `preventDefault` kept italic from ever running (plan WP 1.10).
+   */
+  async function pressInEditor(key: string, code: string) {
+    const content = target.querySelector('.cm-content');
+    if (!content) throw new Error('no editor is mounted');
+    content.dispatchEvent(
+      new KeyboardEvent('keydown', { key, code, metaKey: true, bubbles: true, cancelable: true }),
+    );
+    await settle();
+  }
+
+  it('bolds and italicises the word under the cursor', async () => {
+    start({ '/a/one.md': 'One two three.\n' });
+    picked = ['/a/one.md'];
+    await press('KeyO');
+    await press('KeyE', { alt: true });
+    const doc = shell.workspace.activeDoc;
+    if (!doc) throw new Error('no document');
+    const at = doc.text.indexOf('two') + 1;
+    shell.workspace.view?.dispatch({ selection: { anchor: at } });
+
+    await pressInEditor('b', 'KeyB');
+    expect(doc.text).toBe('One **two** three.\n');
+    await pressInEditor('i', 'KeyI');
+    expect(doc.text).toBe('One ***two*** three.\n');
+  });
+});

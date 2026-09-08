@@ -20,7 +20,20 @@ export {
   strikethroughEdit,
   toggleWrapEdit,
 } from './commands/annotate.ts';
-export { wrapBold, wrapSelection } from './commands/format.ts';
+export type { Edit } from './commands/edit.ts';
+export {
+  applyBold,
+  applyCode,
+  applyItalic,
+  applyLink,
+  boldEdit,
+  codeEdit,
+  isUrl,
+  italicEdit,
+  linkEdit,
+  markEdit,
+} from './commands/format.ts';
+export { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 export {
   continuation,
   insertNewlineMarkdown,
@@ -57,9 +70,23 @@ export {
   type VisibleRange,
 } from './preview/index.ts';
 export {
+  countMatches,
+  findIsOpen,
+  findNext,
+  findPrevious,
+  getSearchQuery,
+  type MatchCount,
+  replaceAll,
+  replaceNext,
+  SearchQuery,
+  setFindOpen,
+  setSearchQuery,
+} from './search/index.ts';
+export {
   baseExtensions,
   createEditorState,
   type EditorMode,
+  editorKeys,
   markdownKeymap,
   markdownSupport,
   type StateOptions,

@@ -9,7 +9,13 @@ import {
   type Extension,
   type StateEffect,
 } from '@codemirror/state';
-import { drawSelection, EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
+import {
+  drawSelection,
+  EditorView,
+  highlightSpecialChars,
+  type KeyBinding,
+  keymap,
+} from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
 import { changeMarkers } from './changes/index.ts';
 import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
@@ -22,6 +28,7 @@ import {
   type PreviewOptions,
   previewOptions,
 } from './preview/index.ts';
+import { findExtensions } from './search/index.ts';
 
 /** Edit is live preview; Source is the same buffer with decorations off (design 4.2). */
 export type EditorMode = 'edit' | 'source';
@@ -77,6 +84,25 @@ export function markdownSupport(): Extension {
 }
 
 /**
+ * Keys CodeMirror's default keymap claims that design 4.5 has already
+ * given to a command of the shell's.
+ *
+ * Shadowing is not enough. The editor's keymap sits on the content
+ * element and the shell's sits on the window, so the editor sees the key
+ * first and `preventDefault` stops it there — which is how Cmd+I spent an
+ * afternoon selecting the parent block instead of italicising a word.
+ * The binding has to be taken out, not out-ranked.
+ *
+ * `commands.test.ts` in the app fails if the two keymaps ever claim the
+ * same key again.
+ */
+const shellKeys = new Set(['Mod-i']);
+
+const editorKeymap = defaultKeymap.filter(
+  (binding) => !(binding.key !== undefined && shellKeys.has(binding.key)),
+);
+
+/**
  * Markdown editing keys: a lossless Enter, a Backspace that removes a
  * marker instead of replacing it with spaces, and a Tab that the editor
  * always keeps. All three are defined in `./commands`.
@@ -86,6 +112,11 @@ export const markdownKeymap = [
   { key: 'Backspace', run: deleteMarkerBackward },
   { key: 'Tab', run: indentListItem, shift: outdentListItem },
 ];
+
+/** Every key the editor claims, for the app's collision test. */
+export function editorKeys(): readonly KeyBinding[] {
+  return [...markdownKeymap, ...editorKeymap, ...historyKeymap];
+}
 
 /**
  * Everything an editor needs that does not depend on the DOM. Pure state
@@ -104,7 +135,17 @@ export function baseExtensions(
     drawSelection(),
     highlightSpecialChars(),
     EditorView.lineWrapping,
-    keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
+    // The webview's own spell check, which is the one the reader already
+    // has words in (design 4.5). Its two companions are off for the same
+    // reason smart typography is: what the model wrote is what it meant,
+    // and an editor that substitutes characters while you type breaks the
+    // one promise this app makes about bytes.
+    EditorView.contentAttributes.of({
+      spellcheck: 'true',
+      autocorrect: 'off',
+      autocapitalize: 'off',
+    }),
+    keymap.of([...markdownKeymap, ...editorKeymap, ...historyKeymap]),
     markdownSupport(),
     // Shapes from the first, colours from whichever of the other two
     // matches the page. `themeType` is what keeps the wrong one quiet.
@@ -115,6 +156,8 @@ export function baseExtensions(
     // What has changed since the reader last looked, in both Edit and
     // Source: a change is a change whichever projection is in front.
     changeMarkers(),
+    // Find and replace, drawn whenever the bar is open (design 4.5).
+    findExtensions(),
     modeCompartment.of(modeExtension(mode)),
   ];
 }

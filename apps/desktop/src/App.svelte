@@ -1,5 +1,6 @@
 <script lang="ts">
 import EditorPane from './components/EditorPane.svelte';
+import FindBar from './components/FindBar.svelte';
 import Palette from './components/Palette.svelte';
 import ReadPane from './components/ReadPane.svelte';
 import Settings from './components/Settings.svelte';
@@ -33,6 +34,14 @@ $effect(() => {
  */
 function keydown(event: KeyboardEvent) {
   if (event.defaultPrevented) return;
+  // Escape closes the find bar from anywhere, not only from its own
+  // field: the reader is usually back in the text by the time they are
+  // done with it.
+  if (event.key === 'Escape' && workspace.find.open && !workspace.palette.open) {
+    event.preventDefault();
+    workspace.closeFind();
+    return;
+  }
   const command = registry.forEvent(event);
   if (!command) return;
   event.preventDefault();
@@ -45,6 +54,9 @@ function keydown(event: KeyboardEvent) {
  * plain browser, where the OS hands over `text/uri-list`.
  */
 function drop(event: DragEvent) {
+  // An image dropped into the editor is already an asset by now, and
+  // opening it again here would insert it twice.
+  if (event.defaultPrevented) return;
   const list = event.dataTransfer?.getData('text/uri-list') ?? '';
   const paths = list
     .split(/\r?\n/)
@@ -69,6 +81,9 @@ function drop(event: DragEvent) {
 <div class="frame" ondragover={(event) => event.preventDefault()} ondrop={drop} role="application">
   <TabStrip {workspace} />
   <Toolbar {workspace} {registry} />
+  {#if workspace.find.open}
+    <FindBar {workspace} {registry} />
+  {/if}
   <div class="middle">
     {#if workspace.sidebar}
       <Sidebar {workspace} />

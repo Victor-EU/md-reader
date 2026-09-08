@@ -1,4 +1,4 @@
-import { EditorState, type Text } from '@codemirror/state';
+import { EditorState, type Extension, type Text } from '@codemirror/state';
 import {
   createEditorState,
   type EditorMode,
@@ -28,6 +28,8 @@ export interface DocOptions {
    * this document may load remote images.
    */
   preview?: (doc: Doc) => PreviewOptions;
+  /** Extensions every view of this document carries: the paste and drop handlers. */
+  extra?: Extension[];
 }
 
 /**
@@ -59,15 +61,18 @@ export class Doc {
    */
   remoteImages = $state(false);
   private readonly preview: ((doc: Doc) => PreviewOptions) | undefined;
+  private readonly extra: Extension[];
 
   constructor(text: string, options: DocOptions = {}) {
     this.path = options.path ?? null;
     this.meta = options.meta ?? null;
     this.untitledName = options.untitledName ?? 'Untitled';
     this.preview = options.preview;
+    this.extra = options.extra ?? [];
     this.state = createEditorState(text, {
       mode: options.mode ?? 'edit',
       preview: this.previewOptions(),
+      extra: this.extra,
     });
     this.base = this.state.doc;
     this.reviewed = this.state.doc;
@@ -125,7 +130,11 @@ export class Doc {
 
   /** Replace the buffer, as opening or converting a file does. Undo resets. */
   replace(text: string, mode: EditorMode): void {
-    this.state = createEditorState(text, { mode, preview: this.previewOptions() });
+    this.state = createEditorState(text, {
+      mode,
+      preview: this.previewOptions(),
+      extra: this.extra,
+    });
     this.base = this.state.doc;
     this.reviewed = this.state.doc;
     this.changes = [];

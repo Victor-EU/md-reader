@@ -1,17 +1,39 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
-import { EditorSelection, type EditorState, Text, type Transaction } from '@codemirror/state';
+import {
+  EditorSelection,
+  type EditorState,
+  type Extension,
+  Text,
+  type Transaction,
+} from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import {
   type AnnotationEdit,
+  applyLink,
+  boldEdit,
+  codeEdit,
   colorEdit,
   commentEdit,
+  countMatches,
   type EditorMode,
+  findNext,
+  findPrevious,
+  getSearchQuery,
   highlightEdit,
+  italicEdit,
   lineChanges,
+  linkEdit,
+  type MatchCount,
+  replaceAll,
+  replaceNext,
+  SearchQuery,
   setChanges,
   setDarkEffect,
+  setFindOpen,
   setModeEffect,
+  setSearchQuery,
   strikethroughEdit,
+  toggleTaskAt,
 } from '@mdreader/editor-core';
 import type {
   Commands,
@@ -50,6 +72,7 @@ import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
 import { imageResolver } from './images.ts';
 import { proposeFileName } from './naming.ts';
+import { imageLink, isImagePath, pastePlan, toBase64 } from './paste.ts';
 import { basename, dirname, resolvePath, shortenDir, tabLabels } from './paths.ts';
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
@@ -158,6 +181,18 @@ const RECENTS_LIMIT = 50;
  * unsaved buffer is a state it cannot see; long enough that a sentence
  * is one write rather than forty.
  */
+/** What the find bar holds (design 4.5). */
+export interface FindState {
+  open: boolean;
+  /** Whether the replace row is showing. Sticky once asked for. */
+  replace: boolean;
+  query: string;
+  replacement: string;
+  regexp: boolean;
+  caseSensitive: boolean;
+  wholeWord: boolean;
+}
+
 const AUTOSAVE_DELAY = 800;
 /** Long enough that a fast typist counts once per pause, not once per key. */
 const WORD_COUNT_DELAY = 250;
@@ -229,6 +264,28 @@ export class Workspace {
     index: 0,
   });
 
+  /**
+   * What every view of every document carries. A paste or a drop is the
+   * one edit the editor cannot plan alone: it may have to write a file
+   * first, which only the workspace can do (design 4.5).
+   */
+  private readonly editorExtras: Extension[] = [
+    EditorView.domEventHandlers({
+      paste: (event, view) => this.onPaste(event, view),
+      drop: (event, view) => this.onDrop(event, view),
+    }),
+  ];
+  /** The find bar, and the query behind it (design 4.5). */
+  find = $state<FindState>({
+    open: false,
+    replace: false,
+    query: '',
+    replacement: '',
+    regexp: false,
+    caseSensitive: false,
+    wholeWord: false,
+  });
+
   private readonly docs = new Map<string, Doc>();
   private closed = $state<ClosedTab[]>([]);
   private mounted: { view: EditorView; tab: Tab } | null = null;
@@ -249,6 +306,16 @@ export class Workspace {
   activeDoc: Doc | null = $derived(this.activeTab ? this.docOf(this.activeTab) : null);
   /** What the Changes badge counts: runs the reader has not marked seen. */
   unreviewed: number = $derived(this.activeDoc?.changes.length ?? 0);
+  /**
+   * What the find bar counts. Read from the document's own state rather
+   * than the view's, because that is the one both the editor and this
+   * derivation already watch.
+   */
+  matches: MatchCount = $derived.by(() => {
+    const doc = this.activeDoc;
+    if (!doc || !this.find.open) return { current: 0, total: 0, capped: false };
+    return countMatches(doc.state, getSearchQuery(doc.state));
+  });
   /** Tab labels, disambiguated against each other. */
   labels: string[] = $derived(
     tabLabels(
@@ -289,8 +356,15 @@ export class Workspace {
   // --- opening ------------------------------------------------------------
 
   /** Cmd+O, drag and drop, and the OS open events of WP 1.8 all land here. */
+  /**
+   * Files handed to the window: by the OS at launch, by a drop, or by the
+   * open panel. An image is not a document — it goes beside the one in
+   * front as an asset (design 4.5) — and everything else is opened.
+   */
   async openPaths(paths: readonly string[]): Promise<void> {
-    for (const path of paths) await this.openPath(path);
+    const images = paths.filter(isImagePath);
+    for (const path of paths) if (!isImagePath(path)) await this.openPath(path);
+    if (images.length > 0) await this.importImages(images);
   }
 
   async openPath(path: string): Promise<boolean> {
@@ -355,6 +429,7 @@ export class Workspace {
   ): Doc {
     const doc = new Doc(text, {
       ...options,
+      extra: this.editorExtras,
       preview: (owner) => ({
         enhance: this.options.enhancer,
         image: this.imageRules(owner),
@@ -613,6 +688,9 @@ export class Workspace {
         setChanges.of(doc.changes),
       ],
     });
+    // Cmd+F in Read mode switches modes first, so the editor arrives
+    // after the query does; this is where it catches up.
+    if (this.find.open) this.pushQuery();
     const anchor = tab.anchor;
     if (anchor) {
       // Put the same source offset where the reader last saw it, rather
@@ -650,8 +728,9 @@ export class Workspace {
       },
       onLink: (href, external) => this.openLink(href, external),
       onCopyCode: (text) => void this.copyCode(text),
+      onToggleTask: (offset) => this.toggleTask(offset),
       comments: this.comments,
-      render: { image: this.imageRules(doc) },
+      render: { image: this.imageRules(doc), interactiveTasks: true },
     });
     this.reading = { view, tab };
     view.scrollToOffset(tab.anchor?.offset ?? tab.selection.main.head);
@@ -833,7 +912,12 @@ export class Workspace {
     // with. An autosave says which it is, because the history keeps a
     // run of those as one version rather than one per pause in typing.
     void this.options.commands.snapshot(path, text, options.auto === true ? 'autosave' : 'user');
-    if (!wasWatched) void this.options.commands.watch(path);
+    if (!wasWatched) {
+      void this.options.commands.watch(path);
+      // A document that has just been given a folder can show images
+      // from it, including any it is about to be given (design 8).
+      void this.options.commands.allowDocumentImages(path);
+    }
     if (options.auto !== true) this.status = `Saved ${basename(path)}`;
     return true;
   }
@@ -1159,7 +1243,11 @@ export class Workspace {
    * a comment, or the reason behind a colour — which is the one case
    * worth taking them out of Read mode for.
    */
-  private annotate(plan: (state: EditorState) => AnnotationEdit | null, type: boolean): boolean {
+  private annotate(
+    plan: (state: EditorState) => AnnotationEdit | null,
+    type: boolean,
+    userEvent = 'input.annotate',
+  ): boolean {
     const tab = this.activeTab;
     if (!tab) return false;
     const doc = this.doc(tab);
@@ -1171,7 +1259,7 @@ export class Workspace {
     if (view) {
       const edit = plan(view.state);
       if (!edit) return false;
-      view.dispatch(view.state.update({ ...edit, userEvent: 'input.annotate' }));
+      view.dispatch(view.state.update({ ...edit, userEvent }));
       view.focus();
       return true;
     }
@@ -1186,7 +1274,7 @@ export class Workspace {
     }).state;
     const edit = plan(based);
     if (!edit) return false;
-    doc.state = based.update({ ...edit, userEvent: 'input.annotate' }).state;
+    doc.state = based.update({ ...edit, userEvent }).state;
     // The editor is not mounted here, so this is the one edit that does
     // not pass through `applyTransactions` on its way to the buffer.
     this.scheduleAutosave(doc);
@@ -1215,6 +1303,276 @@ export class Workspace {
 
   comment(kind: AnnotationKind): boolean {
     return this.annotate((state) => commentEdit(state, kind), true);
+  }
+
+  /**
+   * The four inline marks of design 4.5, through the same path as the
+   * annotations: the editor when it is mounted, the document's own state
+   * when the reader is in Read mode.
+   *
+   * A link is the one that leaves something to type — the destination —
+   * so it takes the reader into Edit mode with the cursor already in it.
+   */
+  bold(): boolean {
+    return this.annotate(boldEdit, false, 'input.format.bold');
+  }
+
+  italic(): boolean {
+    return this.annotate(italicEdit, false, 'input.format.italic');
+  }
+
+  code(): boolean {
+    return this.annotate(codeEdit, false, 'input.format.code');
+  }
+
+  link(): boolean {
+    return this.annotate((state) => linkEdit(state), true, 'input.format.link');
+  }
+
+  /**
+   * A task checkbox clicked in Read mode (design 4.5).
+   *
+   * Edit mode has its own widget and dispatches through the editor; here
+   * there is none, so the one-byte change goes onto the document's own
+   * state and the page is rendered again. The page comes back where it
+   * was rather than at the cursor, because the reader is looking at the
+   * item they just ticked.
+   */
+  toggleTask(offset: number): boolean {
+    const tab = this.activeTab;
+    const doc = this.activeDoc;
+    const reading = this.reading?.view;
+    if (!doc || !reading || tab?.kind !== 'document') return false;
+    if (doc.meta?.read_only) {
+      this.status = `${doc.label} is read-only`;
+      return false;
+    }
+    const target = {
+      state: doc.state,
+      dispatch: (tr: Transaction) => {
+        doc.state = tr.state;
+      },
+    };
+    if (!toggleTaskAt(target, offset)) return false;
+    tab.anchor = { offset: reading.topOffset(), y: 0 };
+    this.scheduleAutosave(doc);
+    this.scheduleChangeScan();
+    this.unmountRead();
+    this.epoch += 1;
+    return true;
+  }
+
+  // --- find and replace ---------------------------------------------------
+
+  /**
+   * Open the find bar (design 4.5).
+   *
+   * Replace needs an editor, and so does find: matches are drawn by an
+   * editor extension. So opening it in Read mode takes the reader into
+   * Edit mode first, where the text they are about to search is the text
+   * they can change.
+   */
+  openFind(replace: boolean): void {
+    const tab = this.activeTab;
+    if (tab?.kind !== 'document') return;
+    if (tab.mode === 'read') this.setMode('edit');
+    const selected = this.selectedWithin();
+    this.find = {
+      ...this.find,
+      open: true,
+      replace: replace || this.find.replace,
+      query: selected ?? this.find.query,
+    };
+    this.pushQuery();
+  }
+
+  closeFind(): void {
+    if (!this.find.open) return;
+    this.find = { ...this.find, open: false };
+    this.pushQuery();
+    this.focusEditor();
+  }
+
+  /** Change the query or a flag, and tell the editor about it. */
+  updateFind(patch: Partial<FindState>): void {
+    this.find = { ...this.find, ...patch };
+    this.pushQuery();
+  }
+
+  /** The selection, when it is one line of it: what Cmd+F starts with. */
+  private selectedWithin(): string | null {
+    const view = this.mounted?.view;
+    const range = view?.state.selection.main;
+    if (!view || !range || range.empty) return null;
+    const text = view.state.doc.sliceString(range.from, range.to);
+    return text.includes('\n') ? null : text;
+  }
+
+  private searchQuery(): SearchQuery {
+    return new SearchQuery({
+      search: this.find.query,
+      replace: this.find.replacement,
+      regexp: this.find.regexp,
+      caseSensitive: this.find.caseSensitive,
+      wholeWord: this.find.wholeWord,
+      // A backslash the writer typed is a backslash, not an escape. With
+      // the regular expression box ticked it is the engine's again.
+      literal: true,
+    });
+  }
+
+  private pushQuery(): void {
+    const view = this.mounted?.view;
+    if (!view) return;
+    view.dispatch({
+      effects: [setSearchQuery.of(this.searchQuery()), setFindOpen.of(this.find.open)],
+    });
+  }
+
+  /** Step to the next match, or the previous one. Wraps, as every editor does. */
+  findStep(forward: boolean): boolean {
+    const view = this.mounted?.view;
+    if (!view || this.find.query === '') return false;
+    const moved = forward ? findNext(view) : findPrevious(view);
+    if (!moved) this.status = `No match for ${this.find.query}`;
+    return moved;
+  }
+
+  replaceOne(): boolean {
+    const view = this.mounted?.view;
+    if (!view || !this.editable()) return false;
+    return replaceNext(view);
+  }
+
+  replaceEvery(): boolean {
+    const view = this.mounted?.view;
+    if (!view || !this.editable()) return false;
+    const before = this.matches.total;
+    const done = replaceAll(view);
+    if (done) this.status = `Replaced ${before} ${before === 1 ? 'match' : 'matches'}`;
+    return done;
+  }
+
+  /** A read-only document says so rather than quietly doing nothing. */
+  private editable(): boolean {
+    const doc = this.activeDoc;
+    if (doc?.meta?.read_only !== true) return true;
+    this.status = `${doc.label} is read-only`;
+    return false;
+  }
+
+  // --- paste and drop -----------------------------------------------------
+
+  /**
+   * A paste into the editor (design 4.5). Returning true is how a
+   * CodeMirror DOM handler says the default is not wanted; returning
+   * false leaves the exact plain-text paste alone, which is the right
+   * answer for most of them.
+   */
+  private onPaste(event: ClipboardEvent, view: EditorView): boolean {
+    return this.transfer(event.clipboardData, view, null);
+  }
+
+  /**
+   * A drop into the editor. Under Tauri the webview takes the drop before
+   * the DOM sees it and reports real paths, which `openPaths` routes; this
+   * is the same gesture in a plain browser, where the files arrive here.
+   */
+  private onDrop(event: DragEvent, view: EditorView): boolean {
+    const at = view.posAtCoords({ x: event.clientX, y: event.clientY });
+    return this.transfer(event.dataTransfer, view, at);
+  }
+
+  private transfer(data: DataTransfer | null, view: EditorView, at: number | null): boolean {
+    const plan = pastePlan(
+      data && { files: [...data.files], getData: (type) => data.getData(type) },
+      !view.state.selection.main.empty,
+    );
+    if (plan.kind === 'text') return false;
+    if (at !== null) view.dispatch({ selection: EditorSelection.cursor(at) });
+    switch (plan.kind) {
+      case 'images':
+        void this.pasteFiles(plan.files);
+        return true;
+      case 'link':
+        return applyLink(plan.url)(view);
+      default:
+        view.dispatch({
+          ...view.state.replaceSelection(plan.text),
+          userEvent: 'input.paste',
+          scrollIntoView: true,
+        });
+        return true;
+    }
+  }
+
+  /**
+   * Write pasted images beside the document and link to them.
+   *
+   * The bytes go to Rust, which decides the name and refuses anything
+   * that is not an image; what comes back is a path relative to the
+   * document, which is what the file gets to say.
+   */
+  async pasteFiles(files: readonly File[]): Promise<void> {
+    const doc = this.activeDoc;
+    const view = this.mounted?.view;
+    if (!doc || !view) return;
+    const path = doc.path;
+    if (path === null) {
+      this.status = 'Save the document before adding an image to it';
+      return;
+    }
+    const links: string[] = [];
+    for (const file of files) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const result = await this.options.commands.writeAsset(path, file.name, toBase64(bytes));
+      if (result.status === 'error') {
+        this.status = describeError(result.error);
+        return;
+      }
+      links.push(imageLink(file.name, result.data.relative));
+    }
+    this.insertText(view, links.join('\n'));
+    this.status = `${count(links.length, 'image')} added beside the document`;
+  }
+
+  /**
+   * Copy dropped image files beside the document and link to them. The
+   * dropped half of the same gesture: Rust already has the path, so the
+   * bytes never cross the bridge.
+   */
+  private async importImages(paths: readonly string[]): Promise<void> {
+    const doc = this.activeDoc;
+    const view = this.mounted?.view;
+    if (!doc || !view) {
+      this.status = 'Open a document to drop an image into';
+      return;
+    }
+    const path = doc.path;
+    if (path === null) {
+      this.status = 'Save the document before adding an image to it';
+      return;
+    }
+    const links: string[] = [];
+    for (const source of paths) {
+      const result = await this.options.commands.importAsset(path, source);
+      if (result.status === 'error') {
+        this.status = describeError(result.error);
+        return;
+      }
+      links.push(imageLink(basename(source), result.data.relative));
+    }
+    this.insertText(view, links.join('\n'));
+    this.status = `${count(links.length, 'image')} added beside the document`;
+  }
+
+  private insertText(view: EditorView, text: string): void {
+    view.dispatch({
+      ...view.state.replaceSelection(text),
+      userEvent: 'input.paste',
+      scrollIntoView: true,
+    });
+    view.focus();
   }
 
   // --- the clipboard ------------------------------------------------------

@@ -49,6 +49,13 @@ export interface RenderOptions {
   footnotes?: Set<string>;
   /** Design 8's image rules. Loads nothing when left out. */
   image?: ImageResolver;
+  /**
+   * Whether a task checkbox can be clicked. Read mode says yes and turns
+   * the click into the one-byte change to the marker (design 4.5). An
+   * export says nothing and gets a disabled box, because there is no
+   * document behind it to change.
+   */
+  interactiveTasks?: boolean;
 }
 
 const HEADING = /^(?:ATX|Setext)Heading([1-6])$/;
@@ -194,6 +201,7 @@ export class Renderer {
   private readonly footnoteLabels: Set<string>;
   private readonly footnotes: FootnoteNumbers;
   private readonly resolveImage: ImageResolver;
+  private readonly interactiveTasks: boolean;
 
   constructor(
     private readonly source: string,
@@ -206,6 +214,7 @@ export class Renderer {
     // same slugger: a heading called "Fn 1" cannot steal `#fn-1`.
     this.footnotes = new FootnoteNumbers((id) => this.slugger.slug(id));
     this.resolveImage = options.image ?? noImages;
+    this.interactiveTasks = options.interactiveTasks ?? false;
   }
 
   /** Every top-level block of a tree, in document order. */
@@ -370,7 +379,8 @@ export class Renderer {
     const out: RenderNode[] = [];
     if (marker) {
       const checked = this.slice(marker.from, marker.to) !== '[ ]';
-      const attrs: Record<string, string> = { type: 'checkbox', disabled: '' };
+      const attrs: Record<string, string> = { type: 'checkbox' };
+      if (!this.interactiveTasks) attrs.disabled = '';
       if (checked) attrs.checked = '';
       out.push(element('input', attrs, marker.from, marker.to));
     }

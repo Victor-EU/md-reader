@@ -39,7 +39,7 @@ describe('round-trip corpus (node)', () => {
     it(`invariants A and B: ${action.name}`, () => {
       const result = runNode(files, [action]);
       expect(result.failures, formatFailures(result.failures)).toEqual([]);
-      expect(result.checked).toBeGreaterThan(files.length / 4);
+      expect(result.checked).toBeGreaterThan(action.minChecked ?? files.length / 4);
     });
   }
 });

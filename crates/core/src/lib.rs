@@ -1,6 +1,7 @@
 //! Library crate for the markdown app: file IO, and later the watcher,
 //! history, diff, and search. No Tauri types.
 
+pub mod assets;
 pub mod atomic;
 pub mod diff;
 pub mod document;
@@ -10,6 +11,7 @@ pub mod state;
 pub mod types;
 pub mod watch;
 
+pub use assets::{AssetWrite, copy_asset, store_asset};
 pub use diff::{apply, edits, merge3};
 pub use document::{
     Document, DocumentMeta, Error, FileFormat, SaveResult, convert_to_utf8, encode, hash_bytes,

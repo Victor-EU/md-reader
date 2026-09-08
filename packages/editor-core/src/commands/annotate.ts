@@ -1,17 +1,12 @@
 import { syntaxTree } from '@codemirror/language';
-import {
-  type ChangeSpec,
-  EditorSelection,
-  type EditorState,
-  type StateCommand,
-  type Text,
-} from '@codemirror/state';
+import { EditorSelection, type EditorState, type StateCommand, type Text } from '@codemirror/state';
 import {
   type AnnotationKind,
   colorStyle,
   type PaletteMeaning,
   paletteEntry,
 } from '@mdreader/markdown';
+import { command, type Edit } from './edit.ts';
 
 /**
  * The four annotation commands of design 4.3: highlight, colour from the
@@ -23,23 +18,8 @@ import {
  * editor view to dispatch through.
  */
 
-export interface AnnotationEdit {
-  changes: ChangeSpec;
-  /** Where the selection lands afterwards, in the coordinates of the new document. */
-  selection: EditorSelection;
-}
-
-function command(
-  plan: (state: EditorState) => AnnotationEdit | null,
-  userEvent: string,
-): StateCommand {
-  return ({ state, dispatch }) => {
-    const edit = plan(state);
-    if (!edit) return false;
-    dispatch(state.update({ ...edit, userEvent, scrollIntoView: true }));
-    return true;
-  };
-}
+/** The shape every plan in this folder returns; see `./edit.ts`. */
+export type AnnotationEdit = Edit;
 
 // --- highlight and strikethrough -----------------------------------------
 

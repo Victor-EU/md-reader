@@ -105,6 +105,33 @@ function inCode(state: EditorState, pos: number): boolean {
 }
 
 /**
+ * The change Tab makes to the item on `lineNumber`, or null when that
+ * line is not a list item. Exposed so the corpus expectation and the
+ * command share one definition, as `newlinePlan` is for Enter.
+ */
+export function indentPlan(doc: Text, lineNumber: number): DeletePlan & { insert: string } {
+  const line = doc.line(lineNumber);
+  const at = line.from + lineMarkup(line.text).quotes.length;
+  return { from: at, to: at, insert: indentUnit(doc, lineNumber) };
+}
+
+/**
+ * The change Shift-Tab makes: one level of the item's indentation, the
+ * width of its parent's marker, or all of it when it has no parent. Null
+ * when the line is not an indented list item and there is nothing to take.
+ */
+export function outdentPlan(doc: Text, lineNumber: number): DeletePlan | null {
+  const line = doc.line(lineNumber);
+  const markup = lineMarkup(line.text);
+  const indent = markerIndent(markup);
+  if (!markup.list || indent === 0) return null;
+  const parent = parentItemPrefix(doc, lineNumber, markup.prefix);
+  const unit = parent === null ? indent : Math.min(indent, markerWidth(parent));
+  const start = line.from + markup.quotes.length + indent - unit;
+  return { from: start, to: start + unit };
+}
+
+/**
  * Tab for markdown. On list item lines it indents each item one level,
  * by the width of the marker above, so the item becomes a child of it.
  * In a code block it inserts a tab. Anywhere else it inserts a tab too,
@@ -118,10 +145,7 @@ export const indentListItem: StateCommand = ({ state, dispatch }) => {
   const lines = coveredLines(doc, state.selection.ranges);
   const items = lines.filter((n) => lineMarkup(doc.line(n).text).list);
   if (items.length > 0) {
-    const changes = items.map((n) => {
-      const line = doc.line(n);
-      return { from: line.from + lineMarkup(line.text).quotes.length, insert: indentUnit(doc, n) };
-    });
+    const changes = items.map((n) => indentPlan(doc, n));
     dispatch(
       state.update({
         changes,
@@ -150,17 +174,9 @@ export const indentListItem: StateCommand = ({ state, dispatch }) => {
  */
 export const outdentListItem: StateCommand = ({ state, dispatch }) => {
   const { doc } = state;
-  const changes: { from: number; to: number }[] = [];
-  for (const n of coveredLines(doc, state.selection.ranges)) {
-    const line = doc.line(n);
-    const markup = lineMarkup(line.text);
-    const indent = markerIndent(markup);
-    if (!markup.list || indent === 0) continue;
-    const parent = parentItemPrefix(doc, n, markup.prefix);
-    const unit = parent === null ? indent : Math.min(indent, markerWidth(parent));
-    const start = line.from + markup.quotes.length + indent - unit;
-    changes.push({ from: start, to: start + unit });
-  }
+  const changes = coveredLines(doc, state.selection.ranges)
+    .map((n) => outdentPlan(doc, n))
+    .filter((plan) => plan !== null);
   if (changes.length === 0) return true;
   dispatch(
     state.update({

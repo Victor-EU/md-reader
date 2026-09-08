@@ -68,6 +68,40 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       key: 'Mod+,',
       run: () => workspace.openSettings(),
     },
+    // The four inline marks (design 4.5). Cmd+B, Cmd+I, Cmd+K, Cmd+E are
+    // the shortcuts every editor has; the palette lists them by name.
+    {
+      id: 'edit.bold',
+      title: 'Bold',
+      group: 'Edit',
+      key: 'Mod+B',
+      enabled: hasDoc,
+      run: () => workspace.bold(),
+    },
+    {
+      id: 'edit.italic',
+      title: 'Italic',
+      group: 'Edit',
+      key: 'Mod+I',
+      enabled: hasDoc,
+      run: () => workspace.italic(),
+    },
+    {
+      id: 'edit.link',
+      title: 'Link',
+      group: 'Edit',
+      key: 'Mod+K',
+      enabled: hasDoc,
+      run: () => workspace.link(),
+    },
+    {
+      id: 'edit.code',
+      title: 'Code',
+      group: 'Edit',
+      key: 'Mod+E',
+      enabled: hasDoc,
+      run: () => workspace.code(),
+    },
     {
       id: 'edit.highlight',
       title: 'Highlight',
@@ -101,6 +135,40 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: hasDoc,
       run: () => workspace.color(entry.meaning),
     })),
+    // Find and replace (design 4.5). Cmd+F opens the bar; Cmd+G steps
+    // through the matches whether or not the bar has the keyboard.
+    {
+      id: 'edit.find',
+      title: 'Find…',
+      group: 'Edit',
+      key: 'Mod+F',
+      enabled: hasDoc,
+      run: () => workspace.openFind(false),
+    },
+    {
+      id: 'edit.replace',
+      title: 'Find and Replace…',
+      group: 'Edit',
+      key: 'Mod+Alt+F',
+      enabled: hasDoc,
+      run: () => workspace.openFind(true),
+    },
+    {
+      id: 'edit.findNext',
+      title: 'Find Next',
+      group: 'Edit',
+      key: 'Mod+G',
+      enabled: () => workspace.find.query !== '',
+      run: () => workspace.findStep(true),
+    },
+    {
+      id: 'edit.findPrevious',
+      title: 'Find Previous',
+      group: 'Edit',
+      key: 'Mod+Shift+G',
+      enabled: () => workspace.find.query !== '',
+      run: () => workspace.findStep(false),
+    },
     {
       id: 'edit.markReviewed',
       title: 'Mark Reviewed',

@@ -1,4 +1,5 @@
 import type {
+  AssetWrite,
   Block,
   BlockOp,
   Commands,
@@ -106,6 +107,15 @@ function defaultFormat(content: string): FileFormat {
   };
 }
 
+/** The magic numbers the real `store_asset` recognises, for the fake. */
+function fakeSniff(bytes: string): string | null {
+  if (bytes.startsWith('\x89PNG')) return 'png';
+  if (bytes.startsWith('\xff\xd8\xff')) return 'jpg';
+  if (bytes.startsWith('GIF8')) return 'gif';
+  if (bytes.trimStart().startsWith('<svg')) return 'svg';
+  return null;
+}
+
 export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): FakeIpc {
   const files = new Map<string, FakeFile>();
   for (const [path, file] of Object.entries(initial))
@@ -144,6 +154,33 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       },
     });
   };
+  /**
+   * The fake half of `store_asset`: the same folder, the same sniffing,
+   * the same reuse of a name whose bytes are already there, so a shell
+   * test sees the path the real command would have written to.
+   */
+  const storeAsset = (
+    document: string,
+    name: string,
+    bytes: string,
+  ): Result<AssetWrite, IpcError> => {
+    const cut = Math.max(document.lastIndexOf('/'), document.lastIndexOf('\\'));
+    if (cut < 0) return err({ kind: 'write', path: document, message: 'no folder for images' });
+    const ext = fakeSniff(bytes);
+    if (ext === null) return err({ kind: 'write', path: name, message: 'not an image' });
+    const stem = (name.split(/[/\\]/).pop() ?? '').replace(/\.[^.]*$/, '').trim() || 'image';
+    const dir = `${document.slice(0, cut)}/assets`;
+    for (let n = 0; n < 100; n++) {
+      const file = `${stem}${n === 0 ? '' : `-${n}`}.${ext}`;
+      const path = `${dir}/${file}`;
+      const existing = files.get(path);
+      if (existing && existing.content !== bytes) continue;
+      if (!existing) files.set(path, { content: bytes });
+      return ok({ path, relative: `assets/${file}`, written: !existing });
+    }
+    return err({ kind: 'write', path: dir, message: 'too many images with this name' });
+  };
+
   const commands: Commands = {
     openDocument: (path) => record('open_document', [path], read(path)),
     saveDocument: (path, content, expectedHash, format) => {
@@ -195,6 +232,15 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       return record('convert_document_to_utf8', [path], read(path));
     },
     allowDocumentImages: (path) => record('allow_document_images', [path], ok(null)),
+    writeAsset: (document, name, data) =>
+      record('write_asset', [document, name, data], storeAsset(document, name, atob(data))),
+    importAsset: (document, source) => {
+      const file = files.get(source);
+      const result = file
+        ? storeAsset(document, source.split(/[/\\]/).pop() ?? '', file.content)
+        : err<AssetWrite>({ kind: 'read', path: source, message: 'No such file or directory' });
+      return record('import_asset', [document, source], result);
+    },
     watch: (path) => {
       watching.add(path);
       seen.set(path, files.get(path)?.content ?? '');

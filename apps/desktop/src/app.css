@@ -859,6 +859,93 @@ body,
   max-width: 100%;
 }
 
+/* --- find and replace ---------------------------------------------------- */
+
+/*
+ * The find bar sits under the toolbar, above the page, and takes only the
+ * height it needs: one row, or two once replace is asked for.
+ */
+.bar.find {
+  padding: 4px 10px;
+}
+
+.find .rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.find .row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.find .field {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--page-bg);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 7px;
+}
+
+.find .field:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.find .flags {
+  display: flex;
+  gap: 2px;
+}
+
+.find .flag,
+.find .step,
+.find .apply {
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 6px;
+  cursor: default;
+}
+
+.find .flag {
+  font-family: var(--family-mono);
+  min-width: 26px;
+}
+
+.find .flag:hover,
+.find .step:hover,
+.find .apply:hover {
+  background: var(--hover-bg);
+}
+
+.find .flag[aria-pressed="true"],
+.find .step[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.find .apply {
+  border-color: var(--border);
+}
+
+/* Wide enough for "1000 of 1000+" so the buttons do not move as you type. */
+.find .summary {
+  color: var(--muted);
+  white-space: nowrap;
+  min-width: 12ch;
+  text-align: right;
+}
+
 /* --- status bar --------------------------------------------------------- */
 
 .bar.status {

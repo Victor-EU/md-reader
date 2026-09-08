@@ -1,4 +1,6 @@
+import { editorKeys } from '@mdreader/editor-core';
 import { describe, expect, it, vi } from 'vitest';
+import { appCommands } from './app-commands.ts';
 import { CommandRegistry } from './commands.ts';
 
 function event(init: Partial<KeyboardEvent>): KeyboardEvent {
@@ -83,5 +85,56 @@ describe('CommandRegistry', () => {
       { group: 'File', items: [expect.objectContaining({ id: 'file.open' }), expect.anything()] },
       { group: 'View', items: [expect.objectContaining({ id: 'view.source' })] },
     ]);
+  });
+});
+
+/**
+ * The editor's keymap sits on the content element and the shell's sits on
+ * the window, so a key the editor claims never reaches the shell: it
+ * calls `preventDefault` and the window handler leaves it alone. A
+ * collision is therefore silent, and this is what makes it loud.
+ *
+ * Cmd+I was one: `defaultKeymap` binds it to `selectParentSyntax`, so
+ * italic did nothing until `state.ts` took the binding out.
+ */
+describe('the two keymaps', () => {
+  /** A CodeMirror key string as a shell binding, on macOS. */
+  function asBinding(spec: string) {
+    const parts = spec.split('-');
+    const key = parts.pop() ?? '';
+    const has = (name: string) => parts.some((p) => p.toLowerCase() === name);
+    return {
+      key: key.toLowerCase(),
+      meta: has('mod') || has('cmd') || has('meta'),
+      ctrl: has('ctrl') || has('control'),
+      shift: has('shift'),
+      alt: has('alt') || has('option'),
+    };
+  }
+
+  it('never claim the same shortcut', () => {
+    const workspace = { activeTab: null, activeDoc: null, find: { query: '' } };
+    const shell = new CommandRegistry(true);
+    shell.register(...appCommands(workspace as never));
+    const clashes: string[] = [];
+    for (const binding of editorKeys()) {
+      // `mac` overrides `key` on this platform, and a binding with
+      // neither is a `any`-style handler with no shortcut at all.
+      const spec = binding.mac ?? binding.key;
+      if (spec === undefined) continue;
+      const want = asBinding(spec);
+      const command = shell.forEvent(
+        event({
+          key: want.key,
+          code: /^[a-z]$/.test(want.key) ? `Key${want.key.toUpperCase()}` : '',
+          metaKey: want.meta,
+          ctrlKey: want.ctrl,
+          shiftKey: want.shift,
+          altKey: want.alt,
+        }),
+      );
+      if (command) clashes.push(`${spec} is both the editor's and ${command.id}`);
+    }
+    expect(clashes).toEqual([]);
   });
 });

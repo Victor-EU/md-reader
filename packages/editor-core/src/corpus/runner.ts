@@ -33,13 +33,16 @@ export function fakeView(initial: EditorState): CommandTarget & { readonly state
   };
 }
 
-/** Run one plan against a state and check invariants A and B. */
+/**
+ * Run one plan against a state and check invariants A and B — A alone for
+ * an edit that rearranges blocks on purpose (see `ActionPlan.structural`).
+ */
 export function checkPlan(before: EditorState, plan: ActionPlan): Outcome {
   const view = fakeView(before);
   if (!plan.run(view))
     return { ok: false, reason: 'command', detail: 'the command returned false' };
   const exact = checkExactness(before, view.state, plan.expected);
-  if (!exact.ok) return exact;
+  if (!exact.ok || plan.structural) return exact;
   return checkLocality(before, view.state, plan.span, plan.expected);
 }
 

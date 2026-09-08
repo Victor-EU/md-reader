@@ -22,6 +22,13 @@ describe('createEditor', () => {
     expect(editor.getDoc()).toBe('# Hello\nworld\n');
   });
 
+  it('leaves the text to the webview\u2019s spell check and to nothing else', () => {
+    const content = host.querySelector('.cm-content') as HTMLElement;
+    expect(content.spellcheck).toBe(true);
+    expect(content.getAttribute('autocorrect')).toBe('off');
+    expect(content.getAttribute('autocapitalize')).toBe('off');
+  });
+
   it('setDoc replaces the document', () => {
     editor.setDoc('replaced');
     expect(editor.getDoc()).toBe('replaced');

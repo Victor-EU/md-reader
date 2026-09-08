@@ -13,10 +13,12 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
+use base64::Engine as _;
 use mdreader_core::{
-    Block, BlockOp, Bounds, DirEntry, Document, Error, ExternalChange, FileFormat, FileRemoved,
-    FileRenamed, History, MergeResult, Restore, SaveResult, SearchHit, SearchOptions, Session,
-    Settings, SnapshotAuthor, SnapshotInfo, Store, WatchEvent, Watcher, WindowContent, WindowState,
+    AssetWrite, Block, BlockOp, Bounds, DirEntry, Document, Error, ExternalChange, FileFormat,
+    FileRemoved, FileRenamed, History, MergeResult, Restore, SaveResult, SearchHit, SearchOptions,
+    Session, Settings, SnapshotAuthor, SnapshotInfo, Store, WatchEvent, Watcher, WindowContent,
+    WindowState,
 };
 use specta_typescript::Typescript;
 use tauri::Manager;
@@ -123,19 +125,63 @@ fn save_document(
 #[tauri::command]
 #[specta::specta]
 fn allow_document_images(app: tauri::AppHandle, path: PathBuf) -> Result<(), Error> {
+    allow_images(&app, &path)
+}
+
+/// Widen the asset protocol scope to a document's folder and below.
+fn allow_images(app: &tauri::AppHandle, path: &Path) -> Result<(), Error> {
     let dir = path
         .parent()
         .filter(|dir| !dir.as_os_str().is_empty())
         .ok_or_else(|| Error::Read {
-            path: path.clone(),
+            path: path.to_path_buf(),
             message: "no folder to allow images from".to_owned(),
         })?;
-    tauri::Manager::asset_protocol_scope(&app)
+    tauri::Manager::asset_protocol_scope(app)
         .allow_directory(dir, true)
         .map_err(|error| Error::Read {
             path: dir.to_path_buf(),
             message: error.to_string(),
         })
+}
+
+/// Store an image pasted into a document, beside it in `assets`.
+///
+/// The bytes arrive base64-encoded because that is one string across the
+/// bridge; the alternative the generated bindings would give us is a JSON
+/// array of a million numbers for every screenshot.
+#[tauri::command]
+#[specta::specta]
+fn write_asset(
+    app: tauri::AppHandle,
+    document: PathBuf,
+    name: String,
+    data: String,
+) -> Result<AssetWrite, Error> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|error| Error::Write {
+            path: PathBuf::from(&name),
+            message: error.to_string(),
+        })?;
+    let write = mdreader_core::store_asset(&document, &name, &bytes)?;
+    allow_images(&app, &document)?;
+    Ok(write)
+}
+
+/// Store an image dropped onto a document. The same gesture, arriving as
+/// a path rather than as bytes, so the file is copied and never crosses
+/// the bridge at all.
+#[tauri::command]
+#[specta::specta]
+fn import_asset(
+    app: tauri::AppHandle,
+    document: PathBuf,
+    source: PathBuf,
+) -> Result<AssetWrite, Error> {
+    let write = mdreader_core::copy_asset(&document, &source)?;
+    allow_images(&app, &document)?;
+    Ok(write)
 }
 
 /// Rewrite a non-UTF-8 file as UTF-8 and return it freshly read.
@@ -643,6 +689,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             save_document,
             convert_document_to_utf8,
             allow_document_images,
+            write_asset,
+            import_asset,
             watch,
             unwatch,
             merge3,

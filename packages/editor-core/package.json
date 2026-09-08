@@ -15,6 +15,7 @@
     "@codemirror/lang-markdown": "~6.5.2",
     "@codemirror/language": "~6.12.4",
     "@codemirror/language-data": "~6.5.2",
+    "@codemirror/search": "~6.6.0",
     "@codemirror/state": "~6.7.4",
     "@codemirror/view": "~6.43.11",
     "@lezer/common": "~1.5.2",
@@ -24,7 +25,7 @@
     "@mdreader/theme": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "~5.9.3",
-    "@types/node": "^24"
+    "@types/node": "^24",
+    "typescript": "~5.9.3"
   }
 }

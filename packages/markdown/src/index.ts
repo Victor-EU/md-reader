@@ -43,6 +43,7 @@ export { Footnote } from './extensions/footnote.ts';
 export { Frontmatter } from './extensions/frontmatter.ts';
 export { Highlight } from './extensions/highlight.ts';
 export { TexMath } from './extensions/math.ts';
+export { domToMarkdown, htmlToMarkdown } from './import/html.ts';
 export { extensions, parser } from './parser.ts';
 export { type CalloutType, calloutType, calloutTypes } from './render/callouts.ts';
 export { caretAt, offsetFromPoint, resolveOffset } from './render/click.ts';
@@ -87,3 +88,4 @@ export {
 export { generateDocument } from './synthetic.ts';
 export { calloutTypeTag, highlightTag, mathTag } from './tags.ts';
 export { dumpTree } from './tree.ts';
+export { linkDestination } from './write.ts';

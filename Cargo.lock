@@ -2218,6 +2218,7 @@ dependencies = [
 name = "mdreader-app"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "mdreader-core",
  "serde",
  "specta",

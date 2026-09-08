@@ -68,6 +68,8 @@ export interface ReadViewOptions {
   onLink?: (href: string, external: boolean) => void;
   /** The copy button on a fence (design 11). */
   onCopyCode?: (text: string) => void;
+  /** A click on a task checkbox: the one-byte change at `offset` (design 4.5). */
+  onToggleTask?: (offset: number) => void;
   enhance?: Enhancer;
   /** Design 8's image rules for the document being read. */
   render?: RenderOptions;
@@ -429,6 +431,16 @@ export class ReadView {
       setTimeout(() => {
         if (copy.isConnected) copy.textContent = 'Copy';
       }, COPIED_FOR);
+      return;
+    }
+    // A task checkbox is the one control in the page that changes the
+    // document rather than the view. Its `data-from` is the marker's own
+    // offset, which is the whole of what the toggle needs.
+    const box = target.closest<HTMLInputElement>('input[type=checkbox][data-from]');
+    if (box) {
+      event.preventDefault();
+      const at = Number(box.getAttribute('data-from'));
+      if (Number.isFinite(at)) this.options.onToggleTask?.(at);
       return;
     }
     const link = target.closest<HTMLAnchorElement>('a[href]');

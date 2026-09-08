@@ -24,6 +24,20 @@ export const commands = {
 	 *  reachable from the page.
 	 */
 	allowDocumentImages: (path: string) => typedError<null, Error>(__TAURI_INVOKE("allow_document_images", { path })),
+	/**
+	 *  Store an image pasted into a document, beside it in `assets`.
+	 * 
+	 *  The bytes arrive base64-encoded because that is one string across the
+	 *  bridge; the alternative the generated bindings would give us is a JSON
+	 *  array of a million numbers for every screenshot.
+	 */
+	writeAsset: (document: string, name: string, data: string) => typedError<AssetWrite, Error>(__TAURI_INVOKE("write_asset", { document, name, data })),
+	/**
+	 *  Store an image dropped onto a document. The same gesture, arriving as
+	 *  a path rather than as bytes, so the file is copied and never crosses
+	 *  the bridge at all.
+	 */
+	importAsset: (document: string, source: string) => typedError<AssetWrite, Error>(__TAURI_INVOKE("import_asset", { document, source })),
 	/**  Watch a file for writes by other processes. */
 	watch: (path: string) => typedError<null, Error>(__TAURI_INVOKE("watch", { path })),
 	/**  Stop watching a file. */
@@ -95,6 +109,18 @@ export const events = {
 /* Types */
 /**  Whether the window follows the system or was told which to be. */
 export type Appearance = "system" | "light" | "dark";
+
+/**  A stored image: where it landed, and the link the document gets. */
+export type AssetWrite = {
+	path: string,
+	/**
+	 *  Relative to the document's folder, with forward slashes, ready to
+	 *  go between the parentheses of a markdown link.
+	 */
+	relative: string,
+	/**  False when the bytes were already there under this name. */
+	written: boolean,
+};
 
 /**
  *  The window is about to close. Write down whatever is not on disk yet,

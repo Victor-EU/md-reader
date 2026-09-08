@@ -9,8 +9,9 @@ import {
   applyStrikethrough,
   commentText,
 } from '../commands/annotate.ts';
-import { wrapBold } from '../commands/format.ts';
-import { insertNewlineMarkdown, newlinePlan } from '../commands/newline.ts';
+import { applyBold, applyCode, applyItalic, applyLink, linkEdit } from '../commands/format.ts';
+import { indentListItem, indentPlan, outdentListItem, outdentPlan } from '../commands/list.ts';
+import { insertNewlineMarkdown, lineMarkup, newlinePlan } from '../commands/newline.ts';
 import { escapePipes, rebaseCellChanges } from '../preview/table/commands.ts';
 import { tableModel } from '../preview/table/model.ts';
 import { type CommandTarget, toggleTaskAt } from '../preview/widgets.ts';
@@ -26,11 +27,26 @@ export interface ActionPlan {
   expected: ChangeSet;
   /** The source span the edit touches, for the locality invariant. */
   span: { from: number; to: number };
+  /**
+   * True when the edit rearranges blocks on purpose, so invariant B does
+   * not apply to it. Indentation is the case: making an item a child of
+   * the one above it can also join the list to the one after it, which is
+   * a change to the tree outside the block the bytes landed in. What is
+   * still checked is invariant A, that the bytes are exactly the planned
+   * ones.
+   */
+  structural?: boolean;
 }
 
 export interface Action {
   name: string;
   plan: (state: EditorState, rng: Rng) => ActionPlan | null;
+  /**
+   * How many corpus files this action must apply to before the run is
+   * worth believing. Most apply to nearly all of them; indentation needs
+   * a nested list, which most prose does not have.
+   */
+  minChecked?: number;
 }
 
 function nodesNamed(state: EditorState, name: string): SyntaxNode[] {
@@ -209,6 +225,55 @@ export const enterInListItem: Action = {
   },
 };
 
+/** The lines that carry a list marker, which is what Tab acts on. */
+function itemLines(state: EditorState): number[] {
+  const lines: number[] = [];
+  for (const item of nodesNamed(state, 'ListItem')) {
+    const line = state.doc.lineAt(item.from);
+    if (lineMarkup(line.text).list) lines.push(line.number);
+  }
+  return [...new Set(lines)];
+}
+
+export const indentItem: Action = {
+  name: 'indent a list item',
+  minChecked: 60,
+  plan(state, rng) {
+    const lines = itemLines(state);
+    if (lines.length === 0) return null;
+    const n = rng.pick(lines);
+    const plan = indentPlan(state.doc, n);
+    if (plan.insert === '') return null;
+    const at = state.doc.line(n).to;
+    return {
+      description: `Tab on the item at line ${n}, inserting ${JSON.stringify(plan.insert)}`,
+      expected: single(state, plan),
+      span: { from: plan.from, to: plan.to },
+      structural: true,
+      run: withSelection(at, at, (view) => indentListItem(view)),
+    };
+  },
+};
+
+export const outdentItem: Action = {
+  name: 'outdent a list item',
+  minChecked: 60,
+  plan(state, rng) {
+    const lines = itemLines(state).filter((n) => outdentPlan(state.doc, n) !== null);
+    if (lines.length === 0) return null;
+    const n = rng.pick(lines);
+    const plan = outdentPlan(state.doc, n) as { from: number; to: number };
+    const at = state.doc.line(n).to;
+    return {
+      description: `Shift-Tab on the item at line ${n}, removing ${plan.to - plan.from}`,
+      expected: single(state, plan),
+      span: plan,
+      structural: true,
+      run: withSelection(at, at, (view) => outdentListItem(view)),
+    };
+  },
+};
+
 function wrapAction(
   name: string,
   marker: string,
@@ -235,7 +300,9 @@ function wrapAction(
   };
 }
 
-export const wrapInBold = wrapAction('wrap a selection in bold', '**', wrapBold);
+export const wrapInBold = wrapAction('wrap a selection in bold', '**', applyBold);
+export const wrapInItalic = wrapAction('wrap a selection in italic', '*', applyItalic);
+export const wrapInCode = wrapAction('wrap a selection in code', '`', applyCode);
 export const wrapInHighlight = wrapAction('wrap a selection in highlight', '==', applyHighlight);
 export const wrapInStrikethrough = wrapAction(
   'wrap a selection in strikethrough',
@@ -304,6 +371,30 @@ export const insertBlockComment: Action = {
   },
 };
 
+/**
+ * A link over a word (design 4.5). One replacement rather than two
+ * insertions, because the destination goes between the parentheses and
+ * the text keeps its place inside the brackets.
+ */
+export const linkSelection: Action = {
+  name: 'make a selection a link',
+  plan(state, rng) {
+    const word = pickWord(state, rng);
+    if (!word) return null;
+    const url = rng.pick(['https://example.org/a', './notes.md', '#section']);
+    const based = state.update({
+      selection: EditorSelection.range(word.from, word.to),
+    }).state;
+    const edit = linkEdit(based, url);
+    return {
+      description: `link ${word.from}-${word.to} to ${url}`,
+      expected: ChangeSet.of(edit.changes, state.doc.length),
+      span: word,
+      run: withSelection(word.from, word.to, applyLink(url)),
+    };
+  },
+};
+
 /** The Phase 0 catalog for the Node runner. DOM actions live in the browser test. */
 export const nodeActions: Action[] = [
   typeCharacter,
@@ -311,7 +402,12 @@ export const nodeActions: Action[] = [
   toggleCheckbox,
   editTableCell,
   enterInListItem,
+  indentItem,
+  outdentItem,
   wrapInBold,
+  wrapInItalic,
+  wrapInCode,
+  linkSelection,
   wrapInHighlight,
   wrapInStrikethrough,
   colorSelection,
