@@ -41,6 +41,40 @@ export const commands = {
 	listSnapshots: (path: string) => typedError<SnapshotInfo[], Error>(__TAURI_INVOKE("list_snapshots", { path })),
 	/**  Read one snapshot's content. */
 	readSnapshot: (id: string) => typedError<string, Error>(__TAURI_INVOKE("read_snapshot", { id })),
+	/**
+	 *  What this window looked like when it was last open, plus the
+	 *  preferences and the recent files (design 4.1).
+	 * 
+	 *  One round trip, because a window needs all three before it draws.
+	 */
+	loadWindow: () => __TAURI_INVOKE<Restore>("load_window"),
+	/**
+	 *  Record what this window holds.
+	 * 
+	 *  This is both halves of design 6.5: what the next launch puts back,
+	 *  and the registry that decides which window a file the OS hands us
+	 *  belongs to. The value is current the moment this returns; only the
+	 *  write to disk waits for the store's interval.
+	 */
+	saveWindow: (content: WindowContent, recents: string[]) => __TAURI_INVOKE<void>("save_window", { content, recents }),
+	/**  Change the preferences. */
+	saveSettings: (settings: Settings) => __TAURI_INVOKE<void>("save_settings", { settings }),
+	/**
+	 *  Write the settings and the session now, rather than at the next
+	 *  interval. What a window does before it closes.
+	 */
+	flushState: () => typedError<null, Error>(__TAURI_INVOKE("flush_state")),
+	/**
+	 *  Files the OS asked this window to open before it was listening.
+	 * 
+	 *  Draining the queue is also how a window says it is ready: from here
+	 *  on the same files arrive as an event instead of waiting, which is
+	 *  what keeps a launch argument from being lost to a listener that was
+	 *  not attached yet, and from being opened twice by one that was.
+	 */
+	takeLaunchPaths: () => __TAURI_INVOKE<string[]>("take_launch_paths"),
+	/**  The window has finished what it wanted to do before closing. */
+	confirmClose: () => __TAURI_INVOKE<void>("confirm_close"),
 	/**  Align two block lists for the semantic diff (WP 2.x). */
 	blockDiff: (oldBlocks: Block[], newBlocks: Block[]) => typedError<BlockOp[], Error>(__TAURI_INVOKE("block_diff", { oldBlocks, newBlocks })),
 	/**  List a directory, honouring `.gitignore` (WP 2.x). */
@@ -51,12 +85,22 @@ export const commands = {
 
 /** Events */
 export const events = {
+	beforeCloseEvent: makeEvent<BeforeCloseEvent>("before-close-event"),
 	externalChangeEvent: makeEvent<ExternalChangeEvent>("external-change-event"),
 	fileRemovedEvent: makeEvent<FileRemovedEvent>("file-removed-event"),
 	fileRenamedEvent: makeEvent<FileRenamedEvent>("file-renamed-event"),
+	openPathsEvent: makeEvent<OpenPathsEvent>("open-paths-event"),
 };
 
 /* Types */
+/**
+ *  The window is about to close. Write down whatever is not on disk yet,
+ *  then call `confirm_close`.
+ */
+export type BeforeCloseEvent = {
+	label: string,
+};
+
 /**  A leaf block as the frontend flattens it (design 7.3). */
 export type Block = {
 	kind: string,
@@ -73,6 +117,12 @@ export type Conflict = {
 	to: number,
 	ours: string,
 	theirs: string,
+};
+
+/**  A selection, in UTF-16 offsets like every other position on the IPC. */
+export type Cursor = {
+	anchor: number,
+	head: number,
 };
 
 export type DirEntry = {
@@ -111,6 +161,16 @@ export type DocumentMeta = {
 	 */
 	read_only: boolean,
 	format: FileFormat,
+};
+
+/**
+ *  One open document. Exactly one of the two fields is set: a file is
+ *  read again from disk on restore, an untitled document is carried in
+ *  the session file because losing it would lose the only copy.
+ */
+export type DocumentState = {
+	path?: string | null,
+	untitled?: Untitled | null,
 };
 
 /**  One line ending style. */
@@ -184,12 +244,34 @@ export type MergeResult = {
 	conflicts: Conflict[],
 };
 
+/**
+ *  Files the OS wants this window to open: a second launch, a Finder
+ *  double-click, an `open` from a terminal.
+ */
+export type OpenPathsEvent = string[];
+
 /**  One position-based edit the frontend applies as a `CodeMirror` change. */
 export type PositionEdit = {
 	/**  UTF-16 offsets into the document the edit applies to. */
 	from: number,
 	to: number,
 	insert: string,
+};
+
+/**
+ *  What a window asks for when it starts.
+ * 
+ *  One round trip: the tabs it had, the files it has been opening, and
+ *  the preferences, all of which it needs before it draws anything.
+ */
+export type Restore = {
+	/**
+	 *  `None` on a first launch, and after a session file that would not
+	 *  parse: both mean a window with nothing to put back.
+	 */
+	content: WindowContent | null,
+	recents: string[],
+	settings: Settings,
 };
 
 /**  What a successful save reports back. */
@@ -213,6 +295,23 @@ export type SearchOptions = {
 	max_results: number,
 };
 
+/**
+ *  Preferences that outlive every window.
+ * 
+ *  Thin on purpose: the design names exactly one preference so far
+ *  (design 6.6, autosave on by default), and this work package is the
+ *  file and the plumbing rather than a guess at what belongs in it. The
+ *  theme and typography fields arrive with WP 1.9, autosave is read by
+ *  WP 1.11, and both are one `#[serde(default)]` field away.
+ */
+export type Settings = {
+	/**
+	 *  Design 6.6: on, because the file on disk is the channel to the AI
+	 *  and an unsaved buffer is a state the AI cannot see.
+	 */
+	autosave?: boolean,
+};
+
 /**  Who wrote a snapshot. */
 export type SnapshotAuthor = "user" | "external" | "agent";
 
@@ -223,6 +322,51 @@ export type SnapshotInfo = {
 	timestamp_ms: number,
 	hash: string,
 	byte_len: number,
+};
+
+/**  Which projection of a document a tab was showing (design 4.2). */
+export type TabMode = "read" | "edit" | "source";
+
+/**
+ *  One tab: a view onto a document, with the state that is per view
+ *  (design 6.5).
+ */
+export type TabState = {
+	/**
+	 *  Index into the window's `documents`. Two tabs naming the same one
+	 *  restore as two views of one buffer, sharing undo.
+	 */
+	document?: number,
+	mode?: TabMode,
+	pinned?: boolean,
+	/**  The tab that was in front. The first one marked wins. */
+	active?: boolean,
+	selection?: Cursor,
+	/**
+	 *  Where the view was scrolled, as a source offset. A character
+	 *  survives a change of window width; a pixel offset does not.
+	 */
+	anchor?: number,
+	/**  Heading ids folded in Read mode. */
+	folded?: string[],
+};
+
+/**  An untitled document: a buffer with nowhere else to be kept. */
+export type Untitled = {
+	name: string,
+	text: string,
+};
+
+/**
+ *  What a window's own webview knows about itself. The frontend owns
+ *  every field; the label and the frame are the window manager's.
+ */
+export type WindowContent = {
+	documents?: DocumentState[],
+	tabs?: TabState[],
+	sidebar?: boolean,
+	/**  Whether Read mode was showing the comments it folds away (4.3). */
+	comments?: boolean,
 };
 
 /* Tauri Specta runtime */

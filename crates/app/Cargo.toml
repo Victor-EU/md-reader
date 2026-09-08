@@ -16,6 +16,11 @@ tauri-plugin-dialog = { workspace = true }
 tauri-plugin-opener = { workspace = true }
 tauri-specta = { workspace = true }
 
+# macOS keeps one instance of a bundled app itself and sends the files as
+# an Apple event, so the plugin is only wanted on the platforms that do not.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri-plugin-single-instance = { workspace = true }
+
 [[bin]]
 name = "export-bindings"
 path = "src/bin/export_bindings.rs"

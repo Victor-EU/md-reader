@@ -60,7 +60,9 @@ fn sql(value: u64) -> i64 {
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
+        .map_or(0, |since| {
+            u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 fn author_name(author: SnapshotAuthor) -> &'static str {
@@ -102,7 +104,9 @@ impl History {
             .map_err(|e| failed("set the journal mode", &e))?;
         migrate(&db)?;
         let seq = db
-            .query_row("SELECT COUNT(*) FROM snapshots", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT COUNT(*) FROM snapshots", [], |row| {
+                row.get::<_, i64>(0)
+            })
             .map_err(|e| failed("count the snapshots", &e))?;
         Ok(Self {
             db,
@@ -342,7 +346,11 @@ fn migrate(db: &Connection) -> Result<(), Error> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
         .map_err(|e| failed("create the schema version table", &e))?;
     let current: i64 = db
-        .query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |row| row.get(0))
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|e| failed("read the schema version", &e))?;
     let current = usize::try_from(current).unwrap_or(0);
     for (index, statements) in MIGRATIONS.iter().enumerate().skip(current) {
@@ -408,9 +416,15 @@ mod tests {
         let (_dir, mut history) = store();
         let a = Path::new("/notes/a.md");
         let b = Path::new("/notes/b.md");
-        history.snapshot_at(a, "one", SnapshotAuthor::User, 1_000).expect("a1");
-        history.snapshot_at(b, "other", SnapshotAuthor::User, 1_500).expect("b1");
-        history.snapshot_at(a, "two", SnapshotAuthor::External, 2_000).expect("a2");
+        history
+            .snapshot_at(a, "one", SnapshotAuthor::User, 1_000)
+            .expect("a1");
+        history
+            .snapshot_at(b, "other", SnapshotAuthor::User, 1_500)
+            .expect("b1");
+        history
+            .snapshot_at(a, "two", SnapshotAuthor::External, 2_000)
+            .expect("a2");
         let listed = history.list(a).expect("list");
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].timestamp_ms, 2_000);
@@ -453,15 +467,22 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))
             .expect("count");
         assert_eq!(versions, i64::try_from(MIGRATIONS.len()).expect("fits"));
-        assert_eq!(history.list(Path::new("/notes/a.md")).expect("list").len(), 1);
+        assert_eq!(
+            history.list(Path::new("/notes/a.md")).expect("list").len(),
+            1
+        );
     }
 
     #[test]
     fn a_second_id_in_the_same_millisecond_is_still_its_own() {
         let (_dir, mut history) = store();
         let path = Path::new("/notes/a.md");
-        let first = history.snapshot_at(path, "one", SnapshotAuthor::User, 5).expect("one");
-        let second = history.snapshot_at(path, "two", SnapshotAuthor::User, 5).expect("two");
+        let first = history
+            .snapshot_at(path, "one", SnapshotAuthor::User, 5)
+            .expect("one");
+        let second = history
+            .snapshot_at(path, "two", SnapshotAuthor::User, 5)
+            .expect("two");
         assert_ne!(first.id, second.id);
         assert_eq!(history.read(&first.id).expect("read"), "one");
         assert_eq!(history.read(&second.id).expect("read"), "two");

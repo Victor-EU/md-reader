@@ -198,7 +198,10 @@ fn an_unwatched_file_is_left_alone() {
 #[test]
 fn a_write_from_another_process_arrives() {
     let (fixture, file) = Fixture::new("mine\n");
-    run(&["sh", "-c"], &format!("printf 'theirs\\n' > {}", quoted(&file)));
+    run(
+        &["sh", "-c"],
+        &format!("printf 'theirs\\n' > {}", quoted(&file)),
+    );
     let change = fixture.changed();
     assert_eq!(change.content, "theirs\n");
     assert_eq!(apply("mine\n", &change.changes), "theirs\n");

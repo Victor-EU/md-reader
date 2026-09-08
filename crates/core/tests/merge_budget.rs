@@ -71,7 +71,10 @@ fn a_one_megabyte_external_change_merges_within_the_budget() {
     let ours = revise(&base, 400, "OURS");
     let theirs = revise(&base, 37, "THEIRS");
     let took = timed("scattered changes on both sides", &base, &ours, &theirs);
-    assert!(took < BUDGET_MS, "{took} ms is over the {BUDGET_MS} ms budget");
+    assert!(
+        took < BUDGET_MS,
+        "{took} ms is over the {BUDGET_MS} ms budget"
+    );
 }
 
 /// The worst case for a line diff: nothing survives. It has to stay
@@ -82,7 +85,10 @@ fn a_full_rewrite_stays_within_the_budget() {
     let ours = revise(&base, 400, "OURS");
     let theirs = document(99);
     let took = timed("a full rewrite", &base, &ours, &theirs);
-    assert!(took < BUDGET_MS, "{took} ms is over the {BUDGET_MS} ms budget");
+    assert!(
+        took < BUDGET_MS,
+        "{took} ms is over the {BUDGET_MS} ms budget"
+    );
 }
 
 /// A clean buffer taking a whole external write is the common case, and
@@ -92,5 +98,8 @@ fn a_clean_buffer_takes_a_one_megabyte_write_within_the_budget() {
     let base = document(7);
     let theirs = revise(&base, 37, "THEIRS");
     let took = timed("into a clean buffer", &base, &base, &theirs);
-    assert!(took < BUDGET_MS, "{took} ms is over the {BUDGET_MS} ms budget");
+    assert!(
+        took < BUDGET_MS,
+        "{took} ms is over the {BUDGET_MS} ms budget"
+    );
 }

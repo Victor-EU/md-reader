@@ -18,7 +18,8 @@
         "width": 1100,
         "height": 760,
         "minWidth": 600,
-        "minHeight": 400
+        "minHeight": 400,
+        "visible": false
       }
     ],
     "security": {
@@ -42,6 +43,16 @@
     ],
     "macOS": {
       "minimumSystemVersion": "12.0"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["md", "markdown", "mdx"],
+        "name": "Markdown Document",
+        "description": "Markdown document",
+        "role": "Editor",
+        "rank": "Default",
+        "mimeType": "text/markdown"
+      }
+    ]
   }
 }

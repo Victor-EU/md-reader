@@ -10,10 +10,13 @@ import type {
   Error as IpcError,
   MergeResult,
   PositionEdit,
+  Restore,
   Result,
   SaveResult,
+  Settings,
   SnapshotAuthor,
   SnapshotInfo,
+  WindowContent,
 } from './index.ts';
 
 /**
@@ -35,6 +38,15 @@ export interface FakeIpc {
   files: Map<string, FakeFile>;
   /** Paths the shell has asked to watch. */
   watching: Set<string>;
+  /** The session as the shell last pushed it, and what a launch reads. */
+  session: { content: WindowContent | null; recents: string[] };
+  settings: Settings;
+  /** Files a launch is holding for the window; drained by `takeLaunchPaths`. */
+  launch: string[];
+  /** How many times the shell has asked for an immediate write. */
+  flushes: number;
+  /** Set when the shell has said it is ready for the window to close. */
+  closed: boolean;
   /** Simulate a write by another process, and report what the watcher would say. */
   externalWrite(path: string, content: string): ExternalChange;
   /** Simulate the file being deleted under an open tab. */
@@ -101,6 +113,13 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
   const listeners = new Set<(change: ExternalChange) => void>();
   const calls: FakeIpc['calls'] = [];
   const watching = new Set<string>();
+  const state = {
+    session: { content: null as WindowContent | null, recents: [] as string[] },
+    settings: { autosave: true } as Settings,
+    launch: [] as string[],
+    flushes: 0,
+    closed: false,
+  };
   const history = new Map<string, { info: SnapshotInfo; content: string }[]>();
   /** What the last known disk content was, so a change reports edits from it. */
   const seen = new Map<string, string>();
@@ -239,6 +258,33 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
           : err<string>({ kind: 'unavailable', what: 'the history', message: `no snapshot ${id}` }),
       );
     },
+    loadWindow: () =>
+      record<Restore>('load_window', [], {
+        content: state.session.content,
+        recents: [...state.session.recents],
+        settings: { ...state.settings },
+      }),
+    saveWindow: (content, recents) => {
+      state.session = { content, recents: [...recents] };
+      return record<void>('save_window', [content, recents], undefined);
+    },
+    saveSettings: (settings) => {
+      state.settings = { ...settings };
+      return record<void>('save_settings', [settings], undefined);
+    },
+    flushState: () => {
+      state.flushes += 1;
+      return record('flush_state', [], ok(null));
+    },
+    takeLaunchPaths: () => {
+      const paths = [...state.launch];
+      state.launch.length = 0;
+      return record('take_launch_paths', [], paths);
+    },
+    confirmClose: () => {
+      state.closed = true;
+      return record<void>('confirm_close', [], undefined);
+    },
     blockDiff: (oldBlocks: Block[], newBlocks: Block[]) =>
       record('block_diff', [oldBlocks, newBlocks], notImplemented<BlockOp[]>('block_diff')),
     listDir: (path) => record('list_dir', [path], notImplemented('list_dir')),
@@ -250,6 +296,21 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     files,
     calls,
     watching,
+    get session() {
+      return state.session;
+    },
+    get settings() {
+      return state.settings;
+    },
+    get launch() {
+      return state.launch;
+    },
+    get flushes() {
+      return state.flushes;
+    },
+    get closed() {
+      return state.closed;
+    },
     externalWrite(path, content) {
       const before = seen.get(path) ?? files.get(path)?.content ?? '';
       files.set(path, { content });

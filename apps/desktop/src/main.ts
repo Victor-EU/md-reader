@@ -38,6 +38,36 @@ if (isTauri()) {
   });
   void events.fileRemovedEvent.listen((event) => shell.workspace.fileRemoved(event.payload));
   void events.fileRenamedEvent.listen((event) => shell.workspace.fileRenamed(event.payload));
+  // A second launch, a Finder double-click, or `open` from a terminal
+  // (WP 1.8). Rust has already decided this window is the one for them.
+  void events.openPathsEvent.listen((event) => {
+    void shell.workspace.openPaths(event.payload);
+  });
+  // The window is closing and Rust is holding the close open for us.
+  // Answering is in a `finally` because a window that cannot write its
+  // session should still close now rather than wait out Rust's grace.
+  void events.beforeCloseEvent.listen(async () => {
+    try {
+      await shell.workspace.flushPending();
+    } finally {
+      await commands.confirmClose();
+    }
+  });
+}
+
+/**
+ * Put back the tabs from last time, then open whatever the launch was
+ * asked to open (design 4.1).
+ *
+ * In that order, so double-clicking a file that was already open focuses
+ * its tab rather than opening a second one.
+ */
+async function boot(): Promise<void> {
+  const restore = await commands.loadWindow();
+  shell.workspace.settings = restore.settings;
+  if (restore.content) await shell.workspace.restore(restore.content, restore.recents);
+  const paths = await commands.takeLaunchPaths();
+  if (paths.length > 0) await shell.workspace.openPaths(paths);
 }
 
 // The webview handles drops itself when it runs under Tauri, and only it
@@ -53,4 +83,9 @@ if (!target) {
   throw new Error('missing #app root');
 }
 
-export default mount(App, { target, props: { shell } });
+const app = mount(App, { target, props: { shell } });
+
+// After the mount, so the window is drawing while the files are read.
+if (isTauri()) void boot();
+
+export default app;

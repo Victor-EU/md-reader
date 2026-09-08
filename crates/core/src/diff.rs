@@ -702,14 +702,15 @@ mod properties {
     /// Short lines from a small alphabet, so that lines repeat and the
     /// alignment has to work for it.
     fn document() -> impl Strategy<Value = String> {
-        prop::collection::vec(prop_oneof!["[ab]{0,3}", Just(String::new())], 0..14)
-            .prop_map(|lines| {
+        prop::collection::vec(prop_oneof!["[ab]{0,3}", Just(String::new())], 0..14).prop_map(
+            |lines| {
                 lines.iter().fold(String::new(), |mut text, line| {
                     text.push_str(line);
                     text.push('\n');
                     text
                 })
-            })
+            },
+        )
     }
 
     proptest! {
@@ -778,4 +779,3 @@ mod properties {
         }
     }
 }
-

@@ -15,11 +15,14 @@ import {
 import type {
   Commands,
   DocumentMeta,
+  DocumentState,
   ExternalChange,
   FileFormat,
   FileRemoved,
   FileRenamed,
   PositionEdit,
+  Settings,
+  WindowContent,
 } from '@mdreader/ipc';
 import {
   type AnnotationKind,
@@ -124,6 +127,27 @@ const WORD_COUNT_DELAY = 250;
 const CHANGE_SCAN_DELAY = 300;
 /** How long the outline may wait for the parser before showing what there is. */
 const OUTLINE_TIMEOUT = 30;
+/**
+ * How long the session waits when what changed was typing into an
+ * untitled document, whose whole text it has to carry. Long enough that
+ * a sentence is one push rather than forty.
+ *
+ * Everything else — a tab, a mode, a pin — is pushed at the end of the
+ * turn instead, because on macOS a Cmd+Q reaches the app only as
+ * `RunEvent::Exit`, far too late to ask the window for anything. What
+ * the window has already said is all that survives that, so it should be
+ * as close to the truth as it can cheaply be.
+ */
+const SESSION_DELAY = 500;
+
+/** What the app starts with until a launch says otherwise (design 6.6). */
+const DEFAULT_SETTINGS: Settings = { autosave: true };
+
+/** `Untitled 3` -> 3, so a new document does not reuse a restored name. */
+function untitledNumber(name: string): number {
+  const digits = /(\d+)$/.exec(name);
+  return digits === null ? 0 : Number(digits[1]);
+}
 
 /**
  * The window's state: which documents are open, which tabs show them,
@@ -142,6 +166,15 @@ export class Workspace {
   sidebar = $state(false);
   /** Whether Read mode shows the comments it folds away (design 4.3). */
   comments = $state(false);
+  /**
+   * The reader's preferences, as the launch found them (WP 1.8).
+   *
+   * Nothing acts on them yet: `autosave` is the one the design names and
+   * WP 1.11 is what reads it, WP 1.9 is what fills in theme and
+   * typography. What this work package owes them is the file, the round
+   * trip, and somewhere current to live.
+   */
+  settings = $state<Settings>({ ...DEFAULT_SETTINGS });
   outline = $state<OutlineEntry[]>([]);
   /** False while a long document is still being parsed in the background. */
   outlineComplete = $state(true);
@@ -160,6 +193,8 @@ export class Workspace {
   private epoch = $state(0);
   private countTimer: ReturnType<typeof setTimeout> | null = null;
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionTimer: ReturnType<typeof setTimeout> | null = null;
+  private sessionDelay = 0;
 
   constructor(readonly options: WorkspaceOptions) {}
 
@@ -204,25 +239,37 @@ export class Workspace {
       this.activate(open.id);
       return true;
     }
+    const opened = await this.load(path);
+    if (opened === null) return false;
+    this.addTab(opened.doc);
+    this.remember(path);
+    const { meta } = opened;
+    this.status = meta.read_only
+      ? `${basename(path)} is ${meta.format.encoding}; convert to UTF-8 to edit`
+      : `${basename(path)} · ${describeFormat(meta.format)}`;
+    return true;
+  }
+
+  /**
+   * Read a file and take charge of it: images from its folder, a watch
+   * on it, and a snapshot of what it held when we found it, which is the
+   * version a restore goes back to (design 4.4). Opening a file and
+   * putting one back at launch both start here.
+   */
+  private async load(path: string): Promise<{ doc: Doc; meta: DocumentMeta } | null> {
     const result = await this.options.commands.openDocument(path);
     if (result.status === 'error') {
       this.status = describeError(result.error);
-      return false;
+      return null;
     }
-    const doc = this.newDoc(result.data.content, { path, meta: result.data.meta });
-    this.addTab(doc);
-    this.remember(path);
+    const { content, meta } = result.data;
+    const doc = this.newDoc(content, { path, meta });
     // Images in this document resolve against its folder, so Rust is told
     // to let the webview read that folder and below (design 8).
     void this.options.commands.allowDocumentImages(path);
-    // From here on this file is watched, and what it held when the reader
-    // opened it is the version "restore" goes back to (design 4.4).
     void this.options.commands.watch(path);
-    void this.options.commands.snapshot(path, result.data.content, 'user');
-    this.status = result.data.meta.read_only
-      ? `${basename(path)} is ${result.data.meta.format.encoding}; convert to UTF-8 to edit`
-      : `${basename(path)} · ${describeFormat(result.data.meta.format)}`;
-    return true;
+    void this.options.commands.snapshot(path, content, 'user');
+    return { doc, meta };
   }
 
   async pickAndOpen(): Promise<void> {
@@ -310,11 +357,13 @@ export class Workspace {
     const index = Math.min(Math.max(at ?? this.tabs.length, pinned), this.tabs.length);
     this.tabs.splice(index, 0, tab);
     this.activate(tab.id);
+    this.touch();
     return this.tabs[index] as Tab;
   }
 
   private remember(path: string): void {
     this.recents = [path, ...this.recents.filter((p) => p !== path)].slice(0, RECENTS_LIMIT);
+    this.touch();
   }
 
   // --- tabs ---------------------------------------------------------------
@@ -323,6 +372,7 @@ export class Workspace {
     if (id === this.activeId) return;
     this.activeId = id;
     this.countNow();
+    this.touch();
   }
 
   /** Cmd+1..8 jump to that tab, Cmd+9 to the last one, as browsers do. */
@@ -359,6 +409,7 @@ export class Workspace {
       this.activeId = next?.id ?? null;
       this.countNow();
     }
+    this.touch();
     // No dialog asks about unsaved work; the buffer is kept and can be reopened.
     this.status = doc.dirty
       ? `Closed ${doc.label} with unsaved changes · reopen the tab to get them back`
@@ -380,6 +431,7 @@ export class Workspace {
     const tab: Tab = { ...record.tab, id: nextId('tab') };
     this.tabs.splice(Math.min(record.index, this.tabs.length), 0, tab);
     this.activate(tab.id);
+    this.touch();
     this.status = `Reopened ${record.doc.label}`;
   }
 
@@ -392,6 +444,7 @@ export class Workspace {
     const target = Math.min(Math.max(to, low), high);
     this.tabs.splice(from, 1);
     this.tabs.splice(target, 0, tab);
+    this.touch();
   }
 
   togglePin(id: string): void {
@@ -403,6 +456,7 @@ export class Workspace {
     // Pinning moves the tab to the end of the pinned block; unpinning to
     // the start of the rest. Both are the same index.
     this.tabs.splice(this.pinnedCount(), 0, tab);
+    this.touch();
   }
 
   private pinnedCount(): number {
@@ -421,6 +475,7 @@ export class Workspace {
     tab.mode = mode;
     if (mode !== 'read') this.mounted?.view.dispatch({ effects: setModeEffect(mode) });
     if (mode !== 'read' && this.sidebar) this.refreshOutline();
+    this.touch();
   }
 
   get view(): EditorView | null {
@@ -507,6 +562,7 @@ export class Workspace {
     }
     this.reading = null;
     reading.view.destroy();
+    this.touch();
   }
 
   /** A click in Read mode: the same buffer, at the character clicked. */
@@ -519,6 +575,7 @@ export class Workspace {
     tab.selection = EditorSelection.single(at);
     tab.anchor = { offset: at, y };
     tab.mode = 'edit';
+    this.touch();
   }
 
   /** Copy what the live view knows back onto the tab that owns it. */
@@ -550,6 +607,9 @@ export class Workspace {
     this.syncMounted();
     this.mounted = null;
     mounted.view.destroy();
+    // The cursor and the scroll position have just come back off the
+    // view, so this is where the session learns about them.
+    this.touch();
   }
 
   private applyTransactions(view: EditorView, trs: readonly Transaction[]): void {
@@ -573,6 +633,8 @@ export class Workspace {
     if (changed) {
       this.scheduleWordCount();
       this.scheduleChangeScan();
+      // Only a document with no file has text the session has to carry.
+      if (doc.path === null) this.touchSoon();
     }
   }
 
@@ -823,6 +885,7 @@ export class Workspace {
   toggleComments(): void {
     this.comments = !this.comments;
     this.reading?.view.setComments(this.comments);
+    this.touch();
     this.status = this.comments ? 'Showing comments' : 'Comments folded away';
   }
 
@@ -992,6 +1055,7 @@ export class Workspace {
   toggleSidebar(): void {
     this.sidebar = !this.sidebar;
     if (this.sidebar) this.refreshOutline();
+    this.touch();
   }
 
   /**
@@ -1043,6 +1107,166 @@ export class Workspace {
     this.status = `${href} opens with the folder workspace, which is WP 2.4`;
   }
 
+  // --- the session --------------------------------------------------------
+
+  /**
+   * What this window would come back as (design 4.1).
+   *
+   * The mounted view is asked for its cursor and its scroll position
+   * first: a tab's own copy of those is only as fresh as the last time
+   * something took them back off the view.
+   */
+  sessionState(): WindowContent {
+    this.syncMounted();
+    const documents: DocumentState[] = [];
+    const at = new Map<string, number>();
+    for (const tab of this.tabs) {
+      const doc = this.doc(tab);
+      if (at.has(doc.id)) continue;
+      at.set(doc.id, documents.length);
+      documents.push(
+        doc.path === null
+          ? // A document with no file is carried whole: the session is
+            // the only place it has ever been.
+            { path: null, untitled: { name: doc.untitledName, text: doc.text } }
+          : { path: doc.path, untitled: null },
+      );
+    }
+    return {
+      documents,
+      tabs: this.tabs.map((tab) => ({
+        document: at.get(tab.docId) ?? 0,
+        mode: tab.mode,
+        pinned: tab.pinned,
+        active: tab.id === this.activeId,
+        selection: { anchor: tab.selection.main.anchor, head: tab.selection.main.head },
+        anchor: tab.anchor?.offset ?? 0,
+        folded: [...tab.folded],
+      })),
+      sidebar: this.sidebar,
+      comments: this.comments,
+    };
+  }
+
+  /**
+   * Put the window back the way it was left.
+   *
+   * A file that is no longer on disk is left out rather than restored
+   * empty, because a tab that looks like the document but holds nothing
+   * is a lie about it. An untitled document comes back out of the
+   * session file, which is the only copy of it there has ever been.
+   */
+  async restore(content: WindowContent, recents: readonly string[] = []): Promise<void> {
+    this.recents = [...recents];
+    this.sidebar = content.sidebar ?? false;
+    this.comments = content.comments ?? false;
+    const docs: (Doc | null)[] = [];
+    const gone: string[] = [];
+    for (const entry of content.documents ?? []) {
+      const doc = await this.restoreDoc(entry);
+      if (doc === null && entry.path) gone.push(basename(entry.path));
+      docs.push(doc);
+    }
+    let active: string | null = null;
+    for (const saved of content.tabs ?? []) {
+      const doc = docs[saved.document ?? 0];
+      if (!doc) continue;
+      const tab = this.addTab(doc, saved.mode ?? 'read');
+      tab.pinned = saved.pinned ?? false;
+      // The file may have changed since; a position past its end is not
+      // a reason to lose the tab.
+      const grip = (n: number) => Math.max(0, Math.min(n, doc.state.doc.length));
+      tab.selection = EditorSelection.single(
+        grip(saved.selection?.anchor ?? 0),
+        grip(saved.selection?.head ?? 0),
+      );
+      tab.anchor = { offset: grip(saved.anchor ?? 0), y: 0 };
+      tab.folded = [...(saved.folded ?? [])];
+      if (saved.active ?? false) active = tab.id;
+    }
+    this.activate(active ?? this.tabs[0]?.id ?? null);
+    const said: string[] = [];
+    if (this.tabs.length > 0)
+      said.push(`Picked up where you left off · ${count(this.tabs.length, 'tab')}`);
+    if (gone.length > 0) said.push(`${gone.join(', ')} no longer there`);
+    this.status = said.join(' · ');
+  }
+
+  private async restoreDoc(entry: DocumentState): Promise<Doc | null> {
+    if (entry.untitled) {
+      const { name, text } = entry.untitled;
+      this.untitledCount = Math.max(this.untitledCount, untitledNumber(name));
+      const doc = this.newDoc(text, { untitledName: name });
+      // This text has never been to a file, so the dirty dot belongs on
+      // it exactly as it did before the restart. `reviewed` stays where
+      // the document is, because the reader has already read all of it.
+      doc.base = Text.empty;
+      return doc;
+    }
+    if (!entry.path) return null;
+    return (await this.load(entry.path))?.doc ?? null;
+  }
+
+  /** The preferences, changed and written down (WP 1.9, WP 1.11). */
+  updateSettings(change: Partial<Settings>): void {
+    this.settings = { ...this.settings, ...change };
+    void this.options.commands.saveSettings(this.settings);
+  }
+
+  /**
+   * Record the window at the end of this turn: a tab opened, a mode
+   * changed, the sidebar came out.
+   */
+  private touch(): void {
+    this.schedule(0);
+  }
+
+  /**
+   * Record it after a pause, for the one change that is expensive to
+   * serialize: the text of a document that has no file.
+   *
+   * There are two throttles on this path, each with its own job. These
+   * keep the shell from serializing an untitled buffer on every
+   * keystroke; the store in Rust keeps the disk to one write a second
+   * while holding the newest value, which is what the router of files
+   * the OS hands us reads and what a close writes.
+   */
+  private touchSoon(): void {
+    this.schedule(SESSION_DELAY);
+  }
+
+  private schedule(delay: number): void {
+    if (this.sessionTimer !== null) {
+      if (delay >= this.sessionDelay) return;
+      clearTimeout(this.sessionTimer);
+    }
+    this.sessionDelay = delay;
+    this.sessionTimer = setTimeout(() => {
+      this.sessionTimer = null;
+      void this.pushSession();
+    }, delay);
+  }
+
+  private pushSession(): Promise<unknown> {
+    return this.options.commands.saveWindow(this.sessionState(), [...this.recents]);
+  }
+
+  /**
+   * Everything not on disk yet, now, because the window is closing.
+   *
+   * Autosave joins this in WP 1.11. Until then the session is all there
+   * is to write: the buffer of a named file that was never saved is lost
+   * on close, exactly as it is when its tab is closed.
+   */
+  async flushPending(): Promise<void> {
+    if (this.sessionTimer !== null) {
+      clearTimeout(this.sessionTimer);
+      this.sessionTimer = null;
+    }
+    await this.pushSession();
+    await this.options.commands.flushState();
+  }
+
   // --- word count ---------------------------------------------------------
 
   countNow(): void {
@@ -1064,9 +1288,15 @@ export class Workspace {
   }
 
   destroy(): void {
-    if (this.countTimer !== null) clearTimeout(this.countTimer);
-    if (this.changeTimer !== null) clearTimeout(this.changeTimer);
+    // Dropping the views first, because putting one away is itself a
+    // reason to write the session down and would set the timer again.
     this.unmount();
     this.unmountRead();
+    for (const timer of [this.countTimer, this.changeTimer, this.sessionTimer]) {
+      if (timer !== null) clearTimeout(timer);
+    }
+    this.countTimer = null;
+    this.changeTimer = null;
+    this.sessionTimer = null;
   }
 }
