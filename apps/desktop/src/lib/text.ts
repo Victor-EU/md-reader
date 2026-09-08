@@ -12,6 +12,11 @@ export function countWords(text: string): number {
   return text.match(WORD)?.length ?? 0;
 }
 
+/** `1 change`, `2 changes`: the plural the status bar keeps needing. */
+export function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`;
+}
+
 const EOL_LABEL: Record<FileFormat['eol'], string> = { lf: 'LF', crlf: 'CRLF', cr: 'CR' };
 
 /** The encoding and line ending pair the status bar shows (design 4.1). */
@@ -30,6 +35,8 @@ export function describeError(error: IpcError): string {
       return `${error.path} is ${error.encoding}; convert to UTF-8 to edit`;
     case 'not_implemented':
       return `${error.command} is not implemented yet`;
+    case 'unavailable':
+      return `${error.what} is not available: ${error.message}`;
     default:
       return error.message;
   }

@@ -199,11 +199,18 @@ describe('saving', () => {
     expect(workspace.status).toBe('Saved a.md');
   });
 
-  it('refuses when the file changed on disk and says so', async () => {
+  /**
+   * The hash check catches the write that got in first, and the reader
+   * never sees it: with nothing of their own in the buffer, the write is
+   * taken whole and the save goes through (design 7.2). What happens
+   * when there is something of their own is in `watch.browser.test.ts`.
+   */
+  it('takes in the write that got there first and saves anyway', async () => {
     open({ '/a.md': 'a\n' });
     await workspace.openPath('/a.md');
     ipc.externalWrite('/a.md', 'someone else\n');
-    expect(await workspace.save()).toBe(false);
+    expect(await workspace.save()).toBe(true);
+    expect(workspace.activeDoc?.text).toBe('someone else\n');
     expect(workspace.status).toMatch(/changed on disk/);
   });
 

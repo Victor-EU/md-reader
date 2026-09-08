@@ -1,4 +1,4 @@
-import { commands } from '@mdreader/ipc';
+import { commands, events } from '@mdreader/ipc';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -29,6 +29,16 @@ const shell = createShell({
   // opened document's folder (design 8). Outside Tauri nothing local loads.
   assetUrl: isTauri() ? (path) => convertFileSrc(path) : undefined,
 });
+
+// What the watcher has to say about the open files (design 7.2). The
+// window listens for as long as it exists, so nothing unsubscribes.
+if (isTauri()) {
+  void events.externalChangeEvent.listen((event) => {
+    void shell.workspace.externalChange(event.payload);
+  });
+  void events.fileRemovedEvent.listen((event) => shell.workspace.fileRemoved(event.payload));
+  void events.fileRenamedEvent.listen((event) => shell.workspace.fileRenamed(event.payload));
+}
 
 // The webview handles drops itself when it runs under Tauri, and only it
 // knows the real paths; the DOM handler in App.svelte covers a browser.

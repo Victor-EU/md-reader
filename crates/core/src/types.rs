@@ -99,13 +99,34 @@ pub struct SearchHit {
     pub text: String,
 }
 
+/// Payload of the `file_removed` event: a file with a tab open on it is
+/// no longer on disk. The buffer stays; the next save recreates the file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct FileRemoved {
+    pub path: PathBuf,
+}
+
+/// Payload of the `file_renamed` event: the document is the same, its
+/// name is not, so the tab follows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct FileRenamed {
+    pub from: PathBuf,
+    pub to: PathBuf,
+}
+
 /// Payload of the `external_change` event (design 6.4).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct ExternalChange {
     pub path: PathBuf,
     pub content: String,
     pub hash: String,
-    /// Edits from the last known disk content to `content`, so the frontend
-    /// applies one transaction and cursor, scroll, and undo map through.
+    /// Edits from the file as the watcher last read it to `content`.
+    ///
+    /// The shell does not apply these: it merges against its own base,
+    /// because a buffer and the file it was saved to are not always the
+    /// same string — saving restores the stored form, and a document
+    /// whose last newline the reader deleted sits on disk with one.
+    /// They are here for a writer that holds both sides itself, which is
+    /// the MCP path of Phase 3 (design 9).
     pub changes: Vec<PositionEdit>,
 }

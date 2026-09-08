@@ -89,6 +89,13 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       run: () => workspace.color(entry.meaning),
     })),
     {
+      id: 'edit.markReviewed',
+      title: 'Mark Reviewed',
+      group: 'Edit',
+      enabled: () => workspace.unreviewed > 0,
+      run: () => workspace.markReviewed(),
+    },
+    {
       id: 'edit.copyForAi',
       title: 'Copy for AI',
       group: 'Edit',

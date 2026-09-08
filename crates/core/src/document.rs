@@ -89,6 +89,8 @@ pub enum Error {
     },
     #[error("{path} is {encoding}; convert it to UTF-8 before saving")]
     ReadOnlyEncoding { path: PathBuf, encoding: String },
+    #[error("{what} is unavailable: {message}")]
+    Unavailable { what: String, message: String },
 }
 
 fn read_error(path: &Path, source: &io::Error) -> Error {

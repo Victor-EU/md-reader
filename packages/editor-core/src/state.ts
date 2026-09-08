@@ -11,6 +11,7 @@ import {
 } from '@codemirror/state';
 import { drawSelection, EditorView, highlightSpecialChars, keymap } from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
+import { changeMarkers } from './changes/index.ts';
 import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 import { insertNewlineMarkdown } from './commands/newline.ts';
 import {
@@ -91,6 +92,9 @@ export function baseExtensions(
     keymap.of([...markdownKeymap, ...defaultKeymap, ...historyKeymap]),
     markdownSupport(),
     syntaxHighlighting(markdownHighlightStyle),
+    // What has changed since the reader last looked, in both Edit and
+    // Source: a change is a change whichever projection is in front.
+    changeMarkers(),
     modeCompartment.of(modeExtension(mode)),
   ];
 }

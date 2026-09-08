@@ -24,17 +24,22 @@ export const commands = {
 	 *  reachable from the page.
 	 */
 	allowDocumentImages: (path: string) => typedError<null, Error>(__TAURI_INVOKE("allow_document_images", { path })),
-	/**  Start watching a file for external writes (WP 1.7). */
+	/**  Watch a file for writes by other processes. */
 	watch: (path: string) => typedError<null, Error>(__TAURI_INVOKE("watch", { path })),
-	/**  Stop watching a file (WP 1.7). */
+	/**  Stop watching a file. */
 	unwatch: (path: string) => typedError<null, Error>(__TAURI_INVOKE("unwatch", { path })),
-	/**  Three-way merge of an external write into a dirty buffer (WP 1.7). */
-	merge3: (base: string, ours: string, theirs: string) => typedError<MergeResult, Error>(__TAURI_INVOKE("merge3", { base, ours, theirs })),
-	/**  Store a snapshot of `content` for `path` (WP 1.7). */
+	/**
+	 *  Three-way merge of an external write into a dirty buffer (design 7.2).
+	 * 
+	 *  The one command with no failure to report: three strings always have
+	 *  a merge, even when every hunk of it is a conflict.
+	 */
+	merge3: (base: string, ours: string, theirs: string) => __TAURI_INVOKE<MergeResult>("merge3", { base, ours, theirs }),
+	/**  Store a snapshot of `content` for `path`. */
 	snapshot: (path: string, content: string, author: SnapshotAuthor) => typedError<SnapshotInfo, Error>(__TAURI_INVOKE("snapshot", { path, content, author })),
-	/**  List the snapshots stored for `path` (WP 1.7). */
+	/**  List the snapshots stored for `path`, newest first. */
 	listSnapshots: (path: string) => typedError<SnapshotInfo[], Error>(__TAURI_INVOKE("list_snapshots", { path })),
-	/**  Read one snapshot's content (WP 1.7). */
+	/**  Read one snapshot's content. */
 	readSnapshot: (id: string) => typedError<string, Error>(__TAURI_INVOKE("read_snapshot", { id })),
 	/**  Align two block lists for the semantic diff (WP 2.x). */
 	blockDiff: (oldBlocks: Block[], newBlocks: Block[]) => typedError<BlockOp[], Error>(__TAURI_INVOKE("block_diff", { oldBlocks, newBlocks })),
@@ -47,6 +52,8 @@ export const commands = {
 /** Events */
 export const events = {
 	externalChangeEvent: makeEvent<ExternalChangeEvent>("external-change-event"),
+	fileRemovedEvent: makeEvent<FileRemovedEvent>("file-removed-event"),
+	fileRenamedEvent: makeEvent<FileRenamedEvent>("file-renamed-event"),
 };
 
 /* Types */
@@ -110,7 +117,7 @@ export type DocumentMeta = {
 export type Eol = "lf" | "crlf" | "cr";
 
 /**  Errors, serializable so the frontend can branch on `kind`. */
-export type Error = { kind: "not_implemented"; command: string } | { kind: "read"; path: string; message: string } | { kind: "write"; path: string; message: string } | { kind: "hash_mismatch"; path: string; expected: string; actual: string } | { kind: "read_only_encoding"; path: string; encoding: string };
+export type Error = { kind: "not_implemented"; command: string } | { kind: "read"; path: string; message: string } | { kind: "write"; path: string; message: string } | { kind: "hash_mismatch"; path: string; expected: string; actual: string } | { kind: "read_only_encoding"; path: string; encoding: string } | { kind: "unavailable"; what: string; message: string };
 
 /**  Payload of the `external_change` event (design 6.4). */
 export type ExternalChange = {
@@ -118,8 +125,14 @@ export type ExternalChange = {
 	content: string,
 	hash: string,
 	/**
-	 *  Edits from the last known disk content to `content`, so the frontend
-	 *  applies one transaction and cursor, scroll, and undo map through.
+	 *  Edits from the file as the watcher last read it to `content`.
+	 * 
+	 *  The shell does not apply these: it merges against its own base,
+	 *  because a buffer and the file it was saved to are not always the
+	 *  same string — saving restores the stored form, and a document
+	 *  whose last newline the reader deleted sits on disk with one.
+	 *  They are here for a writer that holds both sides itself, which is
+	 *  the MCP path of Phase 3 (design 9).
 	 */
 	changes: PositionEdit[],
 };
@@ -142,6 +155,29 @@ export type FileFormat = {
 	/**  Encoding label from `encoding_rs`; only `utf-8` documents can be saved. */
 	encoding: string,
 };
+
+/**
+ *  Payload of the `file_removed` event: a file with a tab open on it is
+ *  no longer on disk. The buffer stays; the next save recreates the file.
+ */
+export type FileRemoved = {
+	path: string,
+};
+
+/**  A watched file is no longer on disk. */
+export type FileRemovedEvent = FileRemoved;
+
+/**
+ *  Payload of the `file_renamed` event: the document is the same, its
+ *  name is not, so the tab follows it.
+ */
+export type FileRenamed = {
+	from: string,
+	to: string,
+};
+
+/**  A watched file was renamed. */
+export type FileRenamedEvent = FileRenamed;
 
 export type MergeResult = {
 	changes: PositionEdit[],

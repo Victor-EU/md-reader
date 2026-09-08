@@ -18,6 +18,8 @@ const saveState = $derived.by(() => {
   if (!doc) return '';
   if (workspace.saving) return 'Saving…';
   if (doc.meta?.read_only) return 'Read only';
+  // A file that is gone is not "saved", however clean the buffer is.
+  if (doc.missing) return 'File is gone';
   if (doc.dirty) return 'Unsaved changes';
   return doc.path === null ? 'Not saved yet' : 'Saved';
 });
@@ -28,7 +30,7 @@ const saveState = $derived.by(() => {
     <span class="cell">{workspace.words} words</span>
     {#if cursor}<span class="cell">{cursor}</span>{/if}
     <span class="cell">{format}</span>
-    <span class="cell" class:dirty={doc.dirty}>{saveState}</span>
+    <span class="cell" class:dirty={doc.dirty || doc.missing}>{saveState}</span>
   {/if}
   <span class="message">{workspace.status}</span>
 </div>

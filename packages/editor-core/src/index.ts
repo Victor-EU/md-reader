@@ -1,4 +1,12 @@
 export {
+  type ChangeKind,
+  changeMarkers,
+  changesField,
+  type LineChange,
+  lineChanges,
+  setChanges,
+} from './changes/index.ts';
+export {
   type AnnotationEdit,
   applyColor,
   applyComment,

@@ -39,10 +39,53 @@ describe('fake ipc', () => {
     expect(result).toMatchObject({ status: 'error', error: { kind: 'read_only_encoding' } });
     const converted = await unwrap(ipc.commands.convertDocumentToUtf8('/l.md'));
     expect(converted.meta.read_only).toBe(false);
-    expect(await ipc.commands.merge3('a', 'b', 'c')).toMatchObject({
+    expect(await ipc.commands.listDir('/')).toMatchObject({
       status: 'error',
       error: { kind: 'not_implemented' },
     });
+  });
+
+  /**
+   * The fake merges the whole document as one hunk, which is the
+   * degenerate case of the real one. What the shell has to get right is
+   * applying what comes back; which hunks conflict is decided and tested
+   * in `crates/core/src/diff.rs`.
+   */
+  it('merges a clean buffer and conflicts over a dirty one', async () => {
+    const ipc = createFakeIpc();
+    expect(await ipc.commands.merge3('a\n', 'a\n', 'b\n')).toEqual({
+      changes: [{ from: 0, to: 1, insert: 'b' }],
+      conflicts: [],
+    });
+    expect(await ipc.commands.merge3('a\n', 'ours\n', 'ours\n')).toEqual({
+      changes: [],
+      conflicts: [],
+    });
+    const conflicting = await ipc.commands.merge3('a\n', 'ours\n', 'theirs\n');
+    expect(conflicting.changes).toEqual([]);
+    expect(conflicting.conflicts).toHaveLength(1);
+  });
+
+  it('keeps snapshots per document, newest first, without repeating one', async () => {
+    const ipc = createFakeIpc();
+    const first = await unwrap(ipc.commands.snapshot('/a.md', 'one', 'user'));
+    const again = await unwrap(ipc.commands.snapshot('/a.md', 'one', 'external'));
+    expect(again.id).toBe(first.id);
+    const second = await unwrap(ipc.commands.snapshot('/a.md', 'two', 'external'));
+    await unwrap(ipc.commands.snapshot('/b.md', 'elsewhere', 'user'));
+    expect((await unwrap(ipc.commands.listSnapshots('/a.md'))).map((s) => s.id)).toEqual([
+      second.id,
+      first.id,
+    ]);
+    expect(await unwrap(ipc.commands.readSnapshot(first.id))).toBe('one');
+  });
+
+  it('tracks what the shell asked to watch', async () => {
+    const ipc = createFakeIpc({ '/a.md': 'one' });
+    await ipc.commands.watch('/a.md');
+    expect(ipc.watching.has('/a.md')).toBe(true);
+    await ipc.commands.unwatch('/a.md');
+    expect(ipc.watching.has('/a.md')).toBe(false);
   });
 
   it('delivers external changes to listeners', () => {
@@ -53,5 +96,21 @@ describe('fake ipc', () => {
     stop();
     ipc.externalWrite('/x.md', 'two');
     expect(seen).toEqual(['one']);
+  });
+
+  it('reports an external write as the edits from what was last on disk', async () => {
+    const ipc = createFakeIpc({ '/x.md': 'one\ntwo\n' });
+    await ipc.commands.watch('/x.md');
+    const change = ipc.externalWrite('/x.md', 'one\nTWO\n');
+    expect(change.changes).toEqual([{ from: 4, to: 7, insert: 'TWO' }]);
+    expect(ipc.files.get('/x.md')?.content).toBe('one\nTWO\n');
+  });
+
+  it('moves a file out from under the shell', () => {
+    const ipc = createFakeIpc({ '/x.md': 'here' });
+    expect(ipc.externalRename('/x.md', '/y.md')).toEqual({ from: '/x.md', to: '/y.md' });
+    expect(ipc.files.get('/y.md')?.content).toBe('here');
+    expect(ipc.externalRemove('/y.md')).toEqual({ path: '/y.md' });
+    expect(ipc.files.has('/y.md')).toBe(false);
   });
 });

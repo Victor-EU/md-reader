@@ -12,8 +12,8 @@ const doc = $derived(workspace.activeDoc);
 const path = $derived(doc?.path ? segments(doc.path) : []);
 const crumbs = $derived(path.slice(-DEPTH));
 const mode = $derived(workspace.activeTab?.mode ?? null);
-// WP 1.7 fills this in; the slot is here so the toolbar does not move later.
-const unreviewed = $derived(0);
+/** How much of the document the reader has not marked seen (design 4.4). */
+const unreviewed = $derived(workspace.unreviewed);
 
 /**
  * A toolbar button must not take the selection away before it acts: in
@@ -126,6 +126,13 @@ function tip(id: string): string {
   </div>
 
   {#if unreviewed > 0}
-    <button type="button" class="changes">Changes {unreviewed}</button>
+    <button
+      type="button"
+      class="changes"
+      title={tip('edit.markReviewed')}
+      onclick={() => registry.run('edit.markReviewed')}
+    >
+      Changes {unreviewed}
+    </button>
   {/if}
 </div>

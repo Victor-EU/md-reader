@@ -1,5 +1,5 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
-import { EditorSelection, type EditorState, type Transaction } from '@codemirror/state';
+import { EditorSelection, type EditorState, Text, type Transaction } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import {
   type AnnotationEdit,
@@ -7,10 +7,20 @@ import {
   commentEdit,
   type EditorMode,
   highlightEdit,
+  lineChanges,
+  setChanges,
   setModeEffect,
   strikethroughEdit,
 } from '@mdreader/editor-core';
-import type { Commands, DocumentMeta, FileFormat } from '@mdreader/ipc';
+import type {
+  Commands,
+  DocumentMeta,
+  ExternalChange,
+  FileFormat,
+  FileRemoved,
+  FileRenamed,
+  PositionEdit,
+} from '@mdreader/ipc';
 import {
   type AnnotationKind,
   copyForAi,
@@ -29,7 +39,7 @@ import { imageResolver } from './images.ts';
 import { basename, dirname, shortenDir, tabLabels } from './paths.ts';
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
-import { countWords, describeError, describeFormat } from './text.ts';
+import { count, countWords, describeError, describeFormat } from './text.ts';
 
 /** The three projections of one buffer (design 4.2). */
 export type ViewMode = EditorMode | 'read';
@@ -106,6 +116,12 @@ const CLOSED_LIMIT = 20;
 const RECENTS_LIMIT = 50;
 /** Long enough that a fast typist counts once per pause, not once per key. */
 const WORD_COUNT_DELAY = 250;
+/**
+ * The same idea for the change gutter. The markers are mapped through
+ * every edit as it happens, so what waits here is only the diff that
+ * decides which runs there are.
+ */
+const CHANGE_SCAN_DELAY = 300;
 /** How long the outline may wait for the parser before showing what there is. */
 const OUTLINE_TIMEOUT = 30;
 
@@ -143,11 +159,14 @@ export class Workspace {
   private untitledCount = 0;
   private epoch = $state(0);
   private countTimer: ReturnType<typeof setTimeout> | null = null;
+  private changeTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(readonly options: WorkspaceOptions) {}
 
   activeTab: Tab | null = $derived(this.tabs.find((tab) => tab.id === this.activeId) ?? null);
   activeDoc: Doc | null = $derived(this.activeTab ? this.doc(this.activeTab) : null);
+  /** What the Changes badge counts: runs the reader has not marked seen. */
+  unreviewed: number = $derived(this.activeDoc?.changes.length ?? 0);
   /** Tab labels, disambiguated against each other. */
   labels: string[] = $derived(
     tabLabels(
@@ -196,6 +215,10 @@ export class Workspace {
     // Images in this document resolve against its folder, so Rust is told
     // to let the webview read that folder and below (design 8).
     void this.options.commands.allowDocumentImages(path);
+    // From here on this file is watched, and what it held when the reader
+    // opened it is the version "restore" goes back to (design 4.4).
+    void this.options.commands.watch(path);
+    void this.options.commands.snapshot(path, result.data.content, 'user');
     this.status = result.data.meta.read_only
       ? `${basename(path)} is ${result.data.meta.format.encoding}; convert to UTF-8 to edit`
       : `${basename(path)} · ${describeFormat(result.data.meta.format)}`;
@@ -327,7 +350,10 @@ export class Workspace {
     }
     this.tabs.splice(index, 1);
     this.closed = [{ tab: { ...tab }, doc, index }, ...this.closed].slice(0, CLOSED_LIMIT);
-    if (!this.tabs.some((other) => other.docId === doc.id)) this.docs.delete(doc.id);
+    if (!this.tabs.some((other) => other.docId === doc.id)) {
+      this.docs.delete(doc.id);
+      if (doc.path !== null) void this.options.commands.unwatch(doc.path);
+    }
     if (wasActive) {
       const next = this.tabs[Math.min(index, this.tabs.length - 1)];
       this.activeId = next?.id ?? null;
@@ -348,6 +374,9 @@ export class Workspace {
     if (!record) return;
     this.closed = rest;
     this.docs.set(record.doc.id, record.doc);
+    // Closing the last tab on a document stopped the watch; reopening it
+    // starts one again.
+    if (record.doc.path !== null) void this.options.commands.watch(record.doc.path);
     const tab: Tab = { ...record.tab, id: nextId('tab') };
     this.tabs.splice(Math.min(record.index, this.tabs.length), 0, tab);
     this.activate(tab.id);
@@ -419,7 +448,10 @@ export class Workspace {
       dispatchTransactions: (trs) => this.applyTransactions(view, trs),
     });
     this.mounted = { view, tab };
-    view.dispatch({ selection: tab.selection, effects: setModeEffect(tab.mode) });
+    view.dispatch({
+      selection: tab.selection,
+      effects: [setModeEffect(tab.mode), setChanges.of(doc.changes)],
+    });
     const anchor = tab.anchor;
     if (anchor) {
       // Put the same source offset where the reader last saw it, rather
@@ -538,7 +570,10 @@ export class Workspace {
         }
       }
     }
-    if (changed) this.scheduleWordCount();
+    if (changed) {
+      this.scheduleWordCount();
+      this.scheduleChangeScan();
+    }
   }
 
   // --- saving -------------------------------------------------------------
@@ -548,7 +583,7 @@ export class Workspace {
     return doc !== null && !doc.meta?.read_only;
   }
 
-  async save(): Promise<boolean> {
+  async save(retrying = false): Promise<boolean> {
     const doc = this.activeDoc;
     if (!doc) return false;
     if (doc.meta?.read_only) {
@@ -562,6 +597,9 @@ export class Workspace {
     }
     const written = doc.state.doc;
     const format = doc.meta?.format ?? NEW_FILE_FORMAT;
+    // An untitled document has never been watched; one that just got its
+    // name has to be, from this save on.
+    const wasWatched = doc.path !== null;
     this.saving = true;
     const result = await this.options.commands.saveDocument(
       path,
@@ -571,6 +609,26 @@ export class Workspace {
     );
     this.saving = false;
     if (result.status === 'error') {
+      // Somebody wrote to the file between our last look and this save.
+      // The design says the reader never sees that (7.2): their write is
+      // merged in and the save is tried once more.
+      if (result.error.kind === 'hash_mismatch' && !retrying) {
+        const fresh = await this.options.commands.openDocument(path);
+        if (fresh.status === 'ok') {
+          await this.externalChange({
+            path,
+            content: fresh.data.content,
+            hash: fresh.data.meta.hash,
+            changes: [],
+          });
+          const merged = this.status;
+          if (await this.save(true)) {
+            this.status = `${this.status} · ${merged}`;
+            return true;
+          }
+          return false;
+        }
+      }
       this.status = describeError(result.error);
       return false;
     }
@@ -584,7 +642,11 @@ export class Workspace {
       format,
     };
     doc.markSaved(written);
+    this.pushChanges(doc);
     this.remember(path);
+    // A save is a version too, and the one a later restore compares with.
+    void this.options.commands.snapshot(path, written.toString(), 'user');
+    if (!wasWatched) void this.options.commands.watch(path);
     this.status = `Saved ${basename(path)}`;
     return true;
   }
@@ -607,6 +669,152 @@ export class Workspace {
     this.epoch += 1;
     this.status = `Converted ${basename(doc.path)} to UTF-8`;
     return true;
+  }
+
+  // --- writes by other people ---------------------------------------------
+
+  private docFor(path: string): Doc | null {
+    for (const doc of this.docs.values()) if (doc.path === path) return doc;
+    return null;
+  }
+
+  /**
+   * Somebody else wrote to a file that is open here (design 7.2).
+   *
+   * A clean buffer takes the whole write. A dirty one keeps the reader's
+   * edit and takes the hunks only they touched, as one transaction, so
+   * the cursor, the scroll position, the folds and the undo history all
+   * map through. A hunk both sides changed keeps the version in the
+   * buffer and is set aside with a snapshot of theirs, so nothing is
+   * lost while Phase 1 has no way to show both (WP 2.1).
+   *
+   * There is no dialog anywhere in this, which is the point of it.
+   *
+   * The merge always runs, and always against this side's own base. The
+   * watcher sends the edits it worked out from the file it last read,
+   * but the buffer is not always that file: saving restores the stored
+   * form, so a document the reader stripped the last newline from sits
+   * on disk with one. A clean buffer merged against its own base is the
+   * whole write, which is how case 1 of design 7.2 falls out of case 2
+   * instead of being written a second time.
+   */
+  async externalChange(change: ExternalChange): Promise<void> {
+    const doc = this.docFor(change.path);
+    if (!doc) return;
+    const merged = await this.options.commands.merge3(
+      doc.base.toString(),
+      doc.text,
+      change.content,
+    );
+    const edits = merged.changes;
+    const conflicts = merged.conflicts.length;
+    // What arrived is kept whatever we do with it, so a hunk set aside is
+    // in the history rather than gone (design 4.4).
+    void this.options.commands.snapshot(change.path, change.content, 'external');
+    this.applyExternal(doc, edits);
+    // Their version is the file now, so it is what the next merge and the
+    // next save compare against.
+    doc.base = Text.of(change.content.split('\n'));
+    doc.missing = false;
+    if (doc.meta) doc.meta = { ...doc.meta, hash: change.hash };
+    this.pushChanges(doc);
+    const name = basename(change.path);
+    this.status =
+      conflicts > 0
+        ? `${name} changed on disk · ${count(conflicts, 'conflicting change')} set aside, your version kept`
+        : edits.length === 0
+          ? `${name} changed on disk`
+          : `${name} changed on disk · ${count(edits.length, 'change')} merged in`;
+  }
+
+  /** Apply an external write to a document, wherever it is being shown. */
+  private applyExternal(doc: Doc, edits: readonly PositionEdit[]): void {
+    if (edits.length === 0) return;
+    const changes = edits.map((edit) => ({
+      from: edit.from,
+      to: edit.to,
+      insert: edit.insert,
+    }));
+    const mounted = this.mounted;
+    if (mounted && mounted.tab.docId === doc.id) {
+      // Through the view, which is what maps the cursor and the folds.
+      mounted.view.dispatch({ changes, userEvent: 'external.change' });
+      return;
+    }
+    // Read mode has no editor to dispatch to, so the buffer is updated
+    // and the page is rendered again from it.
+    const reading = this.reading?.tab.docId === doc.id;
+    if (reading) this.unmountRead();
+    const transaction = doc.state.update({ changes, userEvent: 'external.change' });
+    doc.state = transaction.state;
+    for (const tab of this.tabs) {
+      if (tab.docId !== doc.id) continue;
+      tab.selection = tab.selection.map(transaction.changes);
+      if (tab.anchor) {
+        tab.anchor = { ...tab.anchor, offset: transaction.changes.mapPos(tab.anchor.offset) };
+      }
+    }
+    if (reading) this.epoch += 1;
+  }
+
+  /**
+   * The file is gone. The buffer is the only copy now, so it stays; the
+   * next save writes the file again (design 8).
+   */
+  fileRemoved(event: FileRemoved): void {
+    const doc = this.docFor(event.path);
+    if (!doc) return;
+    doc.missing = true;
+    this.status = `${basename(event.path)} is no longer on disk · saving writes it again`;
+  }
+
+  /** The same document under another name: the tab follows it. */
+  fileRenamed(event: FileRenamed): void {
+    const doc = this.docFor(event.from);
+    if (!doc) return;
+    doc.path = event.to;
+    if (doc.meta) doc.meta = { ...doc.meta, path: event.to };
+    this.remember(event.to);
+    // The watcher follows the file itself when it can see where it went.
+    // Asking again costs a read and covers the case where it could not.
+    void this.options.commands.watch(event.to);
+    this.status = `${basename(event.from)} is now ${basename(event.to)}`;
+  }
+
+  // --- what the reader has seen -------------------------------------------
+
+  /** Everything in the buffer has been looked at (design 4.4). */
+  markReviewed(): void {
+    const doc = this.activeDoc;
+    if (!doc) return;
+    doc.markReviewed();
+    this.pushChanges(doc);
+    this.status = 'Marked as reviewed';
+  }
+
+  /**
+   * Work out the change runs and hand them to the gutter.
+   *
+   * The line diff of Phase 1 is replaced by the semantic engine of WP 2.2
+   * behind this call: what the gutter is given is a list of runs either
+   * way, and in Phase 2 it arrives from Rust a moment later instead of
+   * from here at once.
+   */
+  private pushChanges(doc: Doc): void {
+    doc.changes = lineChanges(doc.reviewed, doc.state.doc);
+    const mounted = this.mounted;
+    if (mounted && mounted.tab.docId === doc.id) {
+      mounted.view.dispatch({ effects: setChanges.of(doc.changes) });
+    }
+  }
+
+  private scheduleChangeScan(): void {
+    if (this.changeTimer !== null) return;
+    this.changeTimer = setTimeout(() => {
+      this.changeTimer = null;
+      const doc = this.activeDoc;
+      if (doc) this.pushChanges(doc);
+    }, CHANGE_SCAN_DELAY);
   }
 
   // --- annotations --------------------------------------------------------
@@ -732,7 +940,7 @@ export class Workspace {
     this.status = ok
       ? found.length === 0
         ? 'Copied for AI · no annotations'
-        : `Copied for AI · ${found.length} annotation${found.length === 1 ? '' : 's'}`
+        : `Copied for AI · ${count(found.length, 'annotation')}`
       : 'Could not reach the clipboard';
     return ok;
   }
@@ -857,6 +1065,7 @@ export class Workspace {
 
   destroy(): void {
     if (this.countTimer !== null) clearTimeout(this.countTimer);
+    if (this.changeTimer !== null) clearTimeout(this.changeTimer);
     this.unmount();
     this.unmountRead();
   }

@@ -5,9 +5,15 @@ import type {
   Document,
   ExternalChange,
   FileFormat,
+  FileRemoved,
+  FileRenamed,
   Error as IpcError,
+  MergeResult,
+  PositionEdit,
   Result,
   SaveResult,
+  SnapshotAuthor,
+  SnapshotInfo,
 } from './index.ts';
 
 /**
@@ -27,12 +33,42 @@ export interface FakeFile {
 export interface FakeIpc {
   commands: Commands;
   files: Map<string, FakeFile>;
-  /** Simulate a write by another process; a listener registered through `onExternalChange` gets it. */
-  externalWrite(path: string, content: string): void;
+  /** Paths the shell has asked to watch. */
+  watching: Set<string>;
+  /** Simulate a write by another process, and report what the watcher would say. */
+  externalWrite(path: string, content: string): ExternalChange;
+  /** Simulate the file being deleted under an open tab. */
+  externalRemove(path: string): FileRemoved;
+  /** Simulate the file being renamed by something else. */
+  externalRename(from: string, to: string): FileRenamed;
   onExternalChange(cb: (change: ExternalChange) => void): () => void;
   /** Every command call, for assertions on what the shell asked for. */
   calls: { command: string; args: unknown[] }[];
 }
+
+/**
+ * One edit covering everything two texts do not already share at their
+ * ends, in UTF-16 offsets, which is what the real one produces for a
+ * change that falls in one place.
+ */
+export function singleEdit(from: string, to: string): PositionEdit[] {
+  if (from === to) return [];
+  let head = 0;
+  while (head < from.length && head < to.length && from[head] === to[head]) head += 1;
+  // Never between the halves of a surrogate pair.
+  if (head > 0 && isLow(from.charCodeAt(head))) head -= 1;
+  let tail = 0;
+  while (
+    tail < from.length - head &&
+    tail < to.length - head &&
+    from[from.length - 1 - tail] === to[to.length - 1 - tail]
+  )
+    tail += 1;
+  if (tail > 0 && isLow(from.charCodeAt(from.length - tail))) tail -= 1;
+  return [{ from: head, to: from.length - tail, insert: to.slice(head, to.length - tail) }];
+}
+
+const isLow = (unit: number) => unit >= 0xdc00 && unit <= 0xdfff;
 
 export function fakeHash(text: string): string {
   let h = 2166136261;
@@ -64,6 +100,11 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     files.set(path, typeof file === 'string' ? { content: file } : file);
   const listeners = new Set<(change: ExternalChange) => void>();
   const calls: FakeIpc['calls'] = [];
+  const watching = new Set<string>();
+  const history = new Map<string, { info: SnapshotInfo; content: string }[]>();
+  /** What the last known disk content was, so a change reports edits from it. */
+  const seen = new Map<string, string>();
+  let snapshots = 0;
   const record = <T>(command: string, args: unknown[], result: T): Promise<T> => {
     calls.push({ command, args });
     return Promise.resolve(result);
@@ -135,14 +176,69 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       return record('convert_document_to_utf8', [path], read(path));
     },
     allowDocumentImages: (path) => record('allow_document_images', [path], ok(null)),
-    watch: (path) => record('watch', [path], ok(null)),
-    unwatch: (path) => record('unwatch', [path], ok(null)),
-    merge3: (base, ours, theirs) =>
-      record('merge3', [base, ours, theirs], notImplemented('merge3')),
-    snapshot: (path, content, author) =>
-      record('snapshot', [path, content, author], notImplemented('snapshot')),
-    listSnapshots: (path) => record('list_snapshots', [path], notImplemented('list_snapshots')),
-    readSnapshot: (id) => record('read_snapshot', [id], notImplemented('read_snapshot')),
+    watch: (path) => {
+      watching.add(path);
+      seen.set(path, files.get(path)?.content ?? '');
+      return record('watch', [path], ok(null));
+    },
+    unwatch: (path) => {
+      watching.delete(path);
+      return record('unwatch', [path], ok(null));
+    },
+    /**
+     * The whole document as one hunk, which is the degenerate case of the
+     * real merge and enough for the shell: what the shell has to get
+     * right is applying what comes back and setting a conflict aside.
+     * Whether a hunk conflicts is decided in `crates/core/src/diff.rs`
+     * and tested there against the design's merge table.
+     */
+    merge3: (base, ours, theirs) => {
+      const result: MergeResult =
+        theirs === base || ours === theirs
+          ? { changes: [], conflicts: [] }
+          : ours === base
+            ? { changes: singleEdit(ours, theirs), conflicts: [] }
+            : {
+                changes: [],
+                conflicts: [{ from: 0, to: ours.length, ours, theirs }],
+              };
+      calls.push({ command: 'merge3', args: [base, ours, theirs] });
+      return Promise.resolve(result);
+    },
+    snapshot: (path, content, author) => {
+      const taken = history.get(path) ?? [];
+      const latest = taken[taken.length - 1];
+      if (latest?.content === content)
+        return record('snapshot', [path, content, author], ok(latest.info));
+      snapshots += 1;
+      const info: SnapshotInfo = {
+        id: `snapshot-${snapshots}`,
+        path,
+        author: author as SnapshotAuthor,
+        timestamp_ms: Date.now(),
+        hash: fakeHash(content),
+        byte_len: new TextEncoder().encode(content).length,
+      };
+      taken.push({ info, content });
+      history.set(path, taken);
+      return record('snapshot', [path, content, author], ok(info));
+    },
+    listSnapshots: (path) =>
+      record(
+        'list_snapshots',
+        [path],
+        ok([...(history.get(path) ?? [])].reverse().map((taken) => taken.info)),
+      ),
+    readSnapshot: (id) => {
+      const found = [...history.values()].flat().find((taken) => taken.info.id === id);
+      return record(
+        'read_snapshot',
+        [id],
+        found
+          ? ok(found.content)
+          : err<string>({ kind: 'unavailable', what: 'the history', message: `no snapshot ${id}` }),
+      );
+    },
     blockDiff: (oldBlocks: Block[], newBlocks: Block[]) =>
       record('block_diff', [oldBlocks, newBlocks], notImplemented<BlockOp[]>('block_diff')),
     listDir: (path) => record('list_dir', [path], notImplemented('list_dir')),
@@ -153,10 +249,32 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     commands,
     files,
     calls,
+    watching,
     externalWrite(path, content) {
+      const before = seen.get(path) ?? files.get(path)?.content ?? '';
       files.set(path, { content });
-      const change: ExternalChange = { path, content, hash: fakeHash(content), changes: [] };
+      seen.set(path, content);
+      const change: ExternalChange = {
+        path,
+        content,
+        hash: fakeHash(content),
+        changes: singleEdit(before, content),
+      };
       for (const cb of listeners) cb(change);
+      return change;
+    },
+    externalRemove(path) {
+      files.delete(path);
+      seen.delete(path);
+      return { path };
+    },
+    externalRename(from, to) {
+      const file = files.get(from);
+      if (file) files.set(to, file);
+      files.delete(from);
+      watching.delete(from);
+      seen.delete(from);
+      return { from, to };
     },
     onExternalChange(cb) {
       listeners.add(cb);

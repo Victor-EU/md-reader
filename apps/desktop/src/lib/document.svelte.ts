@@ -1,5 +1,10 @@
 import { EditorState, type Text } from '@codemirror/state';
-import { createEditorState, type EditorMode, type PreviewOptions } from '@mdreader/editor-core';
+import {
+  createEditorState,
+  type EditorMode,
+  type LineChange,
+  type PreviewOptions,
+} from '@mdreader/editor-core';
 import type { DocumentMeta } from '@mdreader/ipc';
 import { basename } from './paths.ts';
 
@@ -39,8 +44,12 @@ export class Doc {
   state: EditorState = $state.raw(EMPTY);
   /** The content on disk as we last saw it: the base for a merge (WP 1.7). */
   base: Text = $state.raw(EMPTY.doc);
-  /** What the reader has already seen; the Changes badge counts from here (WP 1.7). */
+  /** What the reader has already seen; the Changes badge counts from here. */
   reviewed: Text = $state.raw(EMPTY.doc);
+  /** Where the buffer differs from `reviewed`, for the gutter and the badge. */
+  changes = $state<LineChange[]>([]);
+  /** True while the file this document came from is not on disk (design 8). */
+  missing = $state(false);
   /** `Untitled 1` until the first save gives the document a path. */
   readonly untitledName: string;
   /**
@@ -91,6 +100,17 @@ export class Doc {
   markSaved(written: Text): void {
     this.base = written;
     this.reviewed = written;
+    this.changes = [];
+    this.missing = false;
+  }
+
+  /**
+   * The reader has seen everything in the buffer (design 4.4). What the
+   * gutter marks from here on is what happened after this moment.
+   */
+  markReviewed(): void {
+    this.reviewed = this.state.doc;
+    this.changes = [];
   }
 
   /** Replace the buffer, as opening or converting a file does. Undo resets. */
@@ -98,5 +118,6 @@ export class Doc {
     this.state = createEditorState(text, { mode, preview: this.previewOptions() });
     this.base = this.state.doc;
     this.reviewed = this.state.doc;
+    this.changes = [];
   }
 }
