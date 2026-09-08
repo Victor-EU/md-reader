@@ -77,6 +77,15 @@ import { basename, dirname, resolvePath, shortenDir, tabLabels } from './paths.t
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
 import { count, countWords, describeError, describeFormat } from './text.ts';
+import {
+  CHECK_INTERVAL_MS,
+  FIRST_CHECK_DELAY_MS,
+  IDLE,
+  reason,
+  reportCheck,
+  type Updater,
+  type UpdateState,
+} from './update.ts';
 
 /** The three projections of one buffer (design 4.2). */
 export type ViewMode = EditorMode | 'read';
@@ -162,6 +171,12 @@ export interface WorkspaceOptions {
   assetUrl?: (path: string) => string;
   /** Where copies go. The system clipboard unless a test says otherwise. */
   clipboard?: ClipboardWriter;
+  /**
+   * The updater (plan WP 1.12). Absent outside a bundled app, which is
+   * every browser build and every test that does not ask for one, and
+   * then the update commands report that there is nothing to check.
+   */
+  updater?: Updater;
 }
 
 /** What a file we create ourselves looks like until the user says otherwise. */
@@ -275,6 +290,10 @@ export class Workspace {
       drop: (event, view) => this.onDrop(event, view),
     }),
   ];
+  /** Where the updater has got to (plan WP 1.12). */
+  update = $state<UpdateState>(IDLE);
+  /** The running app's own version, which only Tauri knows. */
+  version = $state('');
   /** The find bar, and the query behind it (design 4.5). */
   find = $state<FindState>({
     open: false,
@@ -298,6 +317,7 @@ export class Workspace {
   private countTimer: ReturnType<typeof setTimeout> | null = null;
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
+  private updateTimer: ReturnType<typeof setInterval> | null = null;
   private sessionDelay = 0;
 
   constructor(readonly options: WorkspaceOptions) {}
@@ -1942,6 +1962,100 @@ export class Workspace {
     }
     await this.pushSession();
     await this.options.commands.flushState();
+  }
+
+  // --- the updater --------------------------------------------------------
+
+  /**
+   * Start looking for updates: once shortly after launch, then every few
+   * hours for as long as the window is open (plan WP 1.12).
+   *
+   * Both of those are automatic and both are silent unless they find
+   * something. Only `checkForUpdates(true)` — the command in the palette
+   * — reports back when there is nothing to report.
+   */
+  watchForUpdates(): void {
+    if (!this.options.updater || this.updateTimer !== null) return;
+    setTimeout(() => void this.checkForUpdates(), FIRST_CHECK_DELAY_MS);
+    this.updateTimer = setInterval(() => void this.checkForUpdates(), CHECK_INTERVAL_MS);
+  }
+
+  stopWatchingForUpdates(): void {
+    if (this.updateTimer === null) return;
+    clearInterval(this.updateTimer);
+    this.updateTimer = null;
+  }
+
+  /**
+   * Ask the endpoint whether there is a newer build.
+   *
+   * A check while one is already downloading is dropped: the answer
+   * cannot change what is happening, and letting it through would take
+   * the progress off the status bar.
+   */
+  async checkForUpdates(manual = false): Promise<void> {
+    const updater = this.options.updater;
+    if (!updater) {
+      if (manual) this.status = 'Updates are only checked in the installed app';
+      return;
+    }
+    if (this.update.phase === 'checking' || this.update.phase === 'installing') {
+      // Somebody pressed the command while an automatic check was in
+      // flight. Saying what is already happening beats saying nothing.
+      const already = reportCheck(this.update);
+      if (manual && already !== '') this.status = already;
+      return;
+    }
+    this.update = { phase: 'checking' };
+    if (manual) this.status = reportCheck(this.update);
+    try {
+      const found = await updater.check();
+      this.update = found ? { phase: 'available', update: found } : { phase: 'none' };
+    } catch (error) {
+      this.update = { phase: 'failed', message: reason(error) };
+    }
+    if (manual) this.status = reportCheck(this.update);
+  }
+
+  /** Download the update that was found and put it in place. */
+  async installUpdate(): Promise<void> {
+    const updater = this.options.updater;
+    if (!updater || this.update.phase !== 'available') return;
+    const update = this.update.update;
+    this.update = { phase: 'installing', update, fraction: null };
+    try {
+      await updater.install((fraction) => {
+        // A late progress callback must not resurrect a state the
+        // failure below has already moved on from.
+        if (this.update.phase === 'installing')
+          this.update = { phase: 'installing', update, fraction };
+      });
+      this.update = { phase: 'ready', update };
+    } catch (error) {
+      this.update = { phase: 'failed', message: reason(error) };
+      this.status = `Could not install the update — ${reason(error)}`;
+    }
+  }
+
+  /**
+   * Restart into the new build.
+   *
+   * The pending writes go out first. A relaunch is a close that the
+   * window never gets told about, so without this an autosave still on
+   * its 800 ms timer would be lost — which is exactly the sentence the
+   * reader would blame the update for.
+   */
+  async restartForUpdate(): Promise<void> {
+    const updater = this.options.updater;
+    if (!updater || this.update.phase !== 'ready') return;
+    await this.flushPending();
+    await updater.relaunch();
+  }
+
+  /** What the status bar's update cell does when it is pressed. */
+  async applyUpdate(): Promise<void> {
+    if (this.update.phase === 'available') return this.installUpdate();
+    if (this.update.phase === 'ready') return this.restartForUpdate();
   }
 
   // --- word count ---------------------------------------------------------

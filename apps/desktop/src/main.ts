@@ -1,4 +1,5 @@
 import { commands, events } from '@mdreader/ipc';
+import { getVersion } from '@tauri-apps/api/app';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -9,6 +10,7 @@ import App from './App.svelte';
 import './app.css';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
+import { tauriUpdater } from './lib/update.ts';
 
 const FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'] }];
 
@@ -29,6 +31,10 @@ const shell = createShell({
   // Images load over the asset protocol, whose scope Rust widens to each
   // opened document's folder (design 8). Outside Tauri nothing local loads.
   assetUrl: isTauri() ? (path) => convertFileSrc(path) : undefined,
+  // Only the installed app has anywhere to update from: a dev build's
+  // version is whatever the config says, and the endpoint would answer
+  // every launch with the release that is already running.
+  updater: isTauri() && import.meta.env.PROD ? tauriUpdater() : undefined,
 });
 
 // The system's light and dark, kept current for the settings that follow
@@ -98,6 +104,12 @@ if (!target) {
 const app = mount(App, { target, props: { shell } });
 
 // After the mount, so the window is drawing while the files are read.
-if (isTauri()) void boot();
+if (isTauri()) {
+  void boot();
+  void getVersion().then((version) => {
+    shell.workspace.version = version;
+  });
+  shell.workspace.watchForUpdates();
+}
 
 export default app;

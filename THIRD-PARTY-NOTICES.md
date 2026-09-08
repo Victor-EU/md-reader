@@ -13,8 +13,9 @@ package under `node_modules/@fontsource-variable/<name>/LICENSE`.
 Only the Latin and Latin Extended subsets are bundled; see
 `apps/desktop/src/fonts.css`.
 
-WP 1.12 packages the installers, and is where this file has to reach the
-bundle itself rather than only the repository.
+This file ships inside the application. On macOS it is at
+`MD Reader.app/Contents/Resources/THIRD-PARTY-NOTICES.md`; the Settings
+colophon says so.
 
 Every other dependency is a build-time or runtime library resolved by
 pnpm and Cargo; their licences are recorded in `pnpm-lock.yaml` and

@@ -309,6 +309,29 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: hasTab,
       run: () => workspace.cycle(-1),
     },
+    // The updater (plan WP 1.12). The status bar offers the same two
+    // actions where they can be seen; these are so the keyboard can
+    // reach them, and so the palette says what the app can do.
+    {
+      id: 'help.checkUpdates',
+      title: 'Check for Updates…',
+      group: 'Help',
+      run: () => workspace.checkForUpdates(true),
+    },
+    {
+      id: 'help.installUpdate',
+      title: 'Install Update',
+      group: 'Help',
+      enabled: () => workspace.update.phase === 'available',
+      run: () => workspace.installUpdate(),
+    },
+    {
+      id: 'help.restart',
+      title: 'Restart to Update',
+      group: 'Help',
+      enabled: () => workspace.update.phase === 'ready',
+      run: () => workspace.restartForUpdate(),
+    },
     ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => ({
       id: `go.tab${n}`,
       title: n === 9 ? 'Last Tab' : `Tab ${n}`,

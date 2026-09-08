@@ -6,9 +6,9 @@ import { type Binding, bindingMatches, formatBinding, parseBinding } from './key
  * derived from this list — the only way principle 6 stays true as commands
  * are added (build plan, WP 1.3).
  */
-export type MenuGroup = 'File' | 'Edit' | 'View' | 'Go';
+export type MenuGroup = 'File' | 'Edit' | 'View' | 'Go' | 'Help';
 
-export const MENU_ORDER: MenuGroup[] = ['File', 'Edit', 'View', 'Go'];
+export const MENU_ORDER: MenuGroup[] = ['File', 'Edit', 'View', 'Go', 'Help'];
 
 export interface CommandSpec {
   id: string;

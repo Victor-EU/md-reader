@@ -80,6 +80,15 @@ export default defineConfig({
       // plugin is a dependency of the app, not of the workspace root.
       './apps/desktop/vitest.browser.config.ts',
       {
+        // The release tooling: the updater manifest and the one version
+        // number the three manifests have to agree on (plan WP 1.12).
+        test: {
+          name: 'release',
+          environment: 'node',
+          include: ['tools/release/**/*.test.mjs'],
+        },
+      },
+      {
         // Excluded from `pnpm test`; run with `pnpm bench`. Writes JSON to tools/bench/results.
         test: {
           name: 'bench',

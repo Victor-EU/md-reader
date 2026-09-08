@@ -1,5 +1,6 @@
 <script lang="ts">
 import { MEASURE_RANGE, SIZES } from '../lib/appearance.ts';
+import { describeUpdate } from '../lib/update.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
 let { workspace }: { workspace: Workspace } = $props();
@@ -38,6 +39,9 @@ const FAMILIES = [
   { value: 'serif', label: 'Serif', note: 'Source Serif 4' },
   { value: 'mono', label: 'Mono', note: 'JetBrains Mono' },
 ] as const;
+
+/** What the updater has to say here, where the version is (WP 1.12). */
+const update = $derived(describeUpdate(workspace.update));
 
 const smallest = $derived(settings.size <= (SIZES[0] ?? 0));
 const largest = $derived(settings.size >= (SIZES.at(-1) ?? 0));
@@ -173,8 +177,22 @@ const largest = $derived(settings.size >= (SIZES.at(-1) ?? 0));
       </div>
     </section>
 
+    <section>
+      <h2>About</h2>
+      <p class="hint">
+        {#if workspace.version === ''}MD Reader{:else}MD Reader {workspace.version}{/if}
+      </p>
+      <div class="field">
+        <button type="button" class="choice" onclick={() => workspace.checkForUpdates(true)}>
+          Check for updates
+        </button>
+        {#if update !== ''}<span class="value">{update}</span>{/if}
+      </div>
+    </section>
+
     <p class="colophon">
       Set in Inter, Source Serif 4 and JetBrains Mono, all under the SIL Open Font License.
+      Third-party notices ship with the application.
     </p>
   </div>
 </main>

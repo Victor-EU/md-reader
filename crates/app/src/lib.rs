@@ -796,6 +796,11 @@ pub fn run(context: tauri::Context) {
         // Links in Read mode open in the system browser; the webview never
         // navigates away from the app (design 6.2).
         .plugin(tauri_plugin_opener::init())
+        // The updater and the restart it ends with (plan WP 1.12). The
+        // check itself is made from the webview, which is where the
+        // reader can be told about it; Rust only carries the plugin.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

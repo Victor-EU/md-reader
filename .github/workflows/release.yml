@@ -1,0 +1,209 @@
+name: Release
+
+# A tag is the whole trigger: `pnpm release:version 0.2.0`, commit, then
+# `git tag v0.2.0 && git push --tags`. The release is left as a draft, so
+# the notes can be written and the installers tried before any running
+# app can see the manifest (plan WP 1.12, and docs/release.md).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+permissions:
+  contents: write
+
+jobs:
+  bundle:
+    name: bundle (${{ matrix.platform }})
+    strategy:
+      # No fail-fast: one platform's signing problem should not throw away
+      # three other bundles that each took twenty minutes.
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-universal
+            os: macos-14
+            target: universal-apple-darwin
+            bundles: app,dmg
+          - platform: windows-x86_64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: msi
+          - platform: windows-aarch64
+            os: windows-2022
+            target: aarch64-pc-windows-msvc
+            bundles: msi
+          - platform: linux-x86_64
+            os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+    runs-on: ${{ matrix.os }}
+    env:
+      # The secrets are lifted into the environment here because a step's
+      # `if:` can read `env` and cannot read `secrets`.
+      UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail here, with a sentence, rather than inside a Rust build twenty
+      # minutes later. The updater key is required on every platform: a
+      # release whose manifest cannot be verified updates nobody.
+      - name: Check the signing secrets
+        shell: bash
+        run: |
+          if [ -z "$UPDATER_KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set — see docs/release.md"
+            exit 1
+          fi
+          if [ "$RUNNER_OS" = "macOS" ] && [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::No Developer ID certificate: this bundle will not be signed or notarized."
+          fi
+
+      - uses: ./.github/actions/setup
+
+      - name: Rust targets
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" = "universal-apple-darwin" ]; then
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          else
+            rustup target add ${{ matrix.target }}
+          fi
+
+      # The Developer ID certificate, into a keychain that exists only for
+      # this run. Skipped when the secret is absent, which leaves an
+      # unsigned bundle rather than no bundle at all.
+      - name: Import the Developer ID certificate
+        if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+
+      # The App Store Connect key notarization authenticates with. Written
+      # to a file because that is the only shape the notary tool takes.
+      - name: Write the notarization key
+        if: runner.os == 'macOS' && env.APPLE_API_KEY_BASE64 != ''
+        shell: bash
+        run: echo "$APPLE_API_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/api-key.p8"
+
+      - name: Build the bundle
+        shell: bash
+        env:
+          # The updater signature: what the manifest carries, and what
+          # every client checks before it installs anything.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Code signing and notarization. Tauri's CLI reads each of these
+          # itself and skips the half whose variables are empty.
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/api-key.p8
+        run: pnpm tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --ci
+
+      - name: Forget the notarization key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/api-key.p8"
+
+      # Two piles. `updater/` is the one signed artifact and its
+      # signature, which is all the manifest builder will look at — it
+      # refuses a directory holding two signatures, on purpose.
+      # `installers/` is what a person downloads and double-clicks.
+      - name: Collect
+        shell: bash
+        run: |
+          root="target/${{ matrix.target }}/release/bundle"
+          mkdir -p updater installers
+          find "$root" -name '*.sig' -print0 | while IFS= read -r -d '' sig; do
+            cp "$sig" updater/
+            cp "${sig%.sig}" updater/
+          done
+          find "$root" \( -name '*.dmg' -o -name '*.msi' -o -name '*.AppImage' -o -name '*.deb' \) \
+            -exec cp {} installers/ \;
+          ls -l updater installers
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: updater-${{ matrix.platform }}
+          path: updater/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.platform }}
+          path: installers/*
+          if-no-files-found: error
+
+  publish:
+    name: draft the release
+    needs: bundle
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Build the updater manifest
+        shell: bash
+        run: |
+          tag="$GITHUB_REF_NAME"
+          pairs=()
+          for dir in artifacts/updater-*; do
+            [ -d "$dir" ] || continue
+            pairs+=("$(basename "$dir" | sed 's/^updater-//')=$dir")
+          done
+          pnpm release:manifest \
+            --version "${tag#v}" \
+            --base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${tag}" \
+            --out latest.json \
+            "${pairs[@]}"
+          cat latest.json
+
+      # One flat directory of assets. The Windows `.msi` is both the
+      # installer and the updater artifact, so `cp -n` is what keeps it
+      # from being uploaded twice; the `.sig` files stay behind because
+      # their contents are already in the manifest.
+      - name: Gather the assets
+        shell: bash
+        run: |
+          mkdir -p release
+          for file in artifacts/updater-*/* artifacts/installers-*/*; do
+            case "$file" in *.sig) continue ;; esac
+            cp -n "$file" release/
+          done
+          ls -l release
+
+      # A draft. Publishing it is the moment the manifest becomes
+      # reachable at `releases/latest/download/latest.json` and every
+      # running app starts being offered the update.
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="$GITHUB_REF_NAME"
+          gh release create "$tag" --draft --title "$tag" --generate-notes \
+            latest.json release/*

@@ -18,7 +18,9 @@ tauri = { version = "2.11", features = ["protocol-asset"] }
 tauri-build = { version = "2.6" }
 tauri-plugin-dialog = "2.7"
 tauri-plugin-opener = "2.5"
+tauri-plugin-process = "2.3"
 tauri-plugin-single-instance = "2.4"
+tauri-plugin-updater = "2.11"
 base64 = "0.22"
 blake3 = { version = "1.8", features = ["pure"] }
 chardetng = "1.0"

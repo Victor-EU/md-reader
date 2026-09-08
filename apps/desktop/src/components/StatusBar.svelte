@@ -1,5 +1,6 @@
 <script lang="ts">
 import { describeFormat } from '../lib/text.ts';
+import { describeUpdate, updateAction } from '../lib/update.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
 let { workspace }: { workspace: Workspace } = $props();
@@ -30,6 +31,13 @@ const saveState = $derived.by(() => {
   if (doc.path === null) return 'Not saved yet';
   return doc.dirty ? 'Unsaved changes' : 'Saved';
 });
+/**
+ * The updater speaks here or nowhere (plan WP 1.12). There are no
+ * dialogs, and an update is never urgent enough to be one: it is a cell
+ * in the status bar that says what it is and does it when pressed.
+ */
+const update = $derived(describeUpdate(workspace.update));
+const updates = $derived(updateAction(workspace.update));
 </script>
 
 <div class="bar status">
@@ -41,4 +49,13 @@ const saveState = $derived.by(() => {
     {#if !workspace.settings.autosave}<span class="cell">Autosave off</span>{/if}
   {/if}
   <span class="message">{workspace.status}</span>
+  {#if update !== ''}
+    {#if updates === null}
+      <span class="cell update">{update}</span>
+    {:else}
+      <button type="button" class="cell update act" onclick={() => workspace.applyUpdate()}>
+        {update}
+      </button>
+    {/if}
+  {/if}
 </div>

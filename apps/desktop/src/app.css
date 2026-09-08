@@ -970,6 +970,27 @@ body,
   white-space: nowrap;
 }
 
+/* The updater's one cell (plan WP 1.12). It sits after the message so it
+   is the last thing on the line, and it is only there when it has
+   something to say. */
+.status .cell.update {
+  color: var(--accent);
+  font: inherit;
+}
+
+.status .cell.update.act {
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.status .cell.update.act:hover {
+  color: var(--bar-fg);
+}
+
 /* --- palette ------------------------------------------------------------ */
 
 .palette-scrim {

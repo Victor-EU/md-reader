@@ -5,6 +5,7 @@ Markdown viewer and editor for the AI round trip. Working title.
 - [Design](docs/markdown-app-design.md)
 - [Build plan](docs/markdown-app-build-plan.md)
 - [Decision records](docs/adr/)
+- [Releasing](docs/release.md)
 
 ## Layout
 
@@ -44,3 +45,26 @@ pnpm corpus:gen     # generate corpus files from a model API (needs a key; see t
 cargo clippy --workspace --all-targets
 cargo test --workspace
 ```
+
+## Releasing
+
+```
+pnpm release:version 0.2.0   # the version, in all three files that carry it
+pnpm release:version         # with no argument: what they say now
+```
+
+Then commit and push a `v0.2.0` tag; `.github/workflows/release.yml`
+builds, signs and drafts the release. What has to exist before any of
+that works — the Apple Developer Program enrollment, the repository
+secrets, and where the updater's private key lives — is in
+[docs/release.md](docs/release.md).
+
+`pnpm tauri build` on this machine needs `TAURI_SIGNING_PRIVATE_KEY` set
+to the contents of that key, because the config asks for updater
+artifacts. Without it the build stops after the bundle. To build without
+one, add `--config src-tauri/unsigned.conf.json`, which is what CI's
+nightly bundle does.
+
+The `.dmg` target additionally drives Finder over Apple Events to lay the
+window out, so the first local `--bundles dmg` will sit waiting on a
+permission prompt until Automation access is granted.

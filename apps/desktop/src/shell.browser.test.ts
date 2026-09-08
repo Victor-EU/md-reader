@@ -5,6 +5,8 @@ import App from './App.svelte';
 // The real stylesheet: layout, and the scrolling the read pane depends on.
 import './app.css';
 import { createShell, type Shell } from './lib/shell.svelte.ts';
+import type { Updater } from './lib/update.ts';
+import type { WorkspaceOptions } from './lib/workspace.svelte.ts';
 
 let target: HTMLDivElement;
 let app: Record<string, unknown>;
@@ -13,13 +15,14 @@ let ipc: FakeIpc;
 let picked: string[] = [];
 
 /** The shell as the user meets it: the real components over the fake IPC. */
-function start(files: Record<string, string> = {}) {
+function start(files: Record<string, string> = {}, extra: Partial<WorkspaceOptions> = {}) {
   ipc = createFakeIpc(files);
   shell = createShell({
     commands: ipc.commands,
     mac: true,
     pickFiles: async () => picked,
     pickSaveTarget: async () => '/new/untitled.md',
+    ...extra,
   });
   app = mount(App, { target, props: { shell } });
 }
@@ -457,5 +460,69 @@ describe('the marks on the keyboard', () => {
     expect(doc.text).toBe('One **two** three.\n');
     await pressInEditor('i', 'KeyI');
     expect(doc.text).toBe('One ***two*** three.\n');
+  });
+});
+
+describe('the updater in the chrome', () => {
+  const updater: Updater = {
+    check: async () => ({ version: '0.2.0' }),
+    install: async (onProgress) => onProgress(1),
+    relaunch: async () => {},
+  };
+
+  /** The status bar's update cell, when there is one. */
+  function cell(): HTMLElement | null {
+    return target.querySelector('.status .cell.update');
+  }
+
+  it('is a cell in the status bar that installs, then restarts', async () => {
+    start({}, { updater });
+    expect(cell()).toBeNull();
+
+    await shell.registry.get('help.checkUpdates').run();
+    await settle();
+    const found = cell();
+    expect(found?.textContent?.trim()).toBe('Version 0.2.0 is available');
+    // Pressable, because there is something to do about it.
+    expect(found?.tagName).toBe('BUTTON');
+
+    (found as HTMLButtonElement).click();
+    await settle();
+    expect(cell()?.textContent?.trim()).toBe('Version 0.2.0 is ready — restart to finish');
+  });
+
+  it('says nothing in the chrome when there is nothing to say', async () => {
+    start({}, { updater: { ...updater, check: async () => null } });
+    await shell.registry.get('help.checkUpdates').run();
+    await settle();
+    expect(cell()).toBeNull();
+    // The transient line still answers, because the reader asked.
+    expect(shell.workspace.status).toBe('MD Reader is up to date');
+  });
+
+  it('offers install and restart only when they are possible', async () => {
+    start({}, { updater });
+    const install = shell.registry.get('help.installUpdate');
+    const restart = shell.registry.get('help.restart');
+    expect(shell.registry.isEnabled(install)).toBe(false);
+    expect(shell.registry.isEnabled(restart)).toBe(false);
+
+    await shell.workspace.checkForUpdates();
+    expect(shell.registry.isEnabled(install)).toBe(true);
+    expect(shell.registry.isEnabled(restart)).toBe(false);
+
+    await shell.workspace.installUpdate();
+    expect(shell.registry.isEnabled(install)).toBe(false);
+    expect(shell.registry.isEnabled(restart)).toBe(true);
+  });
+
+  it('puts the version on the Settings tab', async () => {
+    start({}, { updater });
+    shell.workspace.version = '0.1.0';
+    shell.workspace.openSettings();
+    await settle();
+    const about = target.querySelector('.page-settings');
+    expect(about?.textContent).toContain('MD Reader 0.1.0');
+    expect(about?.textContent).toContain('Check for updates');
   });
 });

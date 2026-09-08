@@ -62,8 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
+      # No updater artifacts here: signing them needs the release key,
+      # which this workflow has no business holding. Releases are cut by
+      # release.yml on a tag.
       - name: Build unsigned bundle
-        run: pnpm tauri build --ci
+        run: pnpm tauri build --ci --config src-tauri/unsigned.conf.json
       - uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.os }}

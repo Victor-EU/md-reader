@@ -15,11 +15,16 @@ tauri-build = { workspace = true }
 
 [dependencies]
 mdreader-app = { workspace = true }
+# `generate_context!` emits the plugin configuration through serde_json
+# once any plugin is configured in tauri.conf.json (the updater is).
+serde_json = { workspace = true }
 tauri = { workspace = true }
 # Plugins must be direct dependencies of the crate that runs tauri-build,
 # otherwise their permissions are unknown to the capability check.
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-opener = { workspace = true }
+tauri-plugin-process = { workspace = true }
+tauri-plugin-updater = { workspace = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 tauri-plugin-single-instance = { workspace = true }
