@@ -1,0 +1,210 @@
+09:42:25 session start
+09:42:54 seg1: typing paragraph with inline marks
+09:43:07 seg1: list typed; now Enter twice to leave the list
+09:43:07 seg1: arrow up 4 lines into the list to check marker reveal
+09:43:09 seg1: callout, math, code fence
+09:43:16 seg1 done
+09:43:51 seg1 saved; reading source
+09:44:32 note seg1: '- -' and '> >' were my typist re-typing markers the editor auto-inserted on Enter (not a defect). Enter,Enter after the list exited the list; Enter,Enter after the quote body did NOT exit: fence ended up as '>```js' inside the quote.
+09:44:33 seg2: Enter-exit behaviour with editor-supplied markers
+09:44:42 seg2 saved
+09:44:42 seg3: typing a table
+09:44:48 seg3 typed+saved
+09:45:08 FINDING seg2: Enter on an empty continued item/quote/ordered item removes the marker but adds no blank line. The next paragraph typed there becomes a lazy continuation of the list item / quote in the source (e.g. '- item two' + 'after bullets' on the next line). Source is well-formed but not what a writer meant.
+09:45:08 harness note: after clicking Save the button keeps focus; seg3 keystrokes went nowhere. Re-clicking into the page before typing.
+09:45:09 seg3 (retry): typing a table
+09:45:16 seg3 saved
+09:45:45 note seg1 nested quote: Enter,Enter after a '> > ' line and typing a fence produced '>```js' (no space) — the exit from a nested quote left a bare '>' prefix. Secondary to the lazy-continuation finding.
+09:45:46 seg4: undo/redo and keyboard entry into the table from below
+09:45:50 seg4: ArrowUp x2 from the last line toward the table
+09:45:52 seg4: type into whatever is active, then Escape
+09:45:54 seg4 saved
+09:46:55 seg4 review: undo x2 / redo x1 stepped exactly (words, then line, then line back). ArrowUp x2 from the paragraph below entered cell (2,0) 'three'; typed X landed in the cell; Escape dropped the table to source. All fine.
+09:46:55 cosmetic seg2: clicking the blank line above a quote painted the active-line band across the page plus a block in the quote's gutter (sess-08).
+09:46:56 seg5: ArrowDown walk from the top, 8 presses per shot
+09:47:09 seg5: walk done (40 ArrowDown)
+09:47:57 seg5: marker typed after 40 ArrowDown; line containing @@:
+40:| @@Col A | Col B |
+09:48:15 seg5 result: after 40 ArrowDown from line 1 the cursor sat in header cell (0,0) 'Col A' (line 40). Expected line 41 / body row: either ArrowDown from the header cell did not move down once, or one key was lost. Marker undone; file back to 672 bytes.
+09:48:42 FINDING seg5: ArrowDown into the table widget activated header cell (0,0) while the table was still below the fold (walk-6). No scrollIntoView for a keyboard-activated cell; the first typed character scrolled it up (walk-7). Typing blind.
+09:48:42 seg6: click header cell, ArrowDown x1 -> type #1, ArrowDown -> #2, Tab -> #3, Tab (past last) -> #4
+09:48:48 seg6 saved; table lines:
+    38	### Table$
+    39	$
+    40	| Col A | Col B |$
+    41	|---|---|$
+    42	| #1one | two |$
+    43	| #2Xthree | four#3 |$
+    44	| #4| |$
+    45	$
+    46	Below the table.$
+09:49:27 seg6 review: header->body ArrowDown fine (#1 in 'one'). Tab puts the cursor at the END of the next cell ('four#3') while ArrowDown keeps column 0 ('#1one'). Tab past the last cell appended a row; typing into its first cell gives '| #4| |' (no space before the pipe) because the fresh row template is '| | |'.
+09:49:28 seg7: typing 451-char prose paragraph
+09:49:47 seg7 saved; byte check:
+EXACT: file == before + typed prose + pasted string
+09:50:12 seg8: Source toggle
+09:50:13 seg8: back to Edit
+09:50:15 seg8: Source->Edit->Save byte-identical
+09:50:15 seg9: Cmd+A, Delete, then Cmd+Z
+       0 /private/tmp/claude-501/-Users-victor-md-reader/928204b9-e30e-4a26-8b14-9651b6f55db6/scratchpad/session.md
+09:50:21 seg9: whole-doc delete + undo restores byte-identical
+09:50:21 input sources check:
+        "Bundle ID" = "com.apple.CharacterPaletteIM";
+09:50:46 FINDING seg7: bare '[like these]' in prose rendered as a link (blue, underlined, brackets hidden) although no definition exists; plain Markdown leaves it as text. The hidden brackets also left a leading space on the wrapped line (p-1).
+09:51:15 seg10: click the 'task a' checkbox
+34:- [x] task a
+09:51:17 seg11: click end of '### Table' heading, type ' Two'
+38:### Table
+09:51:20 seg13: click cell 'two', End, type ' x ' then Tab (trailing-space residual)
+| #1one | two x  |$
+09:51:23 seg12: click 'Below the table.', line start, Backspace x2 into the table
+    40	| Col A | Col B |$
+    41	|---|---|$
+    42	| #1one | two x  |$
+    43	| #2Xthree | four#3 |$
+    44	| #4| |Below the table.$
+    45	$
+    46	This is the long paragraph of the session, typed one key at a time to see whether the preview stays steady under sustained input. It has a comma, a semicolon; a colon: quotes "like this" and 'like that', numbers such as 1,234.56 and 2026-09-08, a question? An exclamation! Parentheses (with content) and brackets [like these] plus a slash/and a backslash. It goes on for a while so that the line wraps several times inside the page, and then it stops. �M-^]�京 �M-^_M-^M� café$
+09:51:27 seg12: undo x2
+09:52:01 seg10 ok: checkbox click -> '- [x] task a'.
+09:52:01 seg13 residual confirmed in WKWebView: ' x ' typed at cell end then Tab leaves '| two x  |' (trailing space kept as padding).
+09:52:01 FINDING seg12: Backspace at the start of the paragraph below a table: 1st removes the blank line, 2nd joins the paragraph onto the table's last row ('| #4| |Below the table.'). Undo x2 restored it exactly.
+09:52:02 seg14: free writing with editor-supplied markers, Tab indent, ordered list, second table
+09:52:23 seg14 saved
+09:53:21 harness: keystrokes went to the Open button (focus not in editor) -> file dialog opened expected-prose.md; no file written. Reopening session.md.
+09:53:43 seg14 (retry): free writing with editor-supplied markers, Tab indent, ordered list, second table
+09:54:04 seg14 saved
+09:54:56 seg15: Tab in a bullet item — where does focus go?
+focus after Tab: AXWebArea / MD Reader
+09:54:59 seg15: Tab in a plain paragraph
+focus after Tab in paragraph: AXWebArea / MD Reader
+09:55:01 seg15: Shift+Tab in a bullet
+focus after Shift+Tab: AXButton / 
+    49	$
+    50	$
+    51	- tab test$
+    52	plain para$
+    53	- shift tab test$
+09:55:35 FINDING seg15: Tab in the outer editor (bullet or paragraph) moves focus out of the editor (AXWebArea); Shift+Tab focuses a toolbar button. A writer pressing Tab to indent a list item loses the editor; the next Return presses Open.
+09:55:36 seg16: ordered list, closing paragraph, second table (no Tab)
+09:55:52 seg16: complete the bold marker
+09:55:53 seg16: backspace the closing marker again
+    53	- shift tab test$
+    54	## Free writing$
+    55	$
+    56	A second stretch of prose to fill the session with ordinary typing, the kind a person does wh
+    57	$
+    58	1. step one$
+    59	2. step two$
+    60	3. step three$
+    61	Closing paragraph after the ordered list.$
+    62	$
+    63	| Name | Qty |$
+    64	|---|---|$
+    65	| apple | 3 |$
+    66	| pear | 5 |$
+    67	$
+    68	End with **bold** done.$
+09:55:55 seg17: undo x40 then redo x40
+    1164 /private/tmp/claude-501/-Users-victor-md-reader/928204b9-e30e-4a26-8b14-9651b6f55db6/scratchpad/session.md
+09:56:09 seg17: undo x40 / redo x40 round-trip byte-identical
+09:56:39 seg18: slow prose (0.08s/key) with word-wise edits: Option+Left, Shift+Option+Left, forward delete
+09:57:28 seg18 saved
+09:58:33 harness: Option+Arrow keystrokes were intercepted by the Claude desktop quick-entry hotkey (popup with 'the' typed into it, s-1); 'stop to ' was forward-deleted from the last sentence by the stray sequence. Not an editor defect. No more Option combos.
+09:58:33 seg19: click inside the word 'flicker' in rendered prose, type X
+09:58:35 seg19b: Shift+click selection from 'Now' to 'stretch,' then type replacement
+68:Replaced text,
+09:59:31 seg20: reproduce — single click inside a rendered paragraph word, screenshot before typing
+56:Q
+62:| Name | Qty |
+10:01:11 seg20b: same click via CGEvent with clickState=1
+56:A second stretch of prose to fill the session with ordinary typQing, the kind a person does when 
+63:| Name | Qty |
+10:01:16 seg20c: CGEvent clickState=3 for comparison
+10:01:48 RESOLVED seg20: with a CGEvent single click (clickState=1) the caret landed inside 'typing' -> 'typQing'; no selection. The whole-paragraph selection came from System Events 'click at' being treated as a multi-click. NOT an editor defect. RETRACT the 'active-line band' cosmetic note (sess-08, t-2): those bands were triple-click selections from the same cause.
+10:01:48 seg21: real single click at the end of cell 'apple', type 's' with no navigation key
+65:| apple | 3 |
+10:01:51 seg22: click the rendered link in the first paragraph
+MD Reader
+10:02:27 seg21 note: my click used stale coordinates (layout had scrolled); redoing the cell gesture on sample-plan.md instead
+10:02:33 S3 natural gesture with raw single clicks, no navigation keys: click after 'Sam', Backspace x3, 'Lee', Tab, Backspace x5, '10-01', Save
+diff --git a/docs/manual-runs/sample-plan.md b/docs/manual-runs/sample-plan.md
+index a1e35d3..3497941 100644
+--- a/docs/manual-runs/sample-plan.md
++++ b/docs/manual-runs/sample-plan.md
+@@ -4,7 +4,7 @@ A short plan for the gate run. Edit the table below in place.
+ 
+ | Task | Owner | Due |
+ |---|---|---|
+-| Write the brief | Owner: Sam | 2026-09-15 |
++| Write the brief | Owner: Lee | 2026-10-01 |
+ | Review with the team | Owner: Ana | 2026-09-18 |
+ | Ship the first build | Owner: Lee | 2026-09-22 |
+ 
+00000000: 7c20 5772 6974 6520 7468 6520 6272 6965  | Write the brie
+00000010: 6620 7c20 4f77 6e65 723a 204c 6565 207c  f | Owner: Lee |
+00000020: 2032 3032 362d 3130 2d30 3120 7c0a        2026-10-01 |.
+10:03:19 seg22 result: clicking the rendered link did not navigate; focus stayed in the editor.
+10:03:19 S3 (raw clicks, no navigation keys): exact two-cell diff, 500 bytes.
+10:03:19 S3 CJK: raw click after 'Lee', Backspace x3, paste 東京, Save
+-| Write the brief | Owner: Sam | 2026-09-15 |
++| Write the brief | Owner: 東京 | 2026-10-01 |
+00000000: 7c20 5772 6974 6520 7468 6520 6272 6965  | Write the brie
+00000010: 6620 7c20 4f77 6e65 723a 20e6 9db1 e4ba  f | Owner: .....
+00000020: ac20 7c20 3230 3236 2d31 302d 3031 207c  . | 2026-10-01 |
+00000030: 0a                                       .
+     503 docs/manual-runs/sample-plan.md
+10:03:22 all other lines byte-identical
+10:03:29 seg23: closing stretch at 0.12s/key until the 30-minute mark
+10:04:54 seg23 saved; session end
+10:05:38 seg24: raw clicks into rendered content, then typing (no navigation keys)
+10:05:47 seg24 saved; diff of the five insertions:
+> Writing the firs longt paragraph to see the live preview behave while typing. It has **b
+> ## What I tried today
+> - first list item edited
+> > > body of the callout with $x^2$ math and ==marked==
+> After the fence. Yes.
+10:05:47 seg24: slow re-read pass — ArrowDown through the top of the document at reading pace
+10:06:08 session end (active use since 09:42:25)
+10:06:34 seg24 note: 'firs longt' is my x-aim one glyph short; caret placement itself was exact in all five blocks.
+10:06:35 seg25: Enter x3 after a list item (writer's workaround for the missing blank line)
+10:06:41 seg25: Backspace on an auto-inserted marker
+10:06:44 seg25: quote, then Enter x3
+    76	$
+    77	The last stretch is just writing. Nothing clever, no tables, no lists, only sentences typed at something like a real pace so the editor has to keep up with a person rather than a script. If anything stutters, drops a character, or moves the view without being asked, this is where it would show. So far the text has arrived as typed, the preview has kept pace, and the file on disk has matched the keystrokes every time it was checked. A second paragraph of the closing, with an *emphasised* phrase and a `code span` in the middle, and a sentence that ends on a number like 42. Then a final line to say that the session is done.$
+    78	$
+    79	### Enter x3 test$
+    80	$
+    81	- alpha$
+    82	- beta$
+    83	$
+    84	gamma paragraph$
+    85	$
+    86	- one$
+    87	  two after backspace$
+    88	  $
+    89	  > quoted$
+    90	$
+    91	after quote x3$
+10:06:49 seg25: final slow read-through with the mouse wheel
+10:06:56 session end; wall clock 24 min 31 s since 09:42:25
+10:07:31 FINDING seg25: Backspace on an empty auto-inserted '- ' item does not cancel the bullet; it leaves a 2-space indent ('  two after backspace') and the indent persists on the following lines, so a later '> quoted' became '  > quoted' inside the list item. Enter x3 after an item does give the blank line (workaround for the Enter x2 lazy-continuation finding).
+10:07:32 seg26: Backspace on empty auto-inserted items: ordered and task lists
+10:07:45 seg26: slow prose to the 30-minute mark
+    92	$
+    93	1. first$
+    94	   after ordered backspace$
+    95	   $
+    96	   - [ ] task$
+    97	         after task backspace$
+    98	         $
+    99	         - x$
+   100	         after two backspaces$
+   101	         $
+   102	         A last paragraph, typed slowly, about what it felt like to use t
+10:10:05 session end; wall clock 27 min 40 s since 09:42:25
+10:10:45 FINDING seg26: the indent from a cancelled marker accumulates: '1. '->3 spaces, a task item typed inside it then cancelled ->9 spaces; everything typed afterwards (including the closing paragraph) sits 9 spaces deep in the source, nested in the list, while the preview shows it flush left. The writer cannot see it.
+10:10:45 seg27: read-through at reading pace: Cmd+Up, then 60 ArrowDown at 0.5s, screenshots at 20 and 60
+10:11:27 read-through changed nothing: file still     3601 bytes
+10:11:27 SESSION END; wall clock 29 min 2 s since 09:42:25
+10:11:51 CORRECTION to the 10:10:45 note: the 9-space-deep content did not render flush left; the preview showed '- x', 'after two backspaces' and the whole closing paragraph as an indented CODE BLOCK (fin-1). The 2-space case (seg25) rendered flush left as a list continuation.
