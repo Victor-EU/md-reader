@@ -11,11 +11,13 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@codemirror/state": "~6.7.4",
+    "@codemirror/view": "~6.43.11",
     "@mdreader/editor-core": "workspace:*",
+    "@mdreader/ipc": "workspace:*",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.3",
-    "svelte": "^5.57.0",
-    "@mdreader/ipc": "workspace:*"
+    "svelte": "^5.57.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",

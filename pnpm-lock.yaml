@@ -133,6 +133,12 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@codemirror/state':
+        specifier: ~6.7.4
+        version: 6.7.4
+      '@codemirror/view':
+        specifier: ~6.43.11
+        version: 6.43.11
       '@mdreader/editor-core':
         specifier: workspace:*
         version: link:../../packages/editor-core

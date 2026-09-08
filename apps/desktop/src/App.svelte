@@ -1,101 +1,57 @@
 <script lang="ts">
-import { createEditor, type Editor, type EditorMode } from '@mdreader/editor-core';
-import { commands, type DocumentMeta, type Error as IpcError } from '@mdreader/ipc';
-import { open } from '@tauri-apps/plugin-dialog';
-import { onMount } from 'svelte';
+import EditorPane from './components/EditorPane.svelte';
+import Palette from './components/Palette.svelte';
+import StatusBar from './components/StatusBar.svelte';
+import TabStrip from './components/TabStrip.svelte';
+import Toolbar from './components/Toolbar.svelte';
+import { fileUrlToPath } from './lib/paths.ts';
+import type { Shell } from './lib/shell.svelte.ts';
 
-let host: HTMLElement;
-let editor: Editor | undefined;
-let meta = $state<DocumentMeta | null>(null);
-let status = $state('No file open. Press Open to pick a markdown file.');
-let mode = $state<EditorMode>('edit');
+let { shell }: { shell: Shell } = $props();
+const workspace = $derived(shell.workspace);
+const registry = $derived(shell.registry);
 
-onMount(() => {
-  editor = createEditor(host, '');
-  return () => editor?.destroy();
-});
-
-function describe(m: DocumentMeta): string {
-  const f = m.format;
-  const parts = [
-    `${m.byte_len} bytes`,
-    f.encoding,
-    f.eol + (f.mixed_eol ? ' (mixed)' : ''),
-    f.bom ? 'BOM' : null,
-    m.read_only ? 'read-only' : null,
-  ];
-  return parts.filter(Boolean).join(' · ');
+/**
+ * The whole keymap, derived from the command registry. A key the editor
+ * has already handled arrives with `defaultPrevented` set and is left
+ * alone; anything bound to a command belongs to the shell, enabled or not,
+ * so it never falls through to the webview's own default.
+ */
+function keydown(event: KeyboardEvent) {
+  if (event.defaultPrevented) return;
+  const command = registry.forEvent(event);
+  if (!command) return;
+  event.preventDefault();
+  registry.run(command.id);
 }
 
-function describeError(e: IpcError): string {
-  switch (e.kind) {
-    case 'hash_mismatch':
-      return `${e.path} changed on disk; reload before saving`;
-    case 'read_only_encoding':
-      return `${e.path} is ${e.encoding}; convert to UTF-8 to edit`;
-    case 'not_implemented':
-      return `${e.command} is not implemented yet`;
-    default:
-      return e.message;
-  }
-}
-
-async function pickAndOpen() {
-  const picked = await open({
-    multiple: false,
-    directory: false,
-    filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
-  });
-  if (typeof picked !== 'string') return;
-  const result = await commands.openDocument(picked);
-  if (result.status === 'error') {
-    status = describeError(result.error);
-    return;
-  }
-  editor?.setDoc(result.data.content);
-  meta = result.data.meta;
-  status = describe(result.data.meta);
-}
-
-async function save() {
-  if (!meta || !editor) return;
-  const result = await commands.saveDocument(meta.path, editor.getDoc(), meta.hash, meta.format);
-  if (result.status === 'error') {
-    status = describeError(result.error);
-    return;
-  }
-  meta = { ...meta, ...result.data };
-  status = `Saved · ${describe(meta)}`;
-}
-
-async function convert() {
-  if (!meta) return;
-  const result = await commands.convertDocumentToUtf8(meta.path);
-  if (result.status === 'error') {
-    status = describeError(result.error);
-    return;
-  }
-  editor?.setDoc(result.data.content);
-  meta = result.data.meta;
-  status = `Converted · ${describe(meta)}`;
-}
-
-function toggleMode() {
-  mode = mode === 'edit' ? 'source' : 'edit';
-  editor?.setMode(mode);
+/**
+ * Files dropped on the window. Under Tauri the webview reports the drop
+ * itself with real paths (see `main.ts`); this is the same gesture in a
+ * plain browser, where the OS hands over `text/uri-list`.
+ */
+function drop(event: DragEvent) {
+  const list = event.dataTransfer?.getData('text/uri-list') ?? '';
+  const paths = list
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'))
+    .map(fileUrlToPath)
+    .filter((path): path is string => path !== null);
+  if (paths.length === 0) return;
+  event.preventDefault();
+  void workspace.openPaths(paths);
 }
 </script>
 
-<div class="frame">
-  <header class="bar">
-    <button type="button" onclick={pickAndOpen}>Open</button>
-    <button type="button" onclick={save} disabled={meta === null || meta.read_only}>Save</button>
-    {#if meta?.read_only}
-      <button type="button" onclick={convert}>Convert to UTF-8</button>
-    {/if}
-    <button type="button" onclick={toggleMode}>{mode === 'edit' ? 'Source' : 'Edit'}</button>
-    <span class="path">{meta?.path ?? ''}</span>
-  </header>
-  <main class="page" bind:this={host}></main>
-  <footer class="bar status">{status}</footer>
+<svelte:window onkeydown={keydown} />
+
+<div class="frame" ondragover={(event) => event.preventDefault()} ondrop={drop} role="application">
+  <TabStrip {workspace} />
+  <Toolbar {workspace} />
+  <EditorPane {workspace} />
+  <StatusBar {workspace} />
+  {#if workspace.palette.open}
+    <Palette {workspace} {registry} />
+  {/if}
 </div>

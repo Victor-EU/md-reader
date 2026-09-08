@@ -42,6 +42,20 @@ export default defineConfig({
         },
       },
       {
+        // The shell's framework-free logic: keys, scoring, the command
+        // registry, tab arithmetic. No DOM, no Svelte runtime.
+        test: {
+          name: 'desktop',
+          environment: 'node',
+          include: ['apps/desktop/src/**/*.test.ts'],
+          exclude: ['**/*.browser.test.ts'],
+        },
+      },
+      // The shell itself: rune stores and mounted components, driven with
+      // the fake IPC, on both engines. Its own file, because the Svelte
+      // plugin is a dependency of the app, not of the workspace root.
+      './apps/desktop/vitest.browser.config.ts',
+      {
         // Excluded from `pnpm test`; run with `pnpm bench`. Writes JSON to tools/bench/results.
         test: {
           name: 'bench',
