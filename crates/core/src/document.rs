@@ -229,7 +229,7 @@ pub fn save_document(
         }
     }
     let out = encode(content, format, disk.as_deref());
-    atomic::replace(path, &out).map_err(|e| write_error(path, &e))?;
+    atomic::replace(path, &out, atomic::Create::AsUser).map_err(|e| write_error(path, &e))?;
     Ok(SaveResult {
         hash: hash_bytes(&out),
         byte_len: out.len() as u64,
@@ -250,7 +250,7 @@ pub fn convert_to_utf8(path: &Path) -> Result<Document, Error> {
         ..doc.meta.format
     };
     let out = encode(&doc.content, &format, None);
-    atomic::replace(path, &out).map_err(|e| write_error(path, &e))?;
+    atomic::replace(path, &out, atomic::Create::AsUser).map_err(|e| write_error(path, &e))?;
     read_document(path)
 }
 

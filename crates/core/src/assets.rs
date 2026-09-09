@@ -163,7 +163,8 @@ pub fn store_asset(document: &Path, name: &str, bytes: &[u8]) -> Result<AssetWri
     std::fs::create_dir_all(&dir).map_err(|e| write_error(&dir, &e.to_string()))?;
     let (path, fresh) = place(&dir, &safe_stem(name), ext, &hash_bytes(bytes))?;
     if fresh {
-        atomic::replace(&path, bytes).map_err(|e| write_error(&path, &e.to_string()))?;
+        atomic::replace(&path, bytes, atomic::Create::AsUser)
+            .map_err(|e| write_error(&path, &e.to_string()))?;
     }
     let file = path
         .file_name()

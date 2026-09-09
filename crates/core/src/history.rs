@@ -370,7 +370,8 @@ impl History {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir).map_err(|e| failed("create the blob directory", &e))?;
         }
-        crate::atomic::replace(&path, &packed).map_err(|e| failed("write the snapshot", &e))
+        crate::atomic::replace(&path, &packed, crate::atomic::Create::Private)
+            .map_err(|e| failed("write the snapshot", &e))
     }
 
     fn read_blob(&self, hash: &str) -> Result<String, Error> {

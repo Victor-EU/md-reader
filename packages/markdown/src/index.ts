@@ -13,7 +13,9 @@ export {
   type CommentRecord,
   classifyComment,
   commentParts,
+  commentSpans,
   comments,
+  type Span,
   type TextSource,
 } from './annotate/comments.ts';
 export {

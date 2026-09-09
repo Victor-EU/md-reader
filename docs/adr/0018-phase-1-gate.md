@@ -102,10 +102,39 @@ where every other tool's are 644. Doing it properly means honouring the
 umask, which needs a `libc` dependency and a read that is not thread-safe;
 that is a decision to take deliberately, not inside a gate run.
 
+> **Fixed, 2026-09-09.** The premise was wrong: nothing has to read the
+> umask. `tempfile` passes a requested mode to `open`, so asking for 0666
+> has the *kernel* apply the umask, exactly as it does for every other
+> program that creates a file. No `libc`, no `umask(umask(0))`, no window
+> in which another thread's files come out wrong.
+>
+> It did surface a second question the finding had not. `atomic::replace`
+> is the one write path for documents *and* for the snapshot store and
+> session state, so honouring the umask everywhere would have opened files
+> holding the reader's text to anyone else on the machine — 0755 data
+> directories on Linux, where 0600 had been protecting them by accident.
+> The call now takes an `atomic::Create`, and each of the five sites says
+> which it means.
+
 **The word count includes comment text.** A `<!-- note: … -->` is markup the
 reader hid for a model, not prose they wrote, and one note moved the count
 from 212 to 220. Design 4.1 says only "word count", so this is a question to
 answer rather than a bug to fix.
+
+> **Answered, 2026-09-09: they do not count.** A note is not something the
+> writer wrote, so annotating a paragraph must not make it longer; a count
+> that climbs while you mark up the draft is one you stop believing. The
+> rule is what the reader is shown, which makes it the parser's question
+> rather than a regular expression's — `<!-- -->` inside a fenced block
+> *is* shown, and is counted. `commentSpans` walks the same tree the
+> outline uses and stops at `-->` rather than at the end of the node,
+> because a block comment runs to the end of its line and what follows the
+> close mark is still rendered.
+>
+> Frontmatter is still counted, and the same rule says it should be: the
+> reader is shown it, as the properties panel of design 5.1. Whether the
+> keys and values of that panel are prose the writer wrote is a different
+> question from this one, and is left open.
 
 **Windows.** Not run, and not runnable: there is no Windows machine. The
 first and fourth criteria say "on both platforms", so they are half met by

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parser } from '../parser.ts';
-import { classifyComment, comments } from './comments.ts';
+import { classifyComment, commentSpans, comments } from './comments.ts';
 
 describe('classifyComment', () => {
   it.each([
@@ -49,5 +49,37 @@ describe('comments', () => {
     expect(comments(parser.parse(doc), text)).toEqual([
       { kind: 'keep', text: 'b', from: 2, to: 18, block: false },
     ]);
+  });
+});
+
+describe('commentSpans', () => {
+  const spans = (doc: string) => commentSpans(parser.parse(doc), doc).map((s) => [s.from, s.to]);
+  const hidden = (doc: string) =>
+    commentSpans(parser.parse(doc), doc).map((s) => doc.slice(s.from, s.to));
+
+  it('covers every comment, annotation or not', () => {
+    expect(hidden('One <!-- note: a --> two <!-- whatever --> three.\n')).toEqual([
+      '<!-- note: a -->',
+      '<!-- whatever -->',
+    ]);
+  });
+
+  it('stops at the close mark, not at the end of the block', () => {
+    // The parser makes this whole line one CommentBlock, but everything
+    // after `-->` is rendered, so it is not hidden.
+    const doc = '<!-- note: a --> and then some words.\n';
+    expect(spans(doc)).toEqual([[0, 16]]);
+    expect(doc.slice(16)).toBe(' and then some words.\n');
+  });
+
+  it('leaves a comment inside a fence alone, because the reader is shown it', () => {
+    expect(spans('```html\n<!-- note: a -->\n```\n')).toEqual([]);
+  });
+
+  it('runs an unterminated comment to the end the parser gave it', () => {
+    const doc = 'A\n\n<!-- note: never closed\n';
+    const [span] = spans(doc);
+    expect(span?.[0]).toBe(3);
+    expect(doc.slice(span?.[1] ?? 0)).toBe('');
   });
 });

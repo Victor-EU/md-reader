@@ -268,4 +268,16 @@ describe('the file palette', () => {
     workspace.countNow();
     expect(workspace.words).toBe(4);
   });
+
+  it('does not count a note as words the reader wrote', async () => {
+    open({ '/a.md': 'one two three\n' });
+    await workspace.openPath('/a.md');
+    expect(workspace.words).toBe(3);
+    edit();
+    // What the Phase 1 gate found: leaving a note made the document longer
+    // than the writer had written it.
+    workspace.view?.dispatch({ changes: { from: 13, insert: ' <!-- note: four five six -->' } });
+    workspace.countNow();
+    expect(workspace.words).toBe(3);
+  });
 });

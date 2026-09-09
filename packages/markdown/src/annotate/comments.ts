@@ -78,6 +78,41 @@ function slice(doc: TextSource, from: number, to: number): string {
   return typeof doc === 'string' ? doc.slice(from, to) : doc.sliceString(from, to);
 }
 
+/** A range of source, as the document counts offsets. */
+export interface Span {
+  from: number;
+  to: number;
+}
+
+const CLOSE = '-->';
+
+/**
+ * Every comment in a tree as a source range, in document order --
+ * annotations and plain remarks alike, because the reader is shown neither.
+ *
+ * The range stops at `-->` rather than at the end of the node. A
+ * `CommentBlock` runs to the end of the line holding the close mark, and
+ * anything after it on that line belongs to the block but is still
+ * rendered, so ending at the node would swallow words the reader can see.
+ * An unterminated comment has no close mark and runs to the end of the
+ * node, which is as far as the parser thinks it goes.
+ */
+export function commentSpans(tree: Tree, doc: TextSource): Span[] {
+  const found: Span[] = [];
+  tree.iterate({
+    enter(node) {
+      if (node.name !== 'Comment' && node.name !== 'CommentBlock') return;
+      const close = slice(doc, node.from, node.to).indexOf(CLOSE);
+      found.push({
+        from: node.from,
+        to: close === -1 ? node.to : node.from + close + CLOSE.length,
+      });
+      return false;
+    },
+  });
+  return found;
+}
+
 /**
  * Every annotation comment in a tree, in document order. A post-pass over
  * the stock `Comment` and `CommentBlock` nodes; the tree is not changed.

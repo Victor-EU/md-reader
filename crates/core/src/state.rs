@@ -432,7 +432,7 @@ where
             path: path.to_path_buf(),
             message: error.to_string(),
         })?;
-        atomic::replace(path, &json).map_err(|error| Error::Write {
+        atomic::replace(path, &json, atomic::Create::Private).map_err(|error| Error::Write {
             path: path.to_path_buf(),
             message: error.to_string(),
         })?;
