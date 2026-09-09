@@ -1,6 +1,6 @@
 <script lang="ts">
 import type { SnapshotInfo } from '@mdreader/ipc';
-import { authorName, snapshotSize, snapshotTime } from '../lib/history.ts';
+import { snapshotSize, snapshotTime, versionAuthor } from '../lib/history.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
 let { workspace }: { workspace: Workspace } = $props();
@@ -54,7 +54,7 @@ function opening(info: SnapshotInfo): string {
             onclick={() => void workspace.compareWith(info)}
           >
             <span class="when">{snapshotTime(info)}</span>
-            <span class="who">{authorName(info.author)}</span>
+            <span class="who">{versionAuthor(info)}</span>
             <span class="size">{snapshotSize(info.byte_len)}</span>
           </button>
           <div class="acts">

@@ -19,7 +19,7 @@ use std::ops::Range;
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 
 use crate::diff::distance_floor;
-use crate::types::{Block, BlockOp, WordRun};
+use crate::types::{AgentChange, AgentOp, Block, BlockOp, WordRun};
 
 /// How far apart two block lists may be before the alignment is not
 /// worth its time, for the same reason `diff.rs` has the bound on lines,
@@ -440,6 +440,43 @@ pub fn block_diff(old: &[Block], new: &[Block]) -> Vec<BlockOp> {
     emit(&slots, old, new, &old_fate, &new_fate)
 }
 
+/// The alignment as an agent reads it (design 9, plan WP 3.1).
+///
+/// The same `block_diff` the gutter is drawn from, flattened into one
+/// record per block that moved. Two differences from [`BlockOp`], both
+/// because the audience is different: the blocks that did not change are
+/// left out, since an agent asking what changed does not want the rest
+/// of the document back; and each record carries the text rather than an
+/// index into a list the agent never saw.
+#[must_use]
+pub fn agent_changes(old: &[Block], new: &[Block]) -> Vec<AgentChange> {
+    block_diff(old, new)
+        .into_iter()
+        .filter_map(|op| {
+            let (op, gone, fresh) = match op {
+                BlockOp::Equal { .. } => return None,
+                BlockOp::Changed { old, new, .. } => (AgentOp::Changed, Some(old), Some(new)),
+                BlockOp::Moved { old, new } => (AgentOp::Moved, Some(old), Some(new)),
+                BlockOp::Inserted { new } => (AgentOp::Inserted, None, Some(new)),
+                BlockOp::Deleted { old } => (AgentOp::Deleted, Some(old), None),
+            };
+            let gone = gone.and_then(|index| old.get(index as usize));
+            let fresh = fresh.and_then(|index| new.get(index as usize));
+            Some(AgentChange {
+                op,
+                // Where it is now, or what it was where it is not.
+                kind: fresh.or(gone)?.kind.clone(),
+                old: gone.map(|block| block.text.clone()).unwrap_or_default(),
+                new: fresh.map(|block| block.text.clone()).unwrap_or_default(),
+                // A block that is gone is nowhere, which is not the same
+                // as being at offset zero.
+                from: fresh.map(|block| block.from),
+                to: fresh.map(|block| block.to),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::fmt::Write as _;
@@ -450,7 +487,7 @@ mod tests {
     /// a flattened document looks like. The ranges are not what this
     /// module reasons about — it answers in indices — but they are what
     /// the frontend puts back, so they are real here too.
-    fn blocks(rows: &[(&str, &str)]) -> Vec<Block> {
+    pub(super) fn blocks(rows: &[(&str, &str)]) -> Vec<Block> {
         let mut at = 0u32;
         rows.iter()
             .map(|(kind, text)| {
@@ -730,5 +767,69 @@ mod tests {
     #[test]
     fn two_empty_documents_align_to_nothing() {
         assert!(block_diff(&[], &[]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod agent {
+    use super::tests::blocks;
+    use super::*;
+
+    /// What an agent gets back is the alignment with the quiet blocks
+    /// taken out and the text put in.
+    #[test]
+    fn only_the_blocks_that_moved_and_what_they_say() {
+        let old = blocks(&[
+            ("paragraph", "The brief is due Friday."),
+            ("paragraph", "Two reviewers have signed off."),
+            ("paragraph", "Costs are unchanged."),
+        ]);
+        let new = blocks(&[
+            ("paragraph", "The brief is due Friday."),
+            ("paragraph", "Three reviewers have signed off."),
+            ("heading", "Costs"),
+            ("paragraph", "Costs are unchanged."),
+        ]);
+        let changes = agent_changes(&old, &new);
+        assert_eq!(
+            changes.len(),
+            2,
+            "the paragraph nobody touched is not a change: {changes:#?}"
+        );
+
+        let edited = &changes[0];
+        assert_eq!(edited.op, AgentOp::Changed);
+        assert_eq!(edited.old, "Two reviewers have signed off.");
+        assert_eq!(edited.new, "Three reviewers have signed off.");
+        assert_eq!(edited.from, Some(new[1].from));
+        assert_eq!(edited.to, Some(new[1].to));
+
+        let arrived = &changes[1];
+        assert_eq!(arrived.op, AgentOp::Inserted);
+        assert_eq!(arrived.kind, "heading");
+        assert_eq!(arrived.old, "", "there was nothing there before");
+        assert_eq!(arrived.new, "Costs");
+    }
+
+    #[test]
+    fn a_block_that_is_gone_is_nowhere() {
+        let old = blocks(&[("paragraph", "Kept."), ("paragraph", "Cut.")]);
+        let new = blocks(&[("paragraph", "Kept.")]);
+        let changes = agent_changes(&old, &new);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].op, AgentOp::Deleted);
+        assert_eq!(changes[0].old, "Cut.");
+        assert_eq!(changes[0].new, "");
+        assert_eq!(
+            (changes[0].from, changes[0].to),
+            (None, None),
+            "not offset zero, which is a place in the document"
+        );
+    }
+
+    #[test]
+    fn nothing_changed_is_no_changes() {
+        let same = blocks(&[("paragraph", "As it was.")]);
+        assert!(agent_changes(&same, &same).is_empty());
     }
 }

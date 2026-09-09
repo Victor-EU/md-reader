@@ -36,6 +36,22 @@ notify-debouncer-full = "0.6"
 rusqlite = { version = "0.38", features = ["bundled"] }
 zstd = "0.13"
 tempfile = "3.27"
+getrandom = "0.3"
+# The MCP server of design 9. `default-features = false` drops the base64
+# and client halves; what is left is the server, the tool macros, and the
+# streamable HTTP transport the plan asks for.
+rmcp = { version = "3.2", default-features = false, features = [
+  "server",
+  "macros",
+  "transport-streamable-http-server",
+] }
+schemars = "1.0"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower-service = "0.3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "io-std", "sync", "time", "macros"] }
 proptest = "1.11"
 specta = { version = "=2.0.0-rc.25", features = ["derive"] }
 specta-typescript = "0.0.12"

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { describeAgent } from '../lib/agent.ts';
 import { count, describeFormat } from '../lib/text.ts';
 import { describeUpdate, updateAction } from '../lib/update.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
@@ -48,6 +49,19 @@ const updates = $derived(updateAction(workspace.update));
  * switching to Edit if that is where the widget is (scenario S5).
  */
 const conflicts = $derived(workspace.unsettled === 0 ? '' : count(workspace.unsettled, 'conflict'));
+/**
+ * The agent server (design 9). A cell rather than an icon because it is
+ * a fact about this window and not an alarm, and a button because the
+ * one thing a reader wants from it is the configuration to paste into
+ * whatever they want to connect.
+ */
+const agent = $derived(describeAgent(workspace.agent));
+/** Where the port and the token are written, for whoever wants to know. */
+const endpoint = $derived(
+  workspace.agent.endpoint === null
+    ? 'Copy the configuration for an agent client'
+    : `Copy the configuration for an agent client · ${workspace.agent.endpoint}`,
+);
 </script>
 
 <div class="bar status">
@@ -72,6 +86,16 @@ const conflicts = $derived(workspace.unsettled === 0 ? '' : count(workspace.unse
       </button>
     {/if}
     {#if !workspace.settings.autosave}<span class="cell">Autosave off</span>{/if}
+  {/if}
+  {#if agent !== ''}
+    <button
+      type="button"
+      class="cell act"
+      title={endpoint}
+      onclick={() => void workspace.copyAgentConfig()}
+    >
+      {agent}
+    </button>
   {/if}
   <span class="message">{workspace.status}</span>
   {#if update !== ''}

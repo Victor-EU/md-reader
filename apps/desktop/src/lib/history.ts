@@ -22,6 +22,21 @@ export function authorName(author: SnapshotAuthor): string {
 }
 
 /**
+ * Who left this version, as the row says it.
+ *
+ * An agent that came in over MCP gave its name (design 9), and the name
+ * is the answer: "just before the agent touched it" is a row a reader
+ * finds faster when the row says `claude` than when every one of them
+ * says `Agent`. A version with no name falls back to the hand that took
+ * it, which is every version this app took before plan WP 3.1 and every
+ * version nobody signed.
+ */
+export function versionAuthor(info: SnapshotInfo): string {
+  const named = info.agent?.trim();
+  return named ? named : authorName(info.author);
+}
+
+/**
  * The time, at the coarseness that tells versions apart.
  *
  * Today's are a clock time, because that is how a reader remembers this

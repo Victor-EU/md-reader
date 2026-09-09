@@ -42,18 +42,25 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// The schema, one statement per version. Only ever append: the store on
 /// disk is a user's history, and it outlives every release.
-const MIGRATIONS: &[&str] = &[concat!(
-    "CREATE TABLE snapshots (",
-    "  id           TEXT PRIMARY KEY,",
-    "  path         TEXT NOT NULL,",
-    "  author       TEXT NOT NULL,",
-    "  timestamp_ms INTEGER NOT NULL,",
-    "  hash         TEXT NOT NULL,",
-    "  byte_len     INTEGER NOT NULL",
-    ");",
-    "CREATE INDEX snapshots_by_path ON snapshots (path, timestamp_ms DESC);",
-    "CREATE INDEX snapshots_by_hash ON snapshots (hash);",
-)];
+const MIGRATIONS: &[&str] = &[
+    concat!(
+        "CREATE TABLE snapshots (",
+        "  id           TEXT PRIMARY KEY,",
+        "  path         TEXT NOT NULL,",
+        "  author       TEXT NOT NULL,",
+        "  timestamp_ms INTEGER NOT NULL,",
+        "  hash         TEXT NOT NULL,",
+        "  byte_len     INTEGER NOT NULL",
+        ");",
+        "CREATE INDEX snapshots_by_path ON snapshots (path, timestamp_ms DESC);",
+        "CREATE INDEX snapshots_by_hash ON snapshots (hash);",
+    ),
+    // Plan WP 3.1: an agent writing over MCP gives its name, and the
+    // version it left is listed under that name rather than under
+    // "Agent". Null for every row taken before this and for every row
+    // nobody named, which is all of them but an agent's.
+    "ALTER TABLE snapshots ADD COLUMN agent TEXT;",
+];
 
 fn failed(what: &str, error: &dyn std::fmt::Display) -> Error {
     Error::Unavailable {
@@ -199,7 +206,25 @@ impl History {
         content: &str,
         author: SnapshotAuthor,
     ) -> Result<SnapshotInfo, Error> {
-        self.snapshot_at(path, content, author, now_ms())
+        self.snapshot_by_at(path, content, author, None, now_ms())
+    }
+
+    /// Store a version and say who left it, by name (design 9).
+    ///
+    /// The name is the one an agent gave over MCP. It is stored beside
+    /// the author and not instead of it: `Agent` is what the app knows
+    /// to be true, and the name is what it was told.
+    ///
+    /// # Errors
+    /// As `snapshot`.
+    pub fn snapshot_by(
+        &mut self,
+        path: &Path,
+        content: &str,
+        author: SnapshotAuthor,
+        agent: Option<&str>,
+    ) -> Result<SnapshotInfo, Error> {
+        self.snapshot_by_at(path, content, author, agent, now_ms())
     }
 
     /// The clock is an argument so that retention has something to test.
@@ -211,6 +236,19 @@ impl History {
         path: &Path,
         content: &str,
         author: SnapshotAuthor,
+        at_ms: u64,
+    ) -> Result<SnapshotInfo, Error> {
+        self.snapshot_by_at(path, content, author, None, at_ms)
+    }
+
+    /// # Errors
+    /// As `snapshot`.
+    pub fn snapshot_by_at(
+        &mut self,
+        path: &Path,
+        content: &str,
+        author: SnapshotAuthor,
+        agent: Option<&str>,
         at_ms: u64,
     ) -> Result<SnapshotInfo, Error> {
         let key = key_of(path);
@@ -231,14 +269,15 @@ impl History {
             id: format!("{at_ms:013}-{:06}", self.seq),
             path: path.to_path_buf(),
             author,
+            agent: agent.map(str::to_owned),
             timestamp_ms: at_ms,
             hash,
             byte_len: content.len() as u64,
         };
         self.db
             .execute(
-                "INSERT INTO snapshots (id, path, author, timestamp_ms, hash, byte_len)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO snapshots (id, path, author, timestamp_ms, hash, byte_len, agent)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
                     info.id,
                     key,
@@ -246,6 +285,7 @@ impl History {
                     sql(info.timestamp_ms),
                     info.hash,
                     sql(info.byte_len),
+                    info.agent,
                 ],
             )
             .map_err(|e| failed("record the snapshot", &e))?;
@@ -283,7 +323,7 @@ impl History {
         let mut statement = self
             .db
             .prepare(
-                "SELECT id, path, author, timestamp_ms, hash, byte_len FROM snapshots
+                "SELECT id, path, author, timestamp_ms, hash, byte_len, agent FROM snapshots
                  WHERE path = ?1 ORDER BY timestamp_ms DESC, id DESC",
             )
             .map_err(|e| failed("prepare the snapshot list", &e))?;
@@ -319,7 +359,7 @@ impl History {
     fn latest(&self, key: &str) -> Result<Option<SnapshotInfo>, Error> {
         self.db
             .query_row(
-                "SELECT id, path, author, timestamp_ms, hash, byte_len FROM snapshots
+                "SELECT id, path, author, timestamp_ms, hash, byte_len, agent FROM snapshots
                  WHERE path = ?1 ORDER BY timestamp_ms DESC, id DESC LIMIT 1",
                 params![key],
                 row_to_info,
@@ -430,6 +470,7 @@ fn row_to_info(row: &rusqlite::Row<'_>) -> rusqlite::Result<SnapshotInfo> {
         timestamp_ms: u64::try_from(row.get::<_, i64>(3)?).unwrap_or(0),
         hash: row.get(4)?,
         byte_len: u64::try_from(row.get::<_, i64>(5)?).unwrap_or(0),
+        agent: row.get(6)?,
     })
 }
 
@@ -710,6 +751,53 @@ mod tests {
         let (_dir, history) = store();
         let error = history.read("nothing").expect_err("no such snapshot");
         assert!(matches!(error, Error::Unavailable { .. }), "{error:?}");
+    }
+
+    #[test]
+    fn an_agent_leaves_its_name_on_the_version_it_wrote() {
+        let (_dir, mut history) = store();
+        let path = Path::new("/notes/brief.md");
+        let info = history
+            .snapshot_by(path, "rewritten\n", SnapshotAuthor::Agent, Some("claude"))
+            .expect("snapshot");
+        assert_eq!(info.author, SnapshotAuthor::Agent);
+        assert_eq!(info.agent.as_deref(), Some("claude"));
+        let listed = history.list(path).expect("list");
+        assert_eq!(listed[0].agent.as_deref(), Some("claude"));
+
+        // Everyone else is nobody in particular, which is what the panel
+        // has always shown them as.
+        let user = history
+            .snapshot(path, "and then by hand\n", SnapshotAuthor::User)
+            .expect("snapshot");
+        assert_eq!(user.agent, None);
+    }
+
+    /// The column arrived in plan WP 3.1, and the reader's own store was
+    /// written before it. A store at version 1 has to keep every version
+    /// it holds and gain the column, not start again.
+    #[test]
+    fn a_store_from_before_the_column_keeps_what_it_holds() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        {
+            let db = Connection::open(dir.path().join("history.db")).expect("open");
+            db.execute_batch(
+                "CREATE TABLE schema_version (version INTEGER NOT NULL);
+                 INSERT INTO schema_version (version) VALUES (1);",
+            )
+            .expect("version table");
+            db.execute_batch(MIGRATIONS[0]).expect("the first schema");
+            db.execute(
+                "INSERT INTO snapshots (id, path, author, timestamp_ms, hash, byte_len)
+                 VALUES ('0000000000001-000001', '/old.md', 'user', 1, 'abc', 3)",
+                [],
+            )
+            .expect("an old row");
+        }
+        let history = History::open(dir.path()).expect("open the old store");
+        let listed = history.list(Path::new("/old.md")).expect("list");
+        assert_eq!(listed.len(), 1, "the version from before is still there");
+        assert_eq!(listed[0].agent, None, "and it was written by nobody named");
     }
 
     #[test]

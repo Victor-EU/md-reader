@@ -7,6 +7,8 @@
 // would only add a clone on the caller side.
 #![allow(clippy::needless_pass_by_value)]
 
+pub mod mcp;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,11 +18,12 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use mdreader_core::{
-    AssetWrite, Block, BlockOp, Bounds, DirEntry, Document, Error, ExternalChange, FileFormat,
-    FileMatches, FileRemoved, FileRenamed, Folder, FolderChange, History, MergeResult, Override,
-    Overrides, Restore, SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session,
-    Settings, SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher,
-    WindowContent, WindowState,
+    AgentAnswer, AgentAsk, AgentDocument, AgentRequest, AgentStatus, AssetWrite, Block, BlockOp,
+    Bounds, DirEntry, Document, Error, ExternalChange, FileFormat, FileMatches, FileRemoved,
+    FileRenamed, Folder, FolderChange, History, MergeResult, Override, Overrides, Restore,
+    SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session, Settings,
+    SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher, WindowContent,
+    WindowState,
 };
 use specta_typescript::Typescript;
 use tauri::Manager;
@@ -60,6 +63,14 @@ struct Services {
     closing: Mutex<HashSet<String>>,
     /// Set once the windows have been asked to finish before a quit.
     quitting: Mutex<bool>,
+    /// Questions the MCP server has out with the windows (design 9).
+    agents: Arc<mcp::Agents>,
+    /// The sessions the server is holding, for the client count.
+    agent_running: Arc<mcp::serve::Running>,
+    /// The bearer token this launch answers to. Behind its own lock
+    /// because rotating one replaces it while the server is running.
+    agent_token: Mutex<String>,
+    agent_status: Mutex<AgentStatus>,
 }
 
 /// The content search that is running, and the number the window knows
@@ -1019,6 +1030,7 @@ fn forget(app: &tauri::AppHandle, label: &str) {
         return;
     };
     locked(&services.folders).remove(label);
+    services.agents.forget(label);
     services.stop_search(label);
     locked(&services.searches).remove(label);
     locked(&services.handoff).remove(label);
@@ -1132,6 +1144,362 @@ fn before_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
     for label in &labels {
         ask_to_close(app, label);
     }
+}
+
+// --- the agent side (design 9, plan WP 3.1) ----------------------------
+
+/// One question on its way to a window, from the MCP server.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
+pub struct AgentAskEvent(pub AgentAsk);
+
+/// The server came up, went away, or something happened on it. What the
+/// status bar draws (plan WP 3.1); the app's rather than a window's, so
+/// every window hears it.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
+pub struct AgentStatusEvent(pub AgentStatus);
+
+/// A window's answer to one question the server asked it.
+///
+/// An id nobody is waiting for is dropped rather than refused: that is
+/// an answer that arrived after its question timed out, and there is
+/// nothing left to give it to.
+#[tauri::command]
+#[specta::specta]
+fn answer_agent(services: tauri::State<'_, Services>, id: u32, answer: AgentAnswer) {
+    services.agents.answer(id, answer);
+}
+
+/// What the status bar says about the agent server.
+#[tauri::command]
+#[specta::specta]
+fn agent_status(services: tauri::State<'_, Services>) -> AgentStatus {
+    locked(&services.agent_status).clone()
+}
+
+/// A fresh token, for the reader who wants the old one to stop working.
+///
+/// The server keeps running on the same port: only the token changes,
+/// which is what every client configured with `--mcp-stdio` picks up on
+/// its next connection, because that mode reads the file every time.
+#[tauri::command]
+#[specta::specta]
+fn rotate_agent_token(
+    app: tauri::AppHandle,
+    services: tauri::State<'_, Services>,
+) -> Result<(), Error> {
+    let dir = app_data(&app)?;
+    let port = locked(&services.agent_status).port;
+    let endpoint = mcp::rotate(&dir, port)?;
+    *locked(&services.agent_token) = endpoint.token;
+    Ok(())
+}
+
+/// The client configuration to paste, for the palette command that
+/// copies one.
+#[tauri::command]
+#[specta::specta]
+fn agent_client_config(app: tauri::AppHandle) -> Result<String, Error> {
+    let binary = std::env::current_exe().map_err(|error| Error::Unavailable {
+        what: "the client configuration".to_owned(),
+        message: format!("this program does not know where it is: {error}"),
+    })?;
+    let _unused = &app;
+    Ok(mcp::client_config(&binary))
+}
+
+fn app_data(app: &tauri::AppHandle) -> Result<PathBuf, Error> {
+    app.path()
+        .app_data_dir()
+        .map_err(|error| Error::Unavailable {
+            what: "the app data directory".to_owned(),
+            message: error.to_string(),
+        })
+}
+
+/// The app, as the MCP server sees it (`mcp::Desk`).
+///
+/// Every question the server can ask and everything it can do to this
+/// machine passes through here.
+struct Desktop {
+    app: tauri::AppHandle,
+}
+
+/// Put one question to one window and wait for its answer.
+async fn ask_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    request: AgentRequest,
+) -> Result<AgentAnswer, Error> {
+    let what = request.path().map_or_else(
+        || "the open documents".to_owned(),
+        |path| path.display().to_string(),
+    );
+    let Some((id, receive)) = app
+        .try_state::<Services>()
+        .map(|services| services.agents.open(label))
+    else {
+        return unavailable("the agent server");
+    };
+    if AgentAskEvent(AgentAsk { id, request })
+        .emit_to(app, label)
+        .is_err()
+    {
+        if let Some(services) = app.try_state::<Services>() {
+            services.agents.close(id);
+        }
+        return Err(Error::Unavailable {
+            what,
+            message: format!("{label} could not be reached"),
+        });
+    }
+    let answer = mcp::wait(receive, &what).await;
+    if answer.is_err()
+        && let Some(services) = app.try_state::<Services>()
+    {
+        services.agents.close(id);
+    }
+    answer
+}
+
+/// Which window has `path` open.
+///
+/// The session first, which is the registry design 6.5 already keeps and
+/// is current within a tick of a tab opening. A miss falls back to
+/// asking the windows what they have, because the one case the session
+/// is behind on — a document opened a moment ago — is exactly the case
+/// an agent that was just told about the file will hit.
+///
+/// The fallback asks for the list and not for the document. Both would
+/// answer the question; only one of them does it without sending ten
+/// megabytes across the bridge to find out whose it is.
+async fn window_for(app: &tauri::AppHandle, path: &Path) -> Option<String> {
+    let known = app.try_state::<Services>().and_then(|services| {
+        services
+            .session
+            .get()
+            .window_with(path)
+            .map(str::to_owned)
+            .filter(|label| app.get_webview_window(label).is_some())
+    });
+    if known.is_some() {
+        return known;
+    }
+    for label in labels(app) {
+        if let Ok(AgentAnswer::Documents { documents }) =
+            ask_window(app, &label, AgentRequest::Documents).await
+            && documents
+                .iter()
+                .any(|document| document.path.as_deref() == Some(path))
+        {
+            return Some(label);
+        }
+    }
+    None
+}
+
+/// What an agent is told about a path no window is showing.
+fn nowhere(path: &Path) -> Error {
+    Error::Unavailable {
+        what: path.display().to_string(),
+        message: "no window has it open; list_documents says what is".to_owned(),
+    }
+}
+
+/// Any window but `asked` that has `path` open.
+async fn second_window_for(app: &tauri::AppHandle, path: &Path, asked: &str) -> Option<String> {
+    for label in labels(app).into_iter().filter(|label| label != asked) {
+        if let Ok(AgentAnswer::Documents { documents }) =
+            ask_window(app, &label, AgentRequest::Documents).await
+            && documents
+                .iter()
+                .any(|document| document.path.as_deref() == Some(path))
+        {
+            return Some(label);
+        }
+    }
+    None
+}
+
+/// Whether an agent may write here (see the module docs of `mcp`): a
+/// document with a tab on it, or a new file inside a folder some window
+/// has open.
+async fn writable(app: &tauri::AppHandle, path: &Path) -> bool {
+    let folder = app.try_state::<Services>().is_some_and(|services| {
+        locked(&services.folders)
+            .values()
+            .any(|folder| path.starts_with(folder.root()))
+    });
+    // The folder first, because it is a string comparison and the other
+    // one is a round trip to a webview.
+    folder || window_for(app, path).await.is_some()
+}
+
+impl mcp::Desk for Desktop {
+    fn documents(&self) -> mcp::Ask<Vec<AgentDocument>> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            let mut documents = Vec::new();
+            let mut seen = HashSet::new();
+            for label in labels(&app) {
+                // A window that cannot answer is left out rather than
+                // failing the list: one window busy with a ten megabyte
+                // document should not hide the other window's tabs.
+                if let Ok(AgentAnswer::Documents { documents: theirs }) =
+                    ask_window(&app, &label, AgentRequest::Documents).await
+                {
+                    for document in theirs {
+                        // A file open in two windows is one document.
+                        if let Some(path) = document.path.clone()
+                            && !seen.insert(path)
+                        {
+                            continue;
+                        }
+                        documents.push(document);
+                    }
+                }
+            }
+            Ok(documents)
+        })
+    }
+
+    fn ask(&self, request: AgentRequest) -> mcp::Ask<AgentAnswer> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            let Some(path) = request.path().map(Path::to_path_buf) else {
+                return unavailable("that question");
+            };
+            let Some(label) = window_for(&app, &path).await else {
+                return Err(nowhere(&path));
+            };
+            match ask_window(&app, &label, request.clone()).await {
+                Ok(answer) => Ok(answer),
+                // The session named a window that has since closed the
+                // tab. Its refusal is about that window; the question is
+                // about the document, so it is put again to whoever has
+                // it now.
+                Err(refused) => match second_window_for(&app, &path, &label).await {
+                    Some(other) => ask_window(&app, &other, request).await,
+                    None if matches!(refused, Error::Unavailable { .. }) => Err(nowhere(&path)),
+                    None => Err(refused),
+                },
+            }
+        })
+    }
+
+    fn snapshots(&self, path: &Path) -> Result<Vec<SnapshotInfo>, Error> {
+        let services = self.app.state::<Services>();
+        services.history()?.list(path)
+    }
+
+    fn snapshot_text(&self, id: &str) -> Result<String, Error> {
+        let services = self.app.state::<Services>();
+        services.history()?.read(id)
+    }
+
+    fn write(&self, path: PathBuf, content: String, agent: String) -> mcp::Ask<SnapshotInfo> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            if !writable(&app, &path).await {
+                return Err(Error::Unavailable {
+                    what: path.display().to_string(),
+                    message: "this server writes open documents, and new files inside a folder the app has open".to_owned(),
+                });
+            }
+            let written = mdreader_core::agent::write_document(&path, &content)?;
+            let services = app.state::<Services>();
+            // The watcher is about to see this write. Telling it what
+            // landed keeps it from reporting the same change a second
+            // time, half a second later and with nobody's name on it.
+            if let Ok(mut watcher) = services.watcher() {
+                let _unused = watcher.note_write(&path, &written.saved.hash);
+            }
+            let info = services.history()?.snapshot_by(
+                &path,
+                &written.content,
+                SnapshotAuthor::Agent,
+                Some(&agent),
+            )?;
+            let change = ExternalChange {
+                path,
+                hash: written.saved.hash,
+                agent: Some(agent),
+                changes: mdreader_core::edits(&written.before, &written.content),
+                content: written.content,
+            };
+            if let Err(error) = ExternalChangeEvent(change).emit(&app) {
+                eprintln!("could not tell the windows about an agent write: {error}");
+            }
+            Ok(info)
+        })
+    }
+}
+
+/// Change what the status bar says and tell every window.
+///
+/// Untargeted, like the settings: the server is the app's and not a
+/// window's, so all of them draw the same thing.
+fn change_agent_status(app: &tauri::AppHandle, change: impl FnOnce(&mut AgentStatus)) {
+    let Some(services) = app.try_state::<Services>() else {
+        return;
+    };
+    let status = {
+        let mut status = locked(&services.agent_status);
+        change(&mut status);
+        status.clone()
+    };
+    if let Err(error) = AgentStatusEvent(status).emit(app) {
+        eprintln!("could not report the agent status: {error}");
+    }
+}
+
+/// Start the MCP server: take a port, publish the endpoint, serve.
+///
+/// Nothing here is worth refusing to launch over. A machine where the
+/// loopback address cannot be bound, or an app data directory that
+/// cannot be written, is a machine where the reader still opens and
+/// edits files; the status bar says the server is off and the palette
+/// command that copies a client configuration says why.
+fn start_agent_server(app: &tauri::AppHandle) {
+    let dir = match app_data(app) {
+        Ok(dir) => dir,
+        Err(error) => {
+            eprintln!("no agent server: {error}");
+            return;
+        }
+    };
+    let (listener, port) = match mcp::bind() {
+        Ok(bound) => bound,
+        Err(error) => {
+            eprintln!("no agent server: {error}");
+            return;
+        }
+    };
+    let endpoint = match mcp::publish(&dir, port) {
+        Ok(endpoint) => endpoint,
+        Err(error) => {
+            eprintln!("no agent server: {error}");
+            return;
+        }
+    };
+    let services = app.state::<Services>();
+    locked(&services.agent_token).clone_from(&endpoint.token);
+    {
+        let mut status = locked(&services.agent_status);
+        status.port = port;
+        status.endpoint = Some(mdreader_core::agent::endpoint_path(&dir));
+    }
+    let desk: Arc<dyn mcp::Desk> = Arc::new(Desktop { app: app.clone() });
+    let running = Arc::clone(&services.agent_running);
+    {
+        let app = app.clone();
+        running.on_change(move |clients| {
+            change_agent_status(&app, |status| status.clients = clients);
+        });
+    }
+    let token = endpoint.token;
+    tauri::async_runtime::spawn(async move {
+        mcp::serve::serve(listener, token, desk, running).await;
+    });
 }
 
 // --- files the OS hands us ---------------------------------------------
@@ -1275,6 +1643,10 @@ fn services(app: &tauri::AppHandle) -> Services {
         handoff: Mutex::new(HashMap::new()),
         closing: Mutex::new(HashSet::new()),
         quitting: Mutex::new(false),
+        agents: Arc::new(mcp::Agents::default()),
+        agent_running: Arc::new(mcp::serve::Running::default()),
+        agent_token: Mutex::new(String::new()),
+        agent_status: Mutex::new(AgentStatus::default()),
     }
 }
 
@@ -1316,6 +1688,10 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             rename_path,
             document_override,
             set_document_override,
+            answer_agent,
+            agent_status,
+            rotate_agent_token,
+            agent_client_config,
         ])
         .events(collect_events![
             ExternalChangeEvent,
@@ -1327,7 +1703,9 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             OpenPathsEvent,
             TabArrivedEvent,
             SettingsChangedEvent,
-            BeforeCloseEvent
+            BeforeCloseEvent,
+            AgentAskEvent,
+            AgentStatusEvent
         ])
 }
 
@@ -1411,6 +1789,9 @@ fn start(app: &tauri::App) {
     let mut wanted = held();
     wanted.extend(paths_from(&args, &cwd));
     deliver(&handle, wanted);
+    // Last, because it is the one service nothing else waits for: the
+    // windows are up and answering by the time an agent can ask.
+    start_agent_server(&handle);
 }
 
 /// Turn a second launch into a message to the one already running.

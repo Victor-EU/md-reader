@@ -53,6 +53,11 @@ import {
   toggleTaskAt,
 } from '@mdreader/editor-core';
 import type {
+  AgentAnswer,
+  AgentAsk,
+  AgentDocument,
+  AgentRequest,
+  AgentStatus,
   Commands,
   Conflict,
   DocumentMeta,
@@ -92,6 +97,7 @@ import {
   type Span,
   toHtml,
 } from '@mdreader/markdown';
+import { agentAnnotation, agentDocument } from './agent.ts';
 import {
   DEFAULT_SETTINGS,
   DEFAULT_SIZE,
@@ -299,9 +305,14 @@ function raise(changes: ChangeSet, hunk: Conflict): ConflictRegion {
 /**
  * What the status bar says about a write that arrived (design 7.2): what
  * came in on its own, and what is waiting on the reader.
+ *
+ * An agent that came in over MCP gave its name, so the line names it
+ * (design 9). That is the whole difference between the two channels:
+ * a program that writes a file is anonymous, and one that says who it is
+ * can be told apart from the reader's own tools.
  */
-function describeWrite(name: string, merged: MergeResult): string {
-  const said = [`${name} changed on disk`];
+function describeWrite(name: string, merged: MergeResult, agent: string | null): string {
+  const said = [agent === null ? `${name} changed on disk` : `${agent} wrote ${name}`];
   if (merged.changes.length > 0) said.push(`${count(merged.changes.length, 'change')} merged in`);
   if (merged.conflicts.length > 0) {
     said.push(`${count(merged.conflicts.length, 'conflict')} to settle`);
@@ -336,6 +347,15 @@ export class Workspace {
   review = $state(false);
   /** The versions of the active document, newest first (design 4.4). */
   snapshots = $state<SnapshotInfo[]>([]);
+  /**
+   * The agent server, as the status bar draws it (design 9, plan WP 3.1).
+   *
+   * Port zero is the app that could not open one, which is the state a
+   * browser build is permanently in and the one a machine with no
+   * loopback address would be. Everything else is a running server, with
+   * or without anybody connected to it.
+   */
+  agent = $state<AgentStatus>({ port: 0, endpoint: null, clients: 0 });
   /** The folder tree, and the folder itself (design 4.1, plan WP 2.4). */
   readonly folder: Folder;
   /** Cmd+Shift+F: the content search over that folder. */
@@ -1381,6 +1401,9 @@ export class Workspace {
       path,
       content: fresh.data.content,
       hash: fresh.data.meta.hash,
+      // Whoever got in first, we do not know: this is the file re-read
+      // after a save was refused, not a report from anybody.
+      agent: null,
       changes: [],
     });
     const merged = this.status;
@@ -1542,6 +1565,126 @@ export class Workspace {
     return true;
   }
 
+  // --- what an agent asks (design 9, plan WP 3.1) -------------------------
+
+  /**
+   * Answer one question the MCP server put to this window.
+   *
+   * Four of its five tools are questions about a buffer, and a buffer is
+   * not something Rust has: the text is the editor's, and the marks and
+   * the blocks come out of a parse tree that only lives here. So the
+   * server asks and this answers, which costs nothing at all until
+   * somebody asks.
+   *
+   * `failed` is a real answer and not a thrown error. A window that has
+   * since closed the tab knows something the server needs to hear, and
+   * the alternative is the server waiting out its whole timeout for it.
+   */
+  agentAnswer(request: AgentRequest): AgentAnswer {
+    if (request.ask === 'documents') {
+      return { answer: 'documents', documents: this.openDocuments() };
+    }
+    const doc = this.docFor(request.path);
+    if (!doc || doc.ephemeral) {
+      return {
+        answer: 'failed',
+        message: `${basename(request.path)} is not open in this window`,
+      };
+    }
+    const source = doc.text;
+    if (request.ask === 'read') {
+      return { answer: 'text', text: source, dirty: doc.dirty };
+    }
+    if (request.ask === 'annotations') {
+      return {
+        answer: 'annotations',
+        annotations: extractAnnotations(parser.parse(source), source).map(agentAnnotation),
+      };
+    }
+    // The two sides as blocks. The alignment itself is Rust's, the same
+    // one the gutter and Review are drawn from (design 7.3): this side
+    // is the one with the parse trees and that is all it is being asked
+    // for.
+    return {
+      answer: 'changes',
+      old: flattenBlocks(parser.parse(request.against), request.against),
+      new: doc.blocksFor(doc.state.doc, (text) => flattenBlocks(parser.parse(text), text)),
+    };
+  }
+
+  /**
+   * Every document this window has a tab on, once each.
+   *
+   * A version opened out of the history is left out: it has no file, it
+   * is never saved, and an agent offered a path it cannot write to would
+   * be being told something untrue about it (plan WP 2.3).
+   */
+  private openDocuments(): AgentDocument[] {
+    const seen = new Set<string>();
+    const documents: AgentDocument[] = [];
+    for (const tab of this.tabs) {
+      const doc = this.docOf(tab);
+      if (!doc || doc.ephemeral || seen.has(doc.id)) continue;
+      seen.add(doc.id);
+      documents.push(
+        agentDocument({
+          path: doc.path,
+          label: doc.label,
+          text: doc.text,
+          dirty: doc.dirty,
+          modifiedMs: doc.meta?.modified_ms ?? null,
+        }),
+      );
+    }
+    return documents;
+  }
+
+  /** Wire this window to the server, for as long as it exists. */
+  listenForAgents(
+    onAsk: (cb: (ask: AgentAsk) => void) => void,
+    onStatus: (cb: (status: AgentStatus) => void) => void,
+  ): void {
+    onAsk((ask) => {
+      void this.options.commands.answerAgent(ask.id, this.agentAnswer(ask.request));
+    });
+    onStatus((status) => {
+      this.agent = status;
+    });
+    void this.options.commands.agentStatus().then((status) => {
+      this.agent = status;
+    });
+  }
+
+  /**
+   * A fresh bearer token (plan WP 3.1).
+   *
+   * The port does not change and neither does anything a client was
+   * configured with: `--mcp-stdio` reads the endpoint file every time it
+   * connects, so a client set up the way the palette suggests picks the
+   * new token up by itself and one set up with the old token by hand
+   * stops working, which is what rotating one is for.
+   */
+  async rotateAgentToken(): Promise<boolean> {
+    const done = await this.options.commands.rotateAgentToken();
+    this.status =
+      done.status === 'ok'
+        ? 'New agent token · clients using --mcp-stdio pick it up on their next connection'
+        : describeError(done.error);
+    return done.status === 'ok';
+  }
+
+  /** Copy the configuration to paste into an agent client. */
+  async copyAgentConfig(): Promise<boolean> {
+    const config = await this.options.commands.agentClientConfig();
+    if (config.status !== 'ok') {
+      this.status = describeError(config.error);
+      return false;
+    }
+    const ok = await copyText(config.data, this.options.clipboard ?? navigator.clipboard);
+    this.status = ok ? 'Copied the agent client configuration' : 'Could not reach the clipboard';
+    return ok;
+  }
+
   // --- writes by other people ---------------------------------------------
 
   private docFor(path: string): Doc | null {
@@ -1579,8 +1722,13 @@ export class Workspace {
       change.content,
     );
     // What arrived is kept whatever we do with it, so a hunk still under
-    // discussion is in the history rather than gone (design 4.4).
-    void this.options.commands.snapshot(change.path, change.content, 'external');
+    // discussion is in the history rather than gone (design 4.4). An
+    // agent write is already in there under the agent's own name, taken
+    // by the same call that wrote the file, and taking it again here
+    // would be a second row saying `Outside` about the same version.
+    if (change.agent === null) {
+      void this.options.commands.snapshot(change.path, change.content, 'external');
+    }
     if (this.sidebar && this.panel === 'history' && this.activeDoc === doc) {
       void this.refreshHistory();
     }
@@ -1590,7 +1738,7 @@ export class Workspace {
     doc.base = Text.of(change.content.split('\n'));
     doc.missing = false;
     if (doc.meta) doc.meta = { ...doc.meta, hash: change.hash };
-    this.status = describeWrite(basename(change.path), merged);
+    this.status = describeWrite(basename(change.path), merged, change.agent);
     // Awaited, so that a write is finished when the marks beside it are:
     // the count in the bar and the marks in the margin are one answer to
     // "what arrived", and they may not disagree for a frame.

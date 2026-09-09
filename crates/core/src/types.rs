@@ -55,6 +55,10 @@ pub struct SnapshotInfo {
     pub id: String,
     pub path: PathBuf,
     pub author: SnapshotAuthor,
+    /// The name the agent gave itself, for a version an agent wrote
+    /// (design 9). `None` for every other author, and for an agent write
+    /// from a build older than plan WP 3.1.
+    pub agent: Option<String>,
     #[specta(type = specta_typescript::Number)]
     pub timestamp_ms: u64,
     pub hash: String,
@@ -214,6 +218,11 @@ pub struct ExternalChange {
     pub path: PathBuf,
     pub content: String,
     pub hash: String,
+    /// The agent that wrote it, by the name it gave, when the write came
+    /// in over MCP rather than from the watcher (design 9). Plain file
+    /// watching cannot tell us who wrote a file; this can, which is what
+    /// makes the change attributable in the gutter and in the history.
+    pub agent: Option<String>,
     /// Edits from the file as the watcher last read it to `content`.
     ///
     /// The shell does not apply these: it merges against its own base,
@@ -246,4 +255,225 @@ pub struct SearchDone {
     pub truncated: bool,
     /// Another search replaced this one before it finished.
     pub cancelled: bool,
+}
+
+// --- what an agent asks the window (design 9, plan WP 3.1) --------------
+//
+// The MCP server runs in Rust and four of its five tools are questions
+// about a buffer: what it holds now, what the reader marked in it, what
+// changed in it since a version. None of those are on disk and none of
+// them are Rust's — the buffer is the editor's, and the marks and the
+// blocks come out of a parse tree only the frontend has. So the server
+// asks the window that has the document open, and these are the words.
+//
+// The alternative was a mirror: the window pushing its buffer, its
+// annotations and its blocks into Rust whenever they settle, so the
+// server could answer from memory. That pays on every keystroke for a
+// question that gets asked once a minute, and at ten megabytes it is a
+// quarter of a second of flattening per pause in typing. Asking costs
+// nothing until somebody asks.
+
+/// What the reader did to a span (design 4.3).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum AnnotationMark {
+    Highlight,
+    Strikethrough,
+    Color,
+    /// A comment with no mark of its own, which is still something the
+    /// reader said.
+    Comment,
+}
+
+/// The closed comment vocabulary of design 4.3. Closed is what makes the
+/// comments machine-readable, which is the whole point of them.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum AnnotationKind {
+    Note,
+    Attention,
+    Question,
+    Remove,
+    Keep,
+    Rewrite,
+}
+
+/// One `<!-- kind: text -->` as an agent reads it.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, schemars::JsonSchema,
+)]
+pub struct AgentComment {
+    pub kind: AnnotationKind,
+    pub text: String,
+}
+
+/// One annotation, as `list_annotations` returns it.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, schemars::JsonSchema,
+)]
+pub struct AgentAnnotation {
+    pub mark: AnnotationMark,
+    /// The palette word a colour stands for, absent for a colour the
+    /// reader chose themselves and for every other mark.
+    pub meaning: Option<AnnotationKind>,
+    /// The source under the mark, collapsed to one line. The source and
+    /// not a rendering of it: an agent reading `the **first** step` is
+    /// looking at what the file says, which is the point of the round
+    /// trip.
+    pub anchor: String,
+    /// UTF-16 offsets of the marked span in the current buffer.
+    pub from: u32,
+    pub to: u32,
+    pub comment: Option<AgentComment>,
+}
+
+/// What became of one block between two versions.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, schemars::JsonSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentOp {
+    Changed,
+    Moved,
+    Inserted,
+    Deleted,
+}
+
+/// One block of the semantic diff, as `changes_since` returns it.
+///
+/// Blocks that did not change are left out. The alignment keeps them
+/// because a consumer walking both sides needs them (see [`BlockOp`]);
+/// an agent asking what changed does not.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, schemars::JsonSchema,
+)]
+pub struct AgentChange {
+    pub op: AgentOp,
+    /// What kind of block it is, as the flattener names it.
+    pub kind: String,
+    /// What it said then. Empty for a block that has just arrived.
+    pub old: String,
+    /// What it says now. Empty for a block that is gone.
+    pub new: String,
+    /// Where it is in the document now, in UTF-16 offsets. Absent for a
+    /// block that is gone, which is nowhere.
+    pub from: Option<u32>,
+    pub to: Option<u32>,
+}
+
+/// One open document, as `list_documents` returns it.
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type, schemars::JsonSchema,
+)]
+pub struct AgentDocument {
+    /// Absent for a document that has never been saved, which an agent
+    /// can read but has no path to write to.
+    pub path: Option<PathBuf>,
+    /// What the tab calls it.
+    pub name: String,
+    /// The buffer is ahead of the file. Under autosave this is true for
+    /// about a second after a keystroke and false the rest of the time.
+    pub dirty: bool,
+    /// Length of the buffer in bytes of UTF-8 — the buffer's, not the
+    /// file's, because the buffer is what the other tools return.
+    #[specta(type = specta_typescript::Number)]
+    pub byte_len: u64,
+    /// Last modification time of the file, when there is a file.
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub modified_ms: Option<u64>,
+}
+
+/// What the server is asking one window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "ask", rename_all = "snake_case")]
+pub enum AgentRequest {
+    /// Every document this window has open.
+    Documents,
+    /// The buffer, which may be ahead of disk.
+    Read {
+        path: PathBuf,
+    },
+    Annotations {
+        path: PathBuf,
+    },
+    /// The semantic diff from `against` to the buffer. Rust reads the
+    /// old version out of the history and sends the text, because the
+    /// window has no way to open a snapshot of its own.
+    Changes {
+        path: PathBuf,
+        against: String,
+    },
+}
+
+impl AgentRequest {
+    /// The document this is about. Every question but `Documents` is
+    /// about one, and which one is how the server finds the window to
+    /// put it to.
+    #[must_use]
+    pub fn path(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::Documents => None,
+            Self::Read { path } | Self::Annotations { path } | Self::Changes { path, .. } => {
+                Some(path)
+            }
+        }
+    }
+}
+
+/// What one window answered.
+///
+/// `Failed` is a real answer and not an error: a window that has since
+/// closed the tab knows something the server needs to hear, and the
+/// alternative is the server waiting out its timeout for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(tag = "answer", rename_all = "snake_case")]
+pub enum AgentAnswer {
+    Documents {
+        documents: Vec<AgentDocument>,
+    },
+    Text {
+        text: String,
+        dirty: bool,
+    },
+    Annotations {
+        annotations: Vec<AgentAnnotation>,
+    },
+    /// Both sides flattened into blocks. The window is the side that
+    /// holds the parse trees; the alignment is Rust's, the same one the
+    /// gutter and Review are drawn from (design 7.3).
+    Changes {
+        old: Vec<Block>,
+        new: Vec<Block>,
+    },
+    Failed {
+        message: String,
+    },
+}
+
+/// One question on its way to a window, with the number its answer comes
+/// back under.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct AgentAsk {
+    pub id: u32,
+    pub request: AgentRequest,
+}
+
+/// What the status bar says about the server (plan WP 3.1).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+pub struct AgentStatus {
+    /// The port it is listening on. Zero when it did not start, which is
+    /// what the status bar reads as "off" rather than as a port.
+    pub port: u16,
+    /// Where a client is configured from.
+    pub endpoint: Option<PathBuf>,
+    /// How many MCP sessions are open right now.
+    ///
+    /// Exact the moment a request has been served, because a session
+    /// begins and ends on one. Late by up to the transport's own idle
+    /// timeout for a client that goes away without saying so.
+    pub clients: u32,
 }

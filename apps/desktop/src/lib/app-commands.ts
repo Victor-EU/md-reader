@@ -464,6 +464,23 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: hasTab,
       run: () => workspace.cycle(-1),
     },
+    // The agent server (design 9, plan WP 3.1). Two commands, because
+    // there are exactly two things a person ever has to do about it:
+    // connect something to it, and stop something being connected.
+    {
+      id: 'edit.copyAgentConfig',
+      title: 'Copy Agent Client Configuration',
+      group: 'Edit',
+      enabled: () => workspace.agent.port !== 0,
+      run: () => workspace.copyAgentConfig(),
+    },
+    {
+      id: 'edit.rotateAgentToken',
+      title: 'Rotate the Agent Token',
+      group: 'Edit',
+      enabled: () => workspace.agent.port !== 0,
+      run: () => workspace.rotateAgentToken(),
+    },
     // The updater (plan WP 1.12). The status bar offers the same two
     // actions where they can be seen; these are so the keyboard can
     // reach them, and so the palette says what the app can do.

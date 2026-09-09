@@ -218,10 +218,35 @@ export const commands = {
 	 *  the file, or whoever reads it next, knowing anything about it.
 	 */
 	setDocumentOverride: (path: string, reading: Override) => __TAURI_INVOKE<Override>("set_document_override", { path, reading }),
+	/**
+	 *  A window's answer to one question the server asked it.
+	 * 
+	 *  An id nobody is waiting for is dropped rather than refused: that is
+	 *  an answer that arrived after its question timed out, and there is
+	 *  nothing left to give it to.
+	 */
+	answerAgent: (id: number, answer: AgentAnswer) => __TAURI_INVOKE<void>("answer_agent", { id, answer }),
+	/**  What the status bar says about the agent server. */
+	agentStatus: () => __TAURI_INVOKE<AgentStatus>("agent_status"),
+	/**
+	 *  A fresh token, for the reader who wants the old one to stop working.
+	 * 
+	 *  The server keeps running on the same port: only the token changes,
+	 *  which is what every client configured with `--mcp-stdio` picks up on
+	 *  its next connection, because that mode reads the file every time.
+	 */
+	rotateAgentToken: () => typedError<null, Error>(__TAURI_INVOKE("rotate_agent_token")),
+	/**
+	 *  The client configuration to paste, for the palette command that
+	 *  copies one.
+	 */
+	agentClientConfig: () => typedError<string, Error>(__TAURI_INVOKE("agent_client_config")),
 };
 
 /** Events */
 export const events = {
+	agentAskEvent: makeEvent<AgentAskEvent>("agent-ask-event"),
+	agentStatusEvent: makeEvent<AgentStatusEvent>("agent-status-event"),
 	beforeCloseEvent: makeEvent<BeforeCloseEvent>("before-close-event"),
 	externalChangeEvent: makeEvent<ExternalChangeEvent>("external-change-event"),
 	fileRemovedEvent: makeEvent<FileRemovedEvent>("file-removed-event"),
@@ -235,6 +260,136 @@ export const events = {
 };
 
 /* Types */
+/**  One annotation, as `list_annotations` returns it. */
+export type AgentAnnotation = {
+	mark: AnnotationMark,
+	/**
+	 *  The palette word a colour stands for, absent for a colour the
+	 *  reader chose themselves and for every other mark.
+	 */
+	meaning: AnnotationKind | null,
+	/**
+	 *  The source under the mark, collapsed to one line. The source and
+	 *  not a rendering of it: an agent reading `the **first** step` is
+	 *  looking at what the file says, which is the point of the round
+	 *  trip.
+	 */
+	anchor: string,
+	/**  UTF-16 offsets of the marked span in the current buffer. */
+	from: number,
+	to: number,
+	comment: AgentComment | null,
+};
+
+/**
+ *  What one window answered.
+ * 
+ *  `Failed` is a real answer and not an error: a window that has since
+ *  closed the tab knows something the server needs to hear, and the
+ *  alternative is the server waiting out its timeout for it.
+ */
+export type AgentAnswer = { answer: "documents"; documents: AgentDocument[] } | { answer: "text"; text: string; dirty: boolean } | { answer: "annotations"; annotations: AgentAnnotation[] } | 
+/**
+ *  Both sides flattened into blocks. The window is the side that
+ *  holds the parse trees; the alignment is Rust's, the same one the
+ *  gutter and Review are drawn from (design 7.3).
+ */
+{ answer: "changes"; old: Block[]; new: Block[] } | { answer: "failed"; message: string };
+
+/**
+ *  One question on its way to a window, with the number its answer comes
+ *  back under.
+ */
+export type AgentAsk = {
+	id: number,
+	request: AgentRequest,
+};
+
+/**  One question on its way to a window, from the MCP server. */
+export type AgentAskEvent = AgentAsk;
+
+/**  One `<!-- kind: text -->` as an agent reads it. */
+export type AgentComment = {
+	kind: AnnotationKind,
+	text: string,
+};
+
+/**  One open document, as `list_documents` returns it. */
+export type AgentDocument = {
+	/**
+	 *  Absent for a document that has never been saved, which an agent
+	 *  can read but has no path to write to.
+	 */
+	path: string | null,
+	/**  What the tab calls it. */
+	name: string,
+	/**
+	 *  The buffer is ahead of the file. Under autosave this is true for
+	 *  about a second after a keystroke and false the rest of the time.
+	 */
+	dirty: boolean,
+	/**
+	 *  Length of the buffer in bytes of UTF-8 — the buffer's, not the
+	 *  file's, because the buffer is what the other tools return.
+	 */
+	byte_len: number,
+	/**  Last modification time of the file, when there is a file. */
+	modified_ms: number | null,
+};
+
+/**  What the server is asking one window. */
+export type AgentRequest = 
+/**  Every document this window has open. */
+{ ask: "documents" } | 
+/**  The buffer, which may be ahead of disk. */
+{ ask: "read"; path: string } | { ask: "annotations"; path: string } | 
+/**
+ *  The semantic diff from `against` to the buffer. Rust reads the
+ *  old version out of the history and sends the text, because the
+ *  window has no way to open a snapshot of its own.
+ */
+{ ask: "changes"; path: string; against: string };
+
+/**  What the status bar says about the server (plan WP 3.1). */
+export type AgentStatus = {
+	/**
+	 *  The port it is listening on. Zero when it did not start, which is
+	 *  what the status bar reads as "off" rather than as a port.
+	 */
+	port: number,
+	/**  Where a client is configured from. */
+	endpoint: string | null,
+	/**
+	 *  How many MCP sessions are open right now.
+	 * 
+	 *  Exact the moment a request has been served, because a session
+	 *  begins and ends on one. Late by up to the transport's own idle
+	 *  timeout for a client that goes away without saying so.
+	 */
+	clients: number,
+};
+
+/**
+ *  The server came up, went away, or something happened on it. What the
+ *  status bar draws (plan WP 3.1); the app's rather than a window's, so
+ *  every window hears it.
+ */
+export type AgentStatusEvent = AgentStatus;
+
+/**
+ *  The closed comment vocabulary of design 4.3. Closed is what makes the
+ *  comments machine-readable, which is the whole point of them.
+ */
+export type AnnotationKind = "note" | "attention" | "question" | "remove" | "keep" | "rewrite";
+
+/**  What the reader did to a span (design 4.3). */
+export type AnnotationMark = "highlight" | "strikethrough" | "color" | 
+/**
+ *  A comment with no mark of its own, which is still something the
+ *  reader said.
+ */
+"comment";
+
 /**  Whether the window follows the system or was told which to be. */
 export type Appearance = "system" | "light" | "dark";
 
@@ -350,6 +505,13 @@ export type ExternalChange = {
 	path: string,
 	content: string,
 	hash: string,
+	/**
+	 *  The agent that wrote it, by the name it gave, when the write came
+	 *  in over MCP rather than from the watcher (design 9). Plain file
+	 *  watching cannot tell us who wrote a file; this can, which is what
+	 *  makes the change attributable in the gutter and in the history.
+	 */
+	agent: string | null,
 	/**
 	 *  Edits from the file as the watcher last read it to `content`.
 	 * 
@@ -629,6 +791,12 @@ export type SnapshotInfo = {
 	id: string,
 	path: string,
 	author: SnapshotAuthor,
+	/**
+	 *  The name the agent gave itself, for a version an agent wrote
+	 *  (design 9). `None` for every other author, and for an agent write
+	 *  from a build older than plan WP 3.1.
+	 */
+	agent: string | null,
 	timestamp_ms: number,
 	hash: string,
 	byte_len: number,

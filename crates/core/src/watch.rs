@@ -102,6 +102,9 @@ impl Watched {
             path,
             content: text,
             hash: document.meta.hash,
+            // The watcher never knows who wrote a file; that is what an
+            // agent naming itself over MCP is for (design 9).
+            agent: None,
             changes,
         }))
     }

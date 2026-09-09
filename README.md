@@ -22,6 +22,35 @@ crates/app        Tauri command handlers. Thin.
 docs/             Design, plan, ADRs
 ```
 
+## Connecting an agent
+
+The app runs an MCP server on `127.0.0.1` while it is open: the documents
+you have in front of you, what you have marked in them, what has changed
+in them, and a way to write one back under a name you will see in the
+history. See [design section 9](docs/markdown-app-design.md) for what it
+is for and [ADR 0028](docs/adr/0028-wp-3.1-mcp-server.md) for how it
+works.
+
+The port is different on every launch and the bearer token is not, so
+neither belongs in a client's configuration. `Copy Agent Client
+Configuration` in the palette copies one with neither in it:
+
+```json
+{
+  "mcpServers": {
+    "md-reader": {
+      "command": "/Applications/MD Reader.app/Contents/MacOS/mdreader-desktop",
+      "args": ["--mcp-stdio"]
+    }
+  }
+}
+```
+
+That mode reads the app's own endpoint file (`mcp.json` in the app data
+directory, owner-readable only) every time it connects, so it follows the
+port and picks up a rotated token by itself. `Rotate the Agent Token` in
+the palette is how you stop anything that was configured by hand.
+
 ## Prerequisites
 
 - Node 24 and pnpm 12 (`corepack enable` or `npm i -g pnpm`)

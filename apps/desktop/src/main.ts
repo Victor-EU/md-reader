@@ -125,6 +125,18 @@ if (isTauri()) {
   // Not addressed to a window, because they are not a window's: every
   // window applies them, and applies them without writing back.
   void events.settingsChangedEvent.listen((event) => shell.workspace.applySettings(event.payload));
+  // What an agent is asking this window, and what the status bar says
+  // about the server (design 9, plan WP 3.1). The questions are this
+  // window's — they are about documents it has open — and the server
+  // itself is the app's, so its state reaches all of them.
+  shell.workspace.listenForAgents(
+    (answer) => {
+      void events.agentAskEvent(self).listen((event) => answer(event.payload));
+    },
+    (show) => {
+      void events.agentStatusEvent.listen((event) => show(event.payload));
+    },
+  );
   // The window is closing and Rust is holding the close open for us.
   // Answering is in a `finally` because a window that cannot write its
   // session should still close now rather than wait out Rust's grace.

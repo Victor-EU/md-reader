@@ -1,6 +1,7 @@
 //! Library crate for the markdown app: file IO, and later the watcher,
 //! history, diff, and search. No Tauri types.
 
+pub mod agent;
 pub mod assets;
 pub mod atomic;
 pub mod blocks;
@@ -14,8 +15,9 @@ pub mod state;
 pub mod types;
 pub mod watch;
 
+pub use agent::{Endpoint, authorized as agent_authorized, new_token};
 pub use assets::{AssetWrite, copy_asset, store_asset};
-pub use blocks::block_diff;
+pub use blocks::{agent_changes, block_diff};
 pub use diff::{apply, edits, merge3};
 pub use document::{
     Document, DocumentMeta, EDITABLE_BYTES, Error, FileFormat, OPEN_BYTES, ReadOnly, SaveResult,
@@ -31,8 +33,10 @@ pub use state::{
     TabState, ThemeId, Untitled, WindowContent, WindowState,
 };
 pub use types::{
-    Block, BlockOp, Conflict, DirEntry, ExternalChange, FileHit, FileMatches, FileRemoved,
-    FileRenamed, FolderChange, MergeResult, PositionEdit, SearchDone, SearchHit, SearchOptions,
-    SearchProgress, SnapshotAuthor, SnapshotInfo, WordRun,
+    AgentAnnotation, AgentAnswer, AgentAsk, AgentChange, AgentComment, AgentDocument, AgentOp,
+    AgentRequest, AgentStatus, AnnotationKind, AnnotationMark, Block, BlockOp, Conflict, DirEntry,
+    ExternalChange, FileHit, FileMatches, FileRemoved, FileRenamed, FolderChange, MergeResult,
+    PositionEdit, SearchDone, SearchHit, SearchOptions, SearchProgress, SnapshotAuthor,
+    SnapshotInfo, WordRun,
 };
 pub use watch::{WatchEvent, Watcher};

@@ -1,4 +1,8 @@
 import type {
+  AgentAnswer,
+  AgentAsk,
+  AgentRequest,
+  AgentStatus,
   AssetWrite,
   Block,
   BlockOp,
@@ -106,6 +110,24 @@ export interface FakeIpc {
   onSearchDone(cb: (done: SearchDone) => void): () => void;
   /** Every command call, for assertions on what the shell asked for. */
   calls: { command: string; args: unknown[] }[];
+  /**
+   * Simulate a write over MCP: the same event a watcher write makes, with
+   * a name on it (design 9, plan WP 3.1).
+   */
+  agentWrite(path: string, content: string, agent: string): ExternalChange;
+  /**
+   * Ask the window something the way the MCP server does, and wait for
+   * what it says back through `answerAgent`.
+   */
+  askAgent(request: AgentRequest): Promise<AgentAnswer>;
+  onAgentAsk(cb: (ask: AgentAsk) => void): () => void;
+  /** Tell the windows the server's state changed, the way Rust's event does. */
+  changeAgentStatus(status: AgentStatus): void;
+  onAgentStatus(cb: (status: AgentStatus) => void): () => void;
+  /** The status as `agent_status` answers it. */
+  agentStatus: AgentStatus;
+  /** How many times the reader has asked for a fresh token. */
+  rotations: number;
 }
 
 /**
@@ -275,6 +297,11 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
   const doneListeners = new Set<(done: SearchDone) => void>();
   const tabListeners = new Set<(move: TabMove) => void>();
   const settingsListeners = new Set<(settings: Settings) => void>();
+  const askListeners = new Set<(ask: AgentAsk) => void>();
+  const statusListeners = new Set<(status: AgentStatus) => void>();
+  /** Questions the fake server has out with the window, by id. */
+  const answering = new Map<number, (answer: AgentAnswer) => void>();
+  let nextAsk = 0;
   const overrides = new Map<string, Override>();
   const elsewhere = new Set<string>();
   const calls: FakeIpc['calls'] = [];
@@ -289,6 +316,12 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     windows: ['main'],
     moved: [] as TabMove[],
     arriving: [] as TabMove[],
+    agentStatus: {
+      port: 51_234,
+      endpoint: '/app-data/mcp.json',
+      clients: 0,
+    } as AgentStatus,
+    rotations: 0,
   };
   /** The search that has been started and not yet replaced or cancelled. */
   let search = 0;
@@ -456,6 +489,7 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
         id: `snapshot-${snapshots}`,
         path,
         author: author as SnapshotAuthor,
+        agent: null,
         timestamp_ms: Date.now(),
         hash: fakeHash(content),
         byte_len: new TextEncoder().encode(content).length,
@@ -730,6 +764,29 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       touched(dir);
       return record('rename_path', [path, name], ok(to));
     },
+    answerAgent: (id, answer) => {
+      calls.push({ command: 'answer_agent', args: [id, answer] });
+      // An id nobody is waiting for is dropped, the way Rust drops one.
+      answering.get(id)?.(answer);
+      answering.delete(id);
+      return Promise.resolve();
+    },
+    agentStatus: () => {
+      calls.push({ command: 'agent_status', args: [] });
+      return Promise.resolve({ ...state.agentStatus });
+    },
+    rotateAgentToken: () => {
+      state.rotations += 1;
+      return record('rotate_agent_token', [], ok(null));
+    },
+    agentClientConfig: () =>
+      record(
+        'agent_client_config',
+        [],
+        ok(
+          '{\n  "mcpServers": {\n    "md-reader": {\n      "command": "mdreader-desktop",\n      "args": ["--mcp-stdio"]\n    }\n  }\n}\n',
+        ),
+      ),
   };
   return {
     commands,
@@ -785,10 +842,52 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
         path,
         content,
         hash: fakeHash(content),
+        agent: null,
         changes: singleEdit(before, content),
       };
       for (const cb of listeners) cb(change);
       return change;
+    },
+    agentWrite(path, content, agent) {
+      const before = seen.get(path) ?? files.get(path)?.content ?? '';
+      files.set(path, { content });
+      seen.set(path, content);
+      const change: ExternalChange = {
+        path,
+        content,
+        hash: fakeHash(content),
+        agent,
+        changes: singleEdit(before, content),
+      };
+      for (const cb of listeners) cb(change);
+      return change;
+    },
+    askAgent(request) {
+      const id = nextAsk;
+      nextAsk += 1;
+      const answer = new Promise<AgentAnswer>((resolve) => {
+        answering.set(id, resolve);
+      });
+      for (const cb of askListeners) cb({ id, request });
+      return answer;
+    },
+    onAgentAsk(cb) {
+      askListeners.add(cb);
+      return () => askListeners.delete(cb);
+    },
+    changeAgentStatus(status) {
+      state.agentStatus = { ...status };
+      for (const cb of statusListeners) cb({ ...status });
+    },
+    onAgentStatus(cb) {
+      statusListeners.add(cb);
+      return () => statusListeners.delete(cb);
+    },
+    get agentStatus() {
+      return state.agentStatus;
+    },
+    get rotations() {
+      return state.rotations;
     },
     externalRemove(path) {
       files.delete(path);

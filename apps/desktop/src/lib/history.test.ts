@@ -1,12 +1,17 @@
 import type { SnapshotAuthor, SnapshotInfo } from '@mdreader/ipc';
 import { describe, expect, it } from 'vitest';
-import { authorName, snapshotSize, snapshotTime } from './history.ts';
+import { authorName, snapshotSize, snapshotTime, versionAuthor } from './history.ts';
 
-function version(at: Date, author: SnapshotAuthor = 'user'): SnapshotInfo {
+function version(
+  at: Date,
+  author: SnapshotAuthor = 'user',
+  agent: string | null = null,
+): SnapshotInfo {
   return {
     id: 'x',
     path: '/a.md',
     author,
+    agent,
     timestamp_ms: at.getTime(),
     hash: 'h',
     byte_len: 10,
@@ -47,6 +52,21 @@ describe('authorName', () => {
     expect(authorName('autosave')).toBe('Autosave');
     expect(authorName('external')).toBe('Outside');
     expect(authorName('agent')).toBe('Agent');
+  });
+});
+
+describe('versionAuthor', () => {
+  it('says the name an agent gave itself', () => {
+    expect(versionAuthor(version(new Date(), 'agent', 'claude'))).toBe('claude');
+  });
+
+  it('falls back to the hand for everything nobody signed', () => {
+    // Every version taken before plan WP 3.1, and every one the reader
+    // or the watcher left.
+    expect(versionAuthor(version(new Date(), 'agent', null))).toBe('Agent');
+    expect(versionAuthor(version(new Date(), 'user'))).toBe('You');
+    expect(versionAuthor(version(new Date(), 'external'))).toBe('Outside');
+    expect(versionAuthor(version(new Date(), 'agent', '  '))).toBe('Agent');
   });
 });
 

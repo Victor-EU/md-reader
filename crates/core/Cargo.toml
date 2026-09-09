@@ -10,6 +10,7 @@ publish.workspace = true
 blake3 = { workspace = true }
 chardetng = { workspace = true }
 encoding_rs = { workspace = true }
+getrandom = { workspace = true }
 grep-matcher = { workspace = true }
 grep-regex = { workspace = true }
 grep-searcher = { workspace = true }
@@ -18,6 +19,7 @@ nucleo-matcher = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-full = { workspace = true }
 rusqlite = { workspace = true }
+schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }
