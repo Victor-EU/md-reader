@@ -20,6 +20,19 @@ interface Row {
 let input: HTMLInputElement | undefined = $state();
 const palette = $derived(workspace.palette);
 
+/**
+ * How many file rows the list holds. The tabs, the recents and the fifty
+ * the folder answers with can come to more than anyone reads while
+ * typing, and the cap is on the rows themselves rather than on the ones
+ * drawn: a row the arrow keys can reach but the list does not show is a
+ * command run blind.
+ *
+ * The commands are not capped. That list is the application's own and is
+ * shorter than this; a command the palette would not offer is a command
+ * the reader cannot reach at all.
+ */
+const SHOWN = 60;
+
 const rows: Row[] = $derived.by(() => {
   if (palette.kind === 'files') {
     // What this window already holds, ranked here: a handful of tabs and
@@ -53,7 +66,7 @@ const rows: Row[] = $derived.by(() => {
         run: () =>
           workspace.chooseFile({ label: hit.name, detail: hit.dir, tabId: null, path: hit.path }),
       }));
-    return [...near, ...folder];
+    return [...near, ...folder].slice(0, SHOWN);
   }
   return rank(palette.query, registry.listed(), (command) => command.title).map(
     ({ item, positions }: { item: Command; positions: number[] }) => ({
@@ -158,7 +171,7 @@ function keydown(event: KeyboardEvent) {
       <p class="empty">Nothing matches</p>
     {:else}
       <ul class="rows" role="listbox" aria-label="Results">
-        {#each rows.slice(0, 40) as row, i (row.key)}
+        {#each rows as row, i (row.key)}
           <li>
             <button
               type="button"

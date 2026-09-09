@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capabilities of the main window",
-  "windows": ["main"],
+  "description": "Capabilities of every window. `window-*` must match the labels new_window mints in crates/app, or a second window has no IPC at all.",
+  "windows": ["main", "window-*"],
   "permissions": [
     "core:default",
     "dialog:default",

@@ -24,6 +24,7 @@ import type {
   Settings,
   SnapshotAuthor,
   SnapshotInfo,
+  TabMove,
   WindowContent,
 } from './index.ts';
 
@@ -51,6 +52,23 @@ export interface FakeIpc {
   settings: Settings;
   /** Files a launch is holding for the window; drained by `takeLaunchPaths`. */
   launch: string[];
+  /**
+   * The windows there are, `main` first, as `newWindow` and a torn-off
+   * tab have made them (plan WP 2.5).
+   */
+  windows: string[];
+  /** Tabs the shell has handed to another window, in the order it did. */
+  moved: TabMove[];
+  /** Tabs waiting for this window; drained by `takeMovedTabs`. */
+  arriving: TabMove[];
+  /**
+   * Files another window has open. `revealPath` answers for these, which
+   * is the one thing a single-window fake cannot know by itself.
+   */
+  elsewhere: Set<string>;
+  /** Hand a tab to this window, the way Rust's event does. */
+  deliverTab(move: TabMove): void;
+  onTabArrived(cb: (move: TabMove) => void): () => void;
   /** How many times the shell has asked for an immediate write. */
   flushes: number;
   /** Set when the shell has said it is ready for the window to close. */
@@ -241,6 +259,8 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
   const folderListeners = new Set<(change: FolderChange) => void>();
   const progressListeners = new Set<(progress: SearchProgress) => void>();
   const doneListeners = new Set<(done: SearchDone) => void>();
+  const tabListeners = new Set<(move: TabMove) => void>();
+  const elsewhere = new Set<string>();
   const calls: FakeIpc['calls'] = [];
   const watching = new Set<string>();
   const state = {
@@ -250,6 +270,9 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     flushes: 0,
     closed: false,
     folder: null as string | null,
+    windows: ['main'],
+    moved: [] as TabMove[],
+    arriving: [] as TabMove[],
   };
   /** The search that has been started and not yet replaced or cancelled. */
   let search = 0;
@@ -460,6 +483,30 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       state.closed = true;
       return record<void>('confirm_close', [], undefined);
     },
+    newWindow: () => {
+      const label = `window-${state.windows.length + 1}`;
+      state.windows.push(label);
+      return record('new_window', [], ok(label));
+    },
+    /**
+     * The fake has no desktop to hit-test and no pointer to read, so it
+     * makes the one distinction the shell acts on: a tab dropped goes to
+     * a window that was already there, and one moved by the command goes
+     * to a window made for it.
+     */
+    moveTab: (tab, dropped) => {
+      state.moved.push(tab);
+      const created = !dropped || state.windows.length < 2;
+      const label = created ? `window-${state.windows.length + 1}` : (state.windows[1] as string);
+      if (created) state.windows.push(label);
+      return record('move_tab', [tab, dropped], ok({ label, created }));
+    },
+    takeMovedTabs: () => {
+      const tabs = [...state.arriving];
+      state.arriving.length = 0;
+      return record('take_moved_tabs', [], tabs);
+    },
+    revealPath: (path) => record('reveal_path', [path], elsewhere.has(path)),
     blockDiff: (oldBlocks: Block[], newBlocks: Block[]) =>
       record('block_diff', [oldBlocks, newBlocks], fakeAlign(oldBlocks, newBlocks)),
     /**
@@ -659,6 +706,23 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     },
     get launch() {
       return state.launch;
+    },
+    get windows() {
+      return state.windows;
+    },
+    get moved() {
+      return state.moved;
+    },
+    get arriving() {
+      return state.arriving;
+    },
+    elsewhere,
+    deliverTab(move) {
+      for (const cb of tabListeners) cb(move);
+    },
+    onTabArrived(cb) {
+      tabListeners.add(cb);
+      return () => tabListeners.delete(cb);
     },
     get flushes() {
       return state.flushes;

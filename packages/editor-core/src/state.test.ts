@@ -1,7 +1,9 @@
+import { isolateHistory, undo } from '@codemirror/commands';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
+import { EditorSelection } from '@codemirror/state';
 import { dumpTree, parser } from '@mdreader/markdown';
 import { describe, expect, it } from 'vitest';
-import { createEditorState } from './state.ts';
+import { createEditorState, editorStateFromJSON, serializeEditorState } from './state.ts';
 
 describe('createEditorState', () => {
   it('keeps an LF document byte for byte', () => {
@@ -52,5 +54,56 @@ describe('createEditorState', () => {
     expect(dump).toContain('CalloutHeader');
     expect(dump).toContain('BlockMath');
     expect(dump).not.toMatch(/Superscript|Subscript|Emoji/);
+  });
+});
+
+describe('a state serialized for another window (plan WP 2.5)', () => {
+  /** Type into a state the way a transaction does, one edit at a time. */
+  const typed = (text: string) => {
+    let state = createEditorState('# Title\n');
+    for (const word of text.split(' ')) {
+      state = state.update({
+        changes: { from: state.doc.length, insert: `${word} ` },
+        // Each word its own undo step, which typing with a pause
+        // between the words is what would make it here.
+        annotations: isolateHistory.of('before'),
+      }).state;
+    }
+    return state;
+  };
+
+  it('comes back with its text and its cursor', () => {
+    const state = createEditorState('# Title\n\nbody\n', {
+      selection: EditorSelection.single(3, 7),
+    });
+    const back = editorStateFromJSON(serializeEditorState(state));
+    expect(back?.doc.toString()).toBe('# Title\n\nbody\n');
+    expect(back?.selection.main.anchor).toBe(3);
+    expect(back?.selection.main.head).toBe(7);
+  });
+
+  it('can still be undone on the other side', () => {
+    const state = typed('one two three');
+    expect(state.doc.toString()).toBe('# Title\none two three ');
+    const back = editorStateFromJSON(serializeEditorState(state));
+    expect(back).not.toBeNull();
+    if (!back) return;
+    // Undo needs a view to dispatch through; this is the smallest one
+    // that counts as one.
+    let current = back;
+    const view = {
+      state: current,
+      dispatch: (tr: { state: typeof current }) => {
+        current = tr.state;
+        view.state = current;
+      },
+    };
+    expect(undo(view)).toBe(true);
+    expect(current.doc.toString()).toBe('# Title\none two ');
+  });
+
+  it('is null for a string that is not one of ours, rather than a throw', () => {
+    expect(editorStateFromJSON('not json at all')).toBeNull();
+    expect(editorStateFromJSON('{"doc":42}')).toBeNull();
   });
 });

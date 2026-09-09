@@ -27,7 +27,8 @@ pub use history::History;
 pub use search::{Found, check as check_search, search};
 pub use state::{
     Appearance, Bounds, Cursor, DocumentState, Family, Paper, Restore, Session, Settings,
-    SidebarPanel, Store, TabKind, TabMode, TabState, Untitled, WindowContent, WindowState,
+    SidebarPanel, Store, TabKind, TabMode, TabMove, TabMoved, TabState, Untitled, WindowContent,
+    WindowState,
 };
 pub use types::{
     Block, BlockOp, Conflict, DirEntry, ExternalChange, FileHit, FileMatches, FileRemoved,

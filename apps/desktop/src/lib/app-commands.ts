@@ -85,6 +85,22 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.canReopen,
       run: () => workspace.reopenClosed(),
     },
+    // A second window (design 4.1). Dragging a tab out of the strip is
+    // the gesture for the same thing; these are for the keyboard.
+    {
+      id: 'file.newWindow',
+      title: 'New Window',
+      group: 'File',
+      key: 'Mod+Shift+N',
+      run: () => workspace.newWindow(),
+    },
+    {
+      id: 'file.moveToWindow',
+      title: 'Move Tab to New Window',
+      group: 'File',
+      enabled: () => workspace.activeTab?.kind === 'document',
+      run: () => workspace.tearOffActive(),
+    },
     {
       id: 'file.settings',
       title: 'Settings',

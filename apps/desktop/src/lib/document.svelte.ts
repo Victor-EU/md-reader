@@ -3,6 +3,7 @@ import {
   type ChangeRecord,
   createEditorState,
   type EditorMode,
+  editorStateFromJSON,
   type PreviewOptions,
 } from '@mdreader/editor-core';
 import type { DocumentMeta } from '@mdreader/ipc';
@@ -31,6 +32,13 @@ export interface DocOptions {
   preview?: (doc: Doc) => PreviewOptions;
   /** Extensions every view of this document carries: the paste and drop handlers. */
   extra?: Extension[];
+  /**
+   * A state another window serialized: this document's buffer, its
+   * selection and its undo history (plan WP 2.5). A string that will not
+   * read back leaves the text as the whole of what arrived, which is a
+   * document without its undo rather than no document.
+   */
+  restore?: string;
 }
 
 /**
@@ -100,11 +108,14 @@ export class Doc {
     this.untitledName = options.untitledName ?? 'Untitled';
     this.preview = options.preview;
     this.extra = options.extra ?? [];
-    this.state = createEditorState(text, {
+    const config = {
       mode: options.mode ?? 'edit',
       preview: this.previewOptions(),
       extra: this.extra,
-    });
+    };
+    this.state =
+      (options.restore === undefined ? null : editorStateFromJSON(options.restore, config)) ??
+      createEditorState(text, config);
     this.base = this.state.doc;
     this.reviewed = this.state.doc;
   }

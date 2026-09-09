@@ -41,6 +41,7 @@ import {
   replaceNext,
   revertChangeAtCursor,
   SearchQuery,
+  serializeEditorState,
   setChanges,
   setDarkEffect,
   setFindOpen,
@@ -70,6 +71,7 @@ import type {
   SidebarPanel,
   SnapshotInfo,
   TabKind,
+  TabMove,
   WindowContent,
 } from '@mdreader/ipc';
 import {
@@ -502,6 +504,13 @@ export class Workspace {
       this.activate(open.id);
       return true;
     }
+    // A document belongs to one window (design 6.5). If another window
+    // has this file, that window comes forward with the file in front,
+    // rather than a second copy of it opening here.
+    if (await this.options.commands.revealPath(path)) {
+      this.status = `${basename(path)} is open in another window`;
+      return true;
+    }
     const opened = await this.load(path);
     if (opened === null) return false;
     this.addTab(opened.doc);
@@ -554,7 +563,7 @@ export class Workspace {
    */
   private newDoc(
     text: string,
-    options: { path?: string; meta?: DocumentMeta; untitledName?: string },
+    options: { path?: string; meta?: DocumentMeta; untitledName?: string; restore?: string },
   ): Doc {
     const doc = new Doc(text, {
       ...options,
@@ -682,9 +691,19 @@ export class Workspace {
     this.activate((this.tabs[next] as Tab).id);
   }
 
-  close(id: string): void {
+  /**
+   * Take a tab out of the strip, and say whether that was the last view
+   * of its document.
+   *
+   * What is left to the caller is what closing and moving do not share.
+   * A closed tab is remembered so that it can be reopened, and its
+   * document is written on the way out; a moved one is neither, because
+   * it is not gone — it is in another window, and reopening it here
+   * would be a second copy of a document that lives there.
+   */
+  private remove(id: string): { tab: Tab; doc: Doc | null; index: number; alone: boolean } | null {
     const index = this.tabs.findIndex((tab) => tab.id === id);
-    if (index === -1) return;
+    if (index === -1) return null;
     const tab = this.tabs[index] as Tab;
     const doc = this.docOf(tab);
     const wasActive = this.activeId === tab.id;
@@ -693,8 +712,21 @@ export class Workspace {
       this.unmountRead();
     }
     this.tabs.splice(index, 1);
-    this.closed = [{ tab: { ...tab }, doc, index }, ...this.closed].slice(0, CLOSED_LIMIT);
     const alone = doc !== null && !this.tabs.some((other) => other.docId === doc.id);
+    if (wasActive) {
+      const next = this.tabs[Math.min(index, this.tabs.length - 1)];
+      this.activeId = next?.id ?? null;
+      this.countNow();
+    }
+    this.touch();
+    return { tab, doc, index, alone };
+  }
+
+  close(id: string): void {
+    const gone = this.remove(id);
+    if (gone === null) return;
+    const { tab, doc, index, alone } = gone;
+    this.closed = [{ tab: { ...tab }, doc, index }, ...this.closed].slice(0, CLOSED_LIMIT);
     // Closing the last tab on a document is the strongest form of
     // leaving it, so autosave writes it (design 6.6) before it goes.
     const saved = alone && this.autosaveOnLeave(doc);
@@ -702,12 +734,6 @@ export class Workspace {
       this.docs.delete(doc.id);
       if (doc.path !== null) void this.options.commands.unwatch(doc.path);
     }
-    if (wasActive) {
-      const next = this.tabs[Math.min(index, this.tabs.length - 1)];
-      this.activeId = next?.id ?? null;
-      this.countNow();
-    }
-    this.touch();
     if (!doc) {
       this.status = 'Closed Settings';
       return;
@@ -767,6 +793,140 @@ export class Workspace {
 
   private pinnedCount(): number {
     return this.tabs.filter((tab) => tab.pinned).length;
+  }
+
+  // --- more than one window (plan WP 2.5) ---------------------------------
+
+  /** Cmd+Shift+N: another window, empty, over this one (design 4.1). */
+  async newWindow(): Promise<void> {
+    const made = await this.options.commands.newWindow();
+    this.status = made.status === 'error' ? describeError(made.error) : 'New window';
+  }
+
+  /**
+   * Send a tab to another window, or tear it off into one of its own
+   * (design 4.1, 6.5).
+   *
+   * `dropped` says the tab was let go of with the pointer. Rust reads
+   * where the pointer is and decides from that: a window under it takes
+   * the tab in, nothing under it tears the tab into a new window there.
+   * Without it — the command rather than the drag — it is always a new
+   * window.
+   *
+   * The document goes with the tab, because two webviews cannot share
+   * one: its buffer, what the file held, what has been read, and its
+   * undo history. It leaves this window only once the other one has been
+   * given it, so a window that cannot be reached costs nothing.
+   */
+  async moveTab(id: string, dropped = false): Promise<boolean> {
+    const tab = this.tabs.find((open) => open.id === id);
+    if (!tab) return false;
+    const doc = this.docOf(tab);
+    if (tab.kind !== 'document' || !doc) {
+      this.status = 'Only a document can be moved to another window';
+      return false;
+    }
+    if (doc.ephemeral) {
+      this.status = `${doc.label} is a version out of the history, not a document to move`;
+      return false;
+    }
+    // A document lives in one window, so it cannot be half moved. The
+    // second view is this window's (design 6.5); closing it is what
+    // makes the document free to go.
+    if (this.tabs.some((other) => other.id !== tab.id && other.docId === doc.id)) {
+      this.status = `${doc.label} has another view in this window · close it to move the document`;
+      return false;
+    }
+    // The live cursor and scroll position are in the view until the tab
+    // is asked to give them up.
+    this.syncMounted();
+    const payload: TabMove = {
+      path: doc.path,
+      untitled_name: doc.path === null ? doc.untitledName : null,
+      meta: doc.meta,
+      text: doc.text,
+      base: doc.base.toString(),
+      reviewed: doc.reviewed.toString(),
+      state: serializeEditorState(doc.state),
+      mode: tab.mode,
+      pinned: tab.pinned,
+      anchor: tab.anchor?.offset ?? tab.selection.main.head,
+      folded: [...tab.folded],
+    };
+    // The watch is one entry per path in Rust, so it is given up here,
+    // before the other window takes it up. The other order would leave
+    // the file watched by nobody.
+    if (doc.path !== null) await this.options.commands.unwatch(doc.path);
+    const moved = await this.options.commands.moveTab(payload, dropped);
+    if (moved.status === 'error') {
+      if (doc.path !== null) void this.options.commands.watch(doc.path);
+      this.status = describeError(moved.error);
+      return false;
+    }
+    // Not written on the way out: what leaves is the buffer as it
+    // stands, dirty dot and all, and the window taking it in is the one
+    // that saves it from here.
+    this.cancelAutosave(doc);
+    this.remove(tab.id);
+    this.docs.delete(doc.id);
+    this.status = `Moved ${doc.label} to ${moved.data.created ? 'a new window' : 'the window under it'}`;
+    return true;
+  }
+
+  /** The command, for a reader whose hands are on the keyboard. */
+  tearOffActive(): Promise<boolean> {
+    return this.activeId === null ? Promise.resolve(false) : this.moveTab(this.activeId);
+  }
+
+  /**
+   * Take in a tab another window has given up (plan WP 2.5).
+   *
+   * It comes back as it left: the same view, the same undo history, and
+   * the same relationship to the file — a document that was dirty over
+   * there is dirty here, and this window's autosave is what settles it.
+   */
+  adoptTab(move: TabMove): void {
+    const path = move.path;
+    // Two windows cannot hold one document, and `revealPath` is what
+    // keeps one from being opened twice. If it turns up anyway, the tab
+    // already here is the one that wins.
+    const here =
+      path === null ? undefined : this.tabs.find((tab) => this.docOf(tab)?.path === path);
+    if (here) {
+      this.activate(here.id);
+      this.status = `${basename(path ?? '')} is already open here`;
+      return;
+    }
+    const name = move.untitled_name ?? 'Untitled';
+    if (path === null) this.untitledCount = Math.max(this.untitledCount, untitledNumber(name));
+    const doc = this.newDoc(move.text, {
+      ...(path === null ? { untitledName: name } : { path }),
+      ...(move.meta === null ? {} : { meta: move.meta }),
+      restore: move.state,
+    });
+    doc.base = Text.of(move.base.split('\n'));
+    doc.reviewed = Text.of(move.reviewed.split('\n'));
+    const tab = this.addTab(doc, move.mode);
+    tab.selection = doc.state.selection;
+    tab.anchor = { offset: Math.min(move.anchor, doc.state.doc.length), y: 0 };
+    tab.folded = [...move.folded];
+    // Through the pin command, which is also what puts the tab in the
+    // pinned block at the front of the strip.
+    if (move.pinned) this.togglePin(tab.id);
+    if (path !== null) {
+      void this.options.commands.allowDocumentImages(path);
+      void this.options.commands.watch(path);
+      this.remember(path);
+    }
+    // Unsaved work that has just changed windows is work this window
+    // now owes the disk (design 6.6).
+    if (doc.dirty) this.scheduleAutosave(doc);
+    // The marks are not carried, they are derived: what came across is
+    // the version the reader had last looked at, and this window works
+    // out for itself what has happened since (design 4.4).
+    if (!doc.baseline.eq(doc.state.doc)) void this.pushChanges(doc);
+    this.status = `${doc.label} moved here`;
+    this.touch();
   }
 
   // --- modes and the editor view ------------------------------------------
@@ -2312,7 +2472,9 @@ export class Workspace {
     if (!(await this.openPath(hit.path))) return;
     const tab = this.activeTab;
     const doc = this.activeDoc;
-    if (!tab || !doc) return;
+    // The file may have gone to the window that already had it open
+    // (design 6.5), and then there is nothing here to put a cursor in.
+    if (!tab || !doc || doc.path !== hit.path) return;
     const text = doc.state.doc;
     const line = text.line(Math.min(Math.max(hit.line, 1), text.lines));
     const from = Math.min(line.from + hit.column, line.to);

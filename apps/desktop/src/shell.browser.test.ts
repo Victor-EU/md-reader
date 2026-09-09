@@ -644,3 +644,60 @@ describe('the files panel', () => {
     expect(activeLabel()).toBe('brief.md •');
   });
 });
+
+describe('a second window', () => {
+  it('opens on the shortcut design 4.1 gives it', async () => {
+    start();
+    await press('KeyN', { shift: true });
+    expect(ipc.windows).toEqual(['main', 'window-2']);
+    expect(status()).toBe('New window');
+  });
+
+  it('is where the palette sends the tab in front', async () => {
+    start({ '/a/one.md': '# One\n' });
+    await shell.workspace.openPath('/a/one.md');
+    await settle();
+    await press('KeyP', { shift: true });
+    const row = rows().find(
+      (item) => item.querySelector('.row-label')?.textContent?.trim() === 'Move Tab to New Window',
+    );
+    (row as HTMLButtonElement | undefined)?.click();
+    await settle();
+    expect(ipc.moved.map((move) => move.path)).toEqual(['/a/one.md']);
+    expect(labels()).toEqual([]);
+    expect(status()).toBe('Moved one.md to a new window');
+  });
+
+  it('takes a torn-off tab by the drag that tore it', async () => {
+    start({ '/a/one.md': '# One\n' });
+    await shell.workspace.openPath('/a/one.md');
+    await settle();
+    const tab = tabAt(0);
+    tab.dispatchEvent(new DragEvent('dragstart', { bubbles: true }));
+    // Let go of it somewhere that is not the strip, which is the
+    // gesture design 4.1 asks for.
+    tab.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+    await settle();
+    expect(
+      ipc.calls.filter((call) => call.command === 'move_tab').map((call) => call.args[1]),
+      // Dropped rather than commanded, which is what tells Rust to
+      // look at where the pointer is.
+    ).toEqual([true]);
+    expect(labels()).toEqual([]);
+  });
+
+  it('does not tear a tab that was dropped back on the strip', async () => {
+    start({ '/a/one.md': '# One\n', '/a/two.md': '# Two\n' });
+    await shell.workspace.openPath('/a/one.md');
+    await shell.workspace.openPath('/a/two.md');
+    await settle();
+    const tab = tabAt(1);
+    tab.dispatchEvent(new DragEvent('dragstart', { bubbles: true }));
+    tabAt(0).dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true }));
+    tab.dispatchEvent(new DragEvent('dragend', { bubbles: true }));
+    await settle();
+    expect(ipc.moved).toEqual([]);
+    // Reordered rather than torn off. The dot is every tab's, dirty or not.
+    expect(labels()).toEqual(['two.md •', 'one.md •']);
+  });
+});

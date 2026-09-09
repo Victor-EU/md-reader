@@ -102,6 +102,57 @@ export const commands = {
 	 */
 	blockDiff: (oldBlocks: Block[], newBlocks: Block[]) => __TAURI_INVOKE<BlockOp[]>("block_diff", { oldBlocks, newBlocks }),
 	/**
+	 *  Open a second window (design 4.1, Cmd+Shift+N).
+	 * 
+	 *  It comes up over the one that asked for it and the same size, which
+	 *  is where the reader is looking; it starts empty, because a new window
+	 *  is somewhere to put something, not a copy of what is already open.
+	 */
+	newWindow: () => typedError<string, Error>(__TAURI_INVOKE("new_window")),
+	/**
+	 *  Hand a tab to another window (design 6.5, plan WP 2.5).
+	 * 
+	 *  `dropped` says the tab was let go of with the pointer, and then where
+	 *  the pointer is decides: a window under it takes the tab in, and
+	 *  nothing under it tears the tab into a new window there. Without it —
+	 *  the command rather than the drag — it is always a new window, over
+	 *  the one the tab came from.
+	 * 
+	 *  The pointer is read here rather than sent from the webview. A drag
+	 *  that has left the window is no longer something the webview can
+	 *  measure: what `WebKit` reports as the end of one is a point near where
+	 *  the reader let go and not the point itself, which was out by fifty
+	 *  pixels in both directions when this was measured. The window manager
+	 *  knows where the pointer is, in the same coordinates a window frame is
+	 *  in, on whichever monitor it is over.
+	 * 
+	 *  A document cannot be in two windows at once, because a document lives
+	 *  in a webview and two webviews share nothing. So this is a move and
+	 *  not a copy: what is answered here is what the window it left is
+	 *  waiting for before it lets go.
+	 */
+	moveTab: (tab: TabMove, dropped: boolean) => typedError<TabMoved, Error>(__TAURI_INVOKE("move_tab", { tab, dropped })),
+	/**
+	 *  Tabs another window handed this one before it was listening.
+	 * 
+	 *  Draining is also how a window says it is ready, exactly as
+	 *  `take_launch_paths` is: from here on a tab reaches it as an event.
+	 */
+	takeMovedTabs: () => __TAURI_INVOKE<TabMove[]>("take_moved_tabs"),
+	/**
+	 *  Whether another window already has this file open, and if so, bring
+	 *  it forward with the file in front (design 6.5).
+	 * 
+	 *  One document belongs to one window, so a file the reader opens from
+	 *  anywhere — the palette, the open panel, the tree — goes to the window
+	 *  that already has it rather than being opened a second time. The
+	 *  session is the registry that answers this, as it is for a file the OS
+	 *  hands us (WP 1.8), so the answer is only as fresh as the last thing a
+	 *  window said about itself; opening one file in two windows in the same
+	 *  instant opens it twice.
+	 */
+	revealPath: (path: string) => __TAURI_INVOKE<boolean>("reveal_path", { path }),
+	/**
 	 *  Open a folder as this window's workspace (design 4.1).
 	 * 
 	 *  Answers with the root, which is the path every entry under it is
@@ -158,6 +209,7 @@ export const events = {
 	openPathsEvent: makeEvent<OpenPathsEvent>("open-paths-event"),
 	searchDoneEvent: makeEvent<SearchDoneEvent>("search-done-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent>("search-progress-event"),
+	tabArrivedEvent: makeEvent<TabArrivedEvent>("tab-arrived-event"),
 };
 
 /* Types */
@@ -532,6 +584,9 @@ export type SnapshotInfo = {
 	byte_len: number,
 };
 
+/**  A tab another window has handed this one (plan WP 2.5). */
+export type TabArrivedEvent = TabMove;
+
 /**
  *  What a tab is showing. Settings open as a tab rather than a modal
  *  (plan WP 1.9), so not every tab has a document behind it.
@@ -540,6 +595,69 @@ export type TabKind = "document" | "settings";
 
 /**  Which projection of a document a tab was showing (design 4.2). */
 export type TabMode = "read" | "edit" | "source";
+
+/**
+ *  A tab on its way from one window to another (design 6.5, plan WP 2.5).
+ * 
+ *  Each window is its own webview, so a document cannot be shared
+ *  between two of them: moving one moves it, with its view state and its
+ *  undo history. This is everything the window taking it in needs to put
+ *  back what left the other one.
+ * 
+ *  Rust is the courier and not a reader of this. `state` is the editor's
+ *  own serialization — its buffer, its selection and its undo history —
+ *  and only the window that wrote it knows its shape.
+ * 
+ *  Every field is required, unlike the session's: this never lives on
+ *  disk to be read by a later version of the app, it is one running
+ *  window handing something to another, and a field left out would be a
+ *  window losing part of what it was given.
+ */
+export type TabMove = {
+	path: string | null,
+	/**
+	 *  The name a document with no file answers to, so `Untitled 2`
+	 *  stays `Untitled 2` on the other side.
+	 */
+	untitled_name: string | null,
+	/**
+	 *  What the file was when the window that had it last read or wrote
+	 *  it: the hash a save must present, and the format it must keep.
+	 */
+	meta: DocumentMeta | null,
+	/**
+	 *  The buffer, in the clear. It is also inside `state`; carrying it
+	 *  here as well is what makes a payload the editor cannot read a
+	 *  document that has lost its undo history rather than a lost
+	 *  document.
+	 */
+	text: string,
+	/**
+	 *  What the file held when the window last saw it, which is what the
+	 *  dirty dot and a merge are both measured against.
+	 */
+	base: string,
+	/**
+	 *  What the reader has already looked at, so the Changes badge does
+	 *  not clear itself because a tab changed windows (design 4.4).
+	 */
+	reviewed: string,
+	state: string,
+	mode: TabMode,
+	pinned: boolean,
+	anchor: number,
+	folded: string[],
+};
+
+/**  Where a moved tab went. */
+export type TabMoved = {
+	label: string,
+	/**
+	 *  Whether the window was made for it, which is the difference
+	 *  between a tab torn off and a tab handed over.
+	 */
+	created: boolean,
+};
 
 /**
  *  One tab: a view onto a document, with the state that is per view

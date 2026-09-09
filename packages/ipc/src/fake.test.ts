@@ -173,6 +173,61 @@ describe('fake ipc', () => {
     expect(ipc.files.get('/x.md')?.content).toBe('one\nTWO\n');
   });
 
+  it('tears a tab into a window it makes, and hands one over to a window there is', async () => {
+    const ipc = createFakeIpc();
+    const tab = {
+      path: '/a.md',
+      untitled_name: null,
+      meta: null,
+      text: 'one\n',
+      base: 'one\n',
+      reviewed: 'one\n',
+      state: '{}',
+      mode: 'read' as const,
+      pinned: false,
+      anchor: 0,
+      folded: [],
+    };
+    // Not dropped anywhere: a window of its own, made for it.
+    expect(await unwrap(ipc.commands.moveTab(tab, false))).toEqual({
+      label: 'window-2',
+      created: true,
+    });
+    // Dropped: the window that was already under it.
+    expect(await unwrap(ipc.commands.moveTab(tab, true))).toEqual({
+      label: 'window-2',
+      created: false,
+    });
+    expect(ipc.windows).toEqual(['main', 'window-2']);
+    expect(ipc.moved.length).toBe(2);
+  });
+
+  it('hands a waiting tab over once, the way the launch queue does', async () => {
+    const ipc = createFakeIpc();
+    ipc.arriving.push({
+      path: '/a.md',
+      untitled_name: null,
+      meta: null,
+      text: '',
+      base: '',
+      reviewed: '',
+      state: '{}',
+      mode: 'read',
+      pinned: false,
+      anchor: 0,
+      folded: [],
+    });
+    expect((await ipc.commands.takeMovedTabs()).map((move) => move.path)).toEqual(['/a.md']);
+    expect(await ipc.commands.takeMovedTabs()).toEqual([]);
+  });
+
+  it('says when another window has the file, which is all a fake window knows', async () => {
+    const ipc = createFakeIpc({ '/a.md': 'one' });
+    expect(await ipc.commands.revealPath('/a.md')).toBe(false);
+    ipc.elsewhere.add('/a.md');
+    expect(await ipc.commands.revealPath('/a.md')).toBe(true);
+  });
+
   it('moves a file out from under the shell', () => {
     const ipc = createFakeIpc({ '/x.md': 'here' });
     expect(ipc.externalRename('/x.md', '/y.md')).toEqual({ from: '/x.md', to: '/y.md' });

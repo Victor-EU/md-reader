@@ -21,12 +21,17 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::atomic;
-use crate::document::Error;
+use crate::document::{DocumentMeta, Error};
 
 /// How often a store may touch the disk. Long enough that a burst of tab
 /// changes is one write, short enough that a power cut costs a second of
 /// what the reader was doing.
 pub const INTERVAL: Duration = Duration::from_secs(1);
+
+/// How many recent files the session keeps. The window offers a list
+/// nobody scrolls to the end of; this is the cap on what several windows
+/// merged together may come to.
+const RECENTS: usize = 50;
 
 // --- what is stored ---------------------------------------------------------
 
@@ -246,6 +251,57 @@ pub struct WindowState {
     pub content: WindowContent,
 }
 
+/// A tab on its way from one window to another (design 6.5, plan WP 2.5).
+///
+/// Each window is its own webview, so a document cannot be shared
+/// between two of them: moving one moves it, with its view state and its
+/// undo history. This is everything the window taking it in needs to put
+/// back what left the other one.
+///
+/// Rust is the courier and not a reader of this. `state` is the editor's
+/// own serialization — its buffer, its selection and its undo history —
+/// and only the window that wrote it knows its shape.
+///
+/// Every field is required, unlike the session's: this never lives on
+/// disk to be read by a later version of the app, it is one running
+/// window handing something to another, and a field left out would be a
+/// window losing part of what it was given.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+pub struct TabMove {
+    pub path: Option<PathBuf>,
+    /// The name a document with no file answers to, so `Untitled 2`
+    /// stays `Untitled 2` on the other side.
+    pub untitled_name: Option<String>,
+    /// What the file was when the window that had it last read or wrote
+    /// it: the hash a save must present, and the format it must keep.
+    pub meta: Option<DocumentMeta>,
+    /// The buffer, in the clear. It is also inside `state`; carrying it
+    /// here as well is what makes a payload the editor cannot read a
+    /// document that has lost its undo history rather than a lost
+    /// document.
+    pub text: String,
+    /// What the file held when the window last saw it, which is what the
+    /// dirty dot and a merge are both measured against.
+    pub base: String,
+    /// What the reader has already looked at, so the Changes badge does
+    /// not clear itself because a tab changed windows (design 4.4).
+    pub reviewed: String,
+    pub state: String,
+    pub mode: TabMode,
+    pub pinned: bool,
+    pub anchor: u32,
+    pub folded: Vec<String>,
+}
+
+/// Where a moved tab went.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct TabMoved {
+    pub label: String,
+    /// Whether the window was made for it, which is the difference
+    /// between a tab torn off and a tab handed over.
+    pub created: bool,
+}
+
 /// Everything a launch restores (design 4.1).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(default)]
@@ -304,6 +360,29 @@ impl Session {
     #[must_use]
     pub fn window(&self, label: &str) -> Option<&WindowState> {
         self.windows.iter().find(|window| window.label == label)
+    }
+
+    /// Forget a window the reader has closed, so the next launch does
+    /// not put back something they shut (plan WP 2.5).
+    pub fn remove_window(&mut self, label: &str) {
+        self.windows.retain(|window| window.label != label);
+    }
+
+    /// Take one window's recent files into the session's.
+    ///
+    /// Every window reports the whole list rather than what it has just
+    /// opened, so two windows writing in turn would each undo the
+    /// other's. Merging keeps what the reporting window knows in front
+    /// and everything else behind it, in the order it was already in.
+    pub fn merge_recents(&mut self, recents: Vec<PathBuf>) {
+        let mut merged = recents;
+        for path in std::mem::take(&mut self.recents) {
+            if !merged.contains(&path) {
+                merged.push(path);
+            }
+        }
+        merged.truncate(RECENTS);
+        self.recents = merged;
     }
 }
 
@@ -565,6 +644,53 @@ mod tests {
             }],
             recents: paths.iter().map(PathBuf::from).collect(),
         }
+    }
+
+    #[test]
+    fn a_closed_window_is_forgotten_and_the_others_stay() {
+        let mut kept = session(&["/a/one.md"]);
+        kept.windows.push(WindowState {
+            label: "window-2".to_owned(),
+            ..WindowState::default()
+        });
+        kept.remove_window("window-2");
+        assert_eq!(kept.windows.len(), 1);
+        assert_eq!(kept.windows[0].label, "main");
+        // A label nothing answers to leaves the session as it was.
+        kept.remove_window("window-9");
+        assert_eq!(kept.windows.len(), 1);
+    }
+
+    #[test]
+    fn recents_from_two_windows_are_merged_rather_than_replaced() {
+        let mut both = session(&["/a/one.md", "/a/two.md"]);
+        both.merge_recents(vec![
+            PathBuf::from("/a/three.md"),
+            PathBuf::from("/a/one.md"),
+        ]);
+        // What the reporting window knows, then what it did not.
+        assert_eq!(
+            both.recents,
+            [
+                PathBuf::from("/a/three.md"),
+                PathBuf::from("/a/one.md"),
+                PathBuf::from("/a/two.md"),
+            ]
+        );
+    }
+
+    #[test]
+    fn merged_recents_stop_at_the_cap() {
+        let mut long = Session {
+            recents: (0..RECENTS)
+                .map(|n| PathBuf::from(format!("/a/{n}.md")))
+                .collect(),
+            ..Session::default()
+        };
+        long.merge_recents(vec![PathBuf::from("/b/new.md")]);
+        assert_eq!(long.recents.len(), RECENTS);
+        assert_eq!(long.recents[0], PathBuf::from("/b/new.md"));
+        assert_eq!(long.recents[1], PathBuf::from("/a/0.md"));
     }
 
     #[test]

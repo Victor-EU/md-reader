@@ -19,7 +19,8 @@ use mdreader_core::{
     AssetWrite, Block, BlockOp, Bounds, DirEntry, Document, Error, ExternalChange, FileFormat,
     FileMatches, FileRemoved, FileRenamed, Folder, FolderChange, History, MergeResult, Restore,
     SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session, Settings,
-    SnapshotAuthor, SnapshotInfo, Store, WatchEvent, Watcher, WindowContent, WindowState,
+    SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher, WindowContent,
+    WindowState,
 };
 use specta_typescript::Typescript;
 use tauri::Manager;
@@ -37,15 +38,22 @@ use tauri_specta::{Builder, Event, collect_commands, collect_events};
 struct Services {
     watcher: Option<Mutex<Watcher>>,
     history: Option<Mutex<History>>,
-    /// The folder this window has open, if any (plan WP 2.4). Behind an
-    /// `Arc` because the walk and the search read it from threads of
-    /// their own, and neither should hold the lock while it works.
-    folder: Mutex<Option<Arc<Folder>>>,
-    /// The content search that is running, if one is.
-    search: Mutex<Searches>,
+    /// The folder each window has open, if it has one (plan WP 2.4),
+    /// by window label.
+    ///
+    /// A workspace belongs to the window it was opened in: two windows
+    /// are two folders, two trees and two searches, and neither is any
+    /// of the other's business (plan WP 2.5). Behind an `Arc` because
+    /// the walk and the search read it from threads of their own, and
+    /// neither should hold the lock while it works.
+    folders: Mutex<HashMap<String, Arc<Folder>>>,
+    /// The content search each window has running, if it has one.
+    searches: Mutex<HashMap<String, Searches>>,
     settings: Store<Settings>,
     session: Store<Session>,
-    launch: Mutex<HashMap<String, Launch>>,
+    launch: Mutex<HashMap<String, Waiting<PathBuf>>>,
+    /// Tabs on their way from one window to another (plan WP 2.5).
+    handoff: Mutex<HashMap<String, Waiting<TabMove>>>,
     /// Windows that have finished their before-close work and may go.
     closing: Mutex<HashSet<String>>,
     /// Set once the windows have been asked to finish before a quit.
@@ -65,13 +73,26 @@ struct Searches {
     running: Option<(u32, Arc<AtomicBool>)>,
 }
 
-/// Files the OS wants one window to open, and whether that window is
-/// listening yet. A file argument arrives before the webview exists, so
-/// it waits here until the window asks for it.
-#[derive(Default)]
-struct Launch {
-    queued: Vec<PathBuf>,
+/// What one window is owed, and whether it is listening yet.
+///
+/// A file argument arrives before the webview exists; so does a tab torn
+/// into a window that is still being built. Both wait here until the
+/// window asks for them, and asking is also how a window says that from
+/// now on the same thing reaches it as an event instead.
+struct Waiting<T> {
+    queued: Vec<T>,
     ready: bool,
+}
+
+// Written out rather than derived: a queue starts empty whether or not
+// the thing it holds has a default of its own.
+impl<T> Default for Waiting<T> {
+    fn default() -> Self {
+        Self {
+            queued: Vec::new(),
+            ready: false,
+        }
+    }
 }
 
 /// A lock whose value is worth more than the panic that poisoned it.
@@ -95,6 +116,20 @@ impl Services {
             what: "the file watcher".to_owned(),
             message: "its state was left locked by a panic".to_owned(),
         })
+    }
+
+    /// The folder one window has open.
+    fn folder(&self, label: &str) -> Option<Arc<Folder>> {
+        locked(&self.folders).get(label).map(Arc::clone)
+    }
+
+    /// Stop whatever that window was searching for, if anything.
+    fn stop_search(&self, label: &str) {
+        if let Some(searches) = locked(&self.searches).get_mut(label)
+            && let Some((_, stop)) = searches.running.take()
+        {
+            stop.store(true, Ordering::Relaxed);
+        }
     }
 
     fn history(&self) -> Result<MutexGuard<'_, History>, Error> {
@@ -309,7 +344,10 @@ fn save_window(
         content,
     };
     services.session.update(move |session| {
-        session.recents = recents;
+        // Merged rather than assigned: every window reports the whole
+        // list, so two of them writing in turn would each undo the
+        // other's (plan WP 2.5).
+        session.merge_recents(recents);
         session.put_window(state);
     });
 }
@@ -356,6 +394,139 @@ fn confirm_close(app: tauri::AppHandle, window: tauri::WebviewWindow) {
     close_now(&app, window.label());
 }
 
+// --- more than one window (plan WP 2.5) --------------------------------
+
+/// Open a second window (design 4.1, Cmd+Shift+N).
+///
+/// It comes up over the one that asked for it and the same size, which
+/// is where the reader is looking; it starts empty, because a new window
+/// is somewhere to put something, not a copy of what is already open.
+#[tauri::command]
+#[specta::specta]
+fn new_window(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<String, Error> {
+    let label = next_label(&labels(&app));
+    let made = spawn(&app, &label)?;
+    cascade(&window, &made);
+    let _unused = made.show();
+    let _unused = made.set_focus();
+    Ok(label)
+}
+
+/// Hand a tab to another window (design 6.5, plan WP 2.5).
+///
+/// `dropped` says the tab was let go of with the pointer, and then where
+/// the pointer is decides: a window under it takes the tab in, and
+/// nothing under it tears the tab into a new window there. Without it —
+/// the command rather than the drag — it is always a new window, over
+/// the one the tab came from.
+///
+/// The pointer is read here rather than sent from the webview. A drag
+/// that has left the window is no longer something the webview can
+/// measure: what `WebKit` reports as the end of one is a point near where
+/// the reader let go and not the point itself, which was out by fifty
+/// pixels in both directions when this was measured. The window manager
+/// knows where the pointer is, in the same coordinates a window frame is
+/// in, on whichever monitor it is over.
+///
+/// A document cannot be in two windows at once, because a document lives
+/// in a webview and two webviews share nothing. So this is a move and
+/// not a copy: what is answered here is what the window it left is
+/// waiting for before it lets go.
+#[tauri::command]
+#[specta::specta]
+fn move_tab(
+    app: tauri::AppHandle,
+    services: tauri::State<'_, Services>,
+    window: tauri::WebviewWindow,
+    tab: TabMove,
+    dropped: bool,
+) -> Result<TabMoved, Error> {
+    let at = if dropped {
+        app.cursor_position().ok()
+    } else {
+        None
+    };
+    if let Some(label) = at.and_then(|point| window_at(&app, point, window.label())) {
+        hand_over(&app, &services, &label, tab)?;
+        if let Some(other) = app.get_webview_window(&label) {
+            // The tab was dropped where the reader is looking, so that is
+            // where the window with it in should be.
+            let _unused = other.set_focus();
+        }
+        return Ok(TabMoved {
+            label,
+            created: false,
+        });
+    }
+    let label = next_label(&labels(&app));
+    let made = spawn(&app, &label)?;
+    match at {
+        // Torn off: the new window's corner goes where the tab was let
+        // go of, so its own strip is under the pointer that dropped it.
+        Some(point) => put(&made, point),
+        None => cascade(&window, &made),
+    }
+    if let Err(error) = hand_over(&app, &services, &label, tab) {
+        // Nothing to show: a window made for a tab that never arrived.
+        let _unused = made.close();
+        return Err(error);
+    }
+    let _unused = made.show();
+    let _unused = made.set_focus();
+    Ok(TabMoved {
+        label,
+        created: true,
+    })
+}
+
+/// Tabs another window handed this one before it was listening.
+///
+/// Draining is also how a window says it is ready, exactly as
+/// `take_launch_paths` is: from here on a tab reaches it as an event.
+#[tauri::command]
+#[specta::specta]
+fn take_moved_tabs(
+    services: tauri::State<'_, Services>,
+    window: tauri::WebviewWindow,
+) -> Vec<TabMove> {
+    let mut handoff = locked(&services.handoff);
+    let entry = handoff.entry(window.label().to_owned()).or_default();
+    entry.ready = true;
+    std::mem::take(&mut entry.queued)
+}
+
+/// Whether another window already has this file open, and if so, bring
+/// it forward with the file in front (design 6.5).
+///
+/// One document belongs to one window, so a file the reader opens from
+/// anywhere — the palette, the open panel, the tree — goes to the window
+/// that already has it rather than being opened a second time. The
+/// session is the registry that answers this, as it is for a file the OS
+/// hands us (WP 1.8), so the answer is only as fresh as the last thing a
+/// window said about itself; opening one file in two windows in the same
+/// instant opens it twice.
+#[tauri::command]
+#[specta::specta]
+fn reveal_path(
+    app: tauri::AppHandle,
+    services: tauri::State<'_, Services>,
+    window: tauri::WebviewWindow,
+    path: PathBuf,
+) -> bool {
+    let session = services.session.get();
+    let Some(label) = session.window_with(&path).map(str::to_owned) else {
+        return false;
+    };
+    if label == window.label() {
+        return false;
+    }
+    let Some(other) = app.get_webview_window(&label) else {
+        return false;
+    };
+    let _unused = other.set_focus();
+    OpenPathsEvent(vec![path]).emit_to(&app, &label).is_ok()
+}
+
 /// Align two block lists for the semantic diff (design 7.3, plan WP 2.2).
 ///
 /// The frontend sends the middle: the blocks the two sides already agree
@@ -389,16 +560,20 @@ const SEARCH_FLUSH: Duration = Duration::from_millis(100);
 fn open_folder(
     app: tauri::AppHandle,
     services: tauri::State<'_, Services>,
+    window: tauri::WebviewWindow,
     path: PathBuf,
 ) -> Result<PathBuf, Error> {
     let handle = app.clone();
+    let label = window.label().to_owned();
     let folder = Arc::new(Folder::open(&path, move |change| {
-        if let Err(error) = FolderChangedEvent(change).emit(&handle) {
+        // To the one window whose tree it is. Another window's tree is
+        // another folder, and a change here says nothing about it.
+        if let Err(error) = FolderChangedEvent(change).emit_to(&handle, &label) {
             eprintln!("could not report a folder change: {error}");
         }
     })?);
     let root = folder.root().to_path_buf();
-    *locked(&services.folder) = Some(Arc::clone(&folder));
+    locked(&services.folders).insert(window.label().to_owned(), Arc::clone(&folder));
     // The walk behind Cmd+P, started now and on a thread of its own, so
     // that the first Cmd+P after opening a folder does not wait for it.
     thread::spawn(move || folder.warm());
@@ -409,11 +584,9 @@ fn open_folder(
 /// was being searched for.
 #[tauri::command]
 #[specta::specta]
-fn close_folder(services: tauri::State<'_, Services>) {
-    *locked(&services.folder) = None;
-    if let Some((_, stop)) = locked(&services.search).running.take() {
-        stop.store(true, Ordering::Relaxed);
-    }
+fn close_folder(services: tauri::State<'_, Services>, window: tauri::WebviewWindow) {
+    locked(&services.folders).remove(window.label());
+    services.stop_search(window.label());
 }
 
 /// One level of the folder tree, honouring `.gitignore`.
@@ -432,9 +605,13 @@ fn list_dir(path: PathBuf) -> Result<Vec<DirEntry>, Error> {
 /// keystroke is still crossing the bridge.
 #[tauri::command]
 #[specta::specta]
-fn find_files(services: tauri::State<'_, Services>, query: String, limit: u32) -> FileMatches {
-    let folder = locked(&services.folder).as_ref().map(Arc::clone);
-    let Some(folder) = folder else {
+fn find_files(
+    services: tauri::State<'_, Services>,
+    window: tauri::WebviewWindow,
+    query: String,
+    limit: u32,
+) -> FileMatches {
+    let Some(folder) = services.folder(window.label()) else {
         return FileMatches {
             hits: Vec::new(),
             files: 0,
@@ -455,26 +632,26 @@ fn find_files(services: tauri::State<'_, Services>, query: String, limit: u32) -
 fn start_search(
     app: tauri::AppHandle,
     services: tauri::State<'_, Services>,
+    window: tauri::WebviewWindow,
     id: u32,
     query: String,
     options: SearchOptions,
 ) -> Result<(), Error> {
-    let folder = locked(&services.folder).as_ref().map(Arc::clone);
-    let Some(folder) = folder else {
+    let label = window.label().to_owned();
+    let Some(folder) = services.folder(&label) else {
         return Err(Error::Unavailable {
             what: "the folder".to_owned(),
             message: "no folder is open to search".to_owned(),
         });
     };
     mdreader_core::check_search(&query, &options)?;
-    let mut searches = locked(&services.search);
-    if let Some((_, stop)) = searches.running.take() {
-        stop.store(true, Ordering::Relaxed);
-    }
+    services.stop_search(&label);
     let stop = Arc::new(AtomicBool::new(false));
-    searches.running = Some((id, Arc::clone(&stop)));
-    drop(searches);
-    thread::spawn(move || run_search(&app, &folder, id, &query, &options, &stop));
+    locked(&services.searches)
+        .entry(label.clone())
+        .or_default()
+        .running = Some((id, Arc::clone(&stop)));
+    thread::spawn(move || run_search(&app, &label, &folder, id, &query, &options, &stop));
     Ok(())
 }
 
@@ -484,10 +661,13 @@ fn start_search(
 /// already started another search cannot stop the new one.
 #[tauri::command]
 #[specta::specta]
-fn cancel_search(services: tauri::State<'_, Services>, id: u32) {
-    let mut searches = locked(&services.search);
-    if searches.running.as_ref().is_some_and(|(at, _)| *at == id)
-        && let Some((_, stop)) = searches.running.take()
+fn cancel_search(services: tauri::State<'_, Services>, window: tauri::WebviewWindow, id: u32) {
+    let mut searches = locked(&services.searches);
+    let Some(window) = searches.get_mut(window.label()) else {
+        return;
+    };
+    if window.running.as_ref().is_some_and(|(at, _)| *at == id)
+        && let Some((_, stop)) = window.running.take()
     {
         stop.store(true, Ordering::Relaxed);
     }
@@ -496,6 +676,7 @@ fn cancel_search(services: tauri::State<'_, Services>, id: u32) {
 /// Walk and search, reporting as it goes. Runs on its own thread.
 fn run_search(
     app: &tauri::AppHandle,
+    label: &str,
     folder: &Folder,
     id: u32,
     query: &str,
@@ -507,12 +688,12 @@ fn run_search(
     let found = mdreader_core::search(folder.root(), query, options, stop, |hit| {
         batch.push(hit);
         if batch.len() >= SEARCH_BATCH || sent.elapsed() >= SEARCH_FLUSH {
-            report_hits(app, id, std::mem::take(&mut batch));
+            report_hits(app, label, id, std::mem::take(&mut batch));
             sent = Instant::now();
         }
     });
     if !batch.is_empty() {
-        report_hits(app, id, batch);
+        report_hits(app, label, id, batch);
     }
     // The pattern was compiled before the thread started, so a failure
     // here is the walk itself and there is nothing found to report.
@@ -523,13 +704,13 @@ fn run_search(
         truncated,
         cancelled: stop.load(Ordering::Relaxed),
     };
-    if let Err(error) = SearchDoneEvent(done).emit(app) {
+    if let Err(error) = SearchDoneEvent(done).emit_to(app, label) {
         eprintln!("could not report the end of a search: {error}");
     }
 }
 
-fn report_hits(app: &tauri::AppHandle, id: u32, hits: Vec<SearchHit>) {
-    if let Err(error) = SearchProgressEvent(SearchProgress { id, hits }).emit(app) {
+fn report_hits(app: &tauri::AppHandle, label: &str, id: u32, hits: Vec<SearchHit>) {
+    if let Err(error) = SearchProgressEvent(SearchProgress { id, hits }).emit_to(app, label) {
         eprintln!("could not report search results: {error}");
     }
 }
@@ -576,6 +757,10 @@ pub struct SearchDoneEvent(pub SearchDone);
 /// double-click, an `open` from a terminal.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
 pub struct OpenPathsEvent(pub Vec<PathBuf>);
+
+/// A tab another window has handed this one (plan WP 2.5).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
+pub struct TabArrivedEvent(pub TabMove);
 
 /// The window is about to close. Write down whatever is not on disk yet,
 /// then call `confirm_close`.
@@ -639,6 +824,172 @@ fn reachable(monitor: &tauri::Monitor, bounds: Bounds) -> bool {
         && bounds.x + wide(bounds.width) > at.x
         && bounds.y < at.y + wide(size.height)
         && bounds.y + REACHABLE > at.y
+}
+
+/// How far a new window comes up from the one that asked for it, in
+/// points: far enough to see that there are two of them, near enough
+/// that the new one is where the reader is looking.
+const CASCADE: f64 = 28.0;
+
+/// The labels of the windows there are.
+fn labels(app: &tauri::AppHandle) -> Vec<String> {
+    app.webview_windows().into_keys().collect()
+}
+
+/// A label no window answers to.
+///
+/// `main` is the configuration's; the rest are numbered, and the lowest
+/// free number is taken rather than the next one ever used, so a session
+/// of opening and closing windows does not count upwards forever.
+fn next_label(taken: &[String]) -> String {
+    (2..u32::MAX)
+        .map(|n| format!("window-{n}"))
+        .find(|label| !taken.iter().any(|used| used == label))
+        // Which cannot happen with a finite number of windows open.
+        .unwrap_or_else(|| "window".to_owned())
+}
+
+/// Build a window like the one the configuration describes, under a
+/// label of its own. It comes up hidden, as the configured one does.
+///
+/// The configuration is the single source of a window's title, its
+/// minimum size and the rest; only the label is ours. Writing those out
+/// again here would be a second place to change the shape of a window,
+/// and one of the two would be wrong.
+fn spawn(app: &tauri::AppHandle, label: &str) -> Result<tauri::WebviewWindow, Error> {
+    let mut config =
+        app.config()
+            .app
+            .windows
+            .first()
+            .cloned()
+            .ok_or_else(|| Error::Unavailable {
+                what: "a window".to_owned(),
+                message: "the configuration describes none to copy".to_owned(),
+            })?;
+    label.clone_into(&mut config.label);
+    config.visible = false;
+    let opened = |error: tauri::Error| Error::Unavailable {
+        what: "a window".to_owned(),
+        message: error.to_string(),
+    };
+    tauri::WebviewWindowBuilder::from_config(app, &config)
+        .map_err(opened)?
+        .build()
+        .map_err(opened)
+}
+
+/// Where on the desktop a point is, in the pixels a window frame is
+/// measured in. The pointer and the frames are read in the same units,
+/// so nothing here converts between them.
+type Spot = tauri::PhysicalPosition<f64>;
+
+/// Put a new window over the one it came from, offset and the same size.
+fn cascade(from: &tauri::WebviewWindow, to: &tauri::WebviewWindow) {
+    let scale = from.scale_factor().unwrap_or(1.0);
+    if let Ok(at) = from.outer_position() {
+        put(
+            to,
+            Spot::new(
+                f64::from(at.x) + CASCADE * scale,
+                f64::from(at.y) + CASCADE * scale,
+            ),
+        );
+    }
+    if let Ok(size) = from.inner_size() {
+        let _unused = to.set_size(size);
+    }
+}
+
+/// Put a window's top left corner at a point on the desktop.
+fn put(window: &tauri::WebviewWindow, at: Spot) {
+    let _unused = window.set_position(tauri::PhysicalPosition::new(at.x, at.y));
+}
+
+/// The window under a point on the desktop, if one of ours is.
+///
+/// Two windows overlapping the point is a tie this does not break: the
+/// drag has to land somewhere, and either answer is a window under the
+/// pointer.
+fn window_at(app: &tauri::AppHandle, at: Spot, except: &str) -> Option<String> {
+    app.webview_windows()
+        .into_iter()
+        .find(|(label, window)| {
+            label != except
+                && window.is_visible().unwrap_or(false)
+                && !window.is_minimized().unwrap_or(false)
+                && covers(window, at)
+        })
+        .map(|(label, _)| label)
+}
+
+fn covers(window: &tauri::WebviewWindow, at: Spot) -> bool {
+    let (Ok(origin), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return false;
+    };
+    let (width, height) = (f64::from(size.width), f64::from(size.height));
+    let (x, y) = (f64::from(origin.x), f64::from(origin.y));
+    at.x >= x && at.x < x + width && at.y >= y && at.y < y + height
+}
+
+/// Give a window a tab, or hold it until the window is listening.
+///
+/// A window made a moment ago for a torn-off tab has no listener yet,
+/// which is the same problem a launch file has and gets the same answer.
+/// A failure to deliver is reported to the window that is giving the tab
+/// up, so that it can keep it rather than lose it to a window that never
+/// heard.
+fn hand_over(
+    app: &tauri::AppHandle,
+    services: &Services,
+    label: &str,
+    tab: TabMove,
+) -> Result<(), Error> {
+    {
+        let mut handoff = locked(&services.handoff);
+        let entry = handoff.entry(label.to_owned()).or_default();
+        if !entry.ready {
+            entry.queued.push(tab);
+            return Ok(());
+        }
+    }
+    TabArrivedEvent(tab)
+        .emit_to(app, label)
+        .map_err(|error| Error::Unavailable {
+            what: "the other window".to_owned(),
+            message: error.to_string(),
+        })
+}
+
+/// A window has gone: let go of what was being kept for it.
+///
+/// Its folder's watch stops with it, and so does whatever it was
+/// searching for. Its place in the session goes too, so the next launch
+/// does not put back a window the reader closed — unless it was the last
+/// one, because then there would be nothing at all to come back to, and
+/// the session file is the only place an untitled document has ever
+/// been. A window closing because the app is quitting keeps its place:
+/// that is the session the next launch is for.
+fn forget(app: &tauri::AppHandle, label: &str) {
+    let Some(services) = app.try_state::<Services>() else {
+        return;
+    };
+    locked(&services.folders).remove(label);
+    services.stop_search(label);
+    locked(&services.searches).remove(label);
+    locked(&services.handoff).remove(label);
+    locked(&services.launch).remove(label);
+    locked(&services.closing).remove(label);
+    let others = labels(app)
+        .into_iter()
+        .filter(|other| other != label)
+        .count();
+    if *locked(&services.quitting) || others == 0 {
+        return;
+    }
+    services
+        .session
+        .update(|session| session.remove_window(label));
 }
 
 /// Write the settings and the session. Called when a window goes and
@@ -866,11 +1217,12 @@ fn services(app: &tauri::AppHandle) -> Services {
     Services {
         watcher,
         history,
-        folder: Mutex::new(None),
-        search: Mutex::new(Searches::default()),
+        folders: Mutex::new(HashMap::new()),
+        searches: Mutex::new(HashMap::new()),
         settings,
         session,
         launch: Mutex::new(HashMap::new()),
+        handoff: Mutex::new(HashMap::new()),
         closing: Mutex::new(HashSet::new()),
         quitting: Mutex::new(false),
     }
@@ -900,6 +1252,10 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             take_launch_paths,
             confirm_close,
             block_diff,
+            new_window,
+            move_tab,
+            take_moved_tabs,
+            reveal_path,
             open_folder,
             close_folder,
             list_dir,
@@ -917,6 +1273,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             SearchProgressEvent,
             SearchDoneEvent,
             OpenPathsEvent,
+            TabArrivedEvent,
             BeforeCloseEvent
         ])
 }
@@ -966,7 +1323,28 @@ fn from_source_tree() -> bool {
 fn start(app: &tauri::App) {
     let handle = app.handle().clone();
     app.manage(services(&handle));
-    let session = app.state::<Services>().session.get();
+    let services = app.state::<Services>();
+    // The configuration always opens `main`. A session whose windows
+    // were all made later has no `main` in it, so the first of them
+    // takes that window over rather than leaving a blank one beside the
+    // ones that are restored.
+    if services.session.get().window("main").is_none() {
+        services.session.update(|session| {
+            if let Some(first) = session.windows.first_mut() {
+                "main".clone_into(&mut first.label);
+            }
+        });
+    }
+    let session = services.session.get();
+    // Every window the session had, and not only the configured one: a
+    // reader who left two windows open gets two back (design 4.1).
+    for state in &session.windows {
+        if app.get_webview_window(&state.label).is_none()
+            && let Err(error) = spawn(&handle, &state.label)
+        {
+            eprintln!("could not open the window {}: {error}", state.label);
+        }
+    }
     for (label, window) in app.webview_windows() {
         if let Some(bounds) = session.window(&label).and_then(|state| state.bounds) {
             place(&window, bounds);
@@ -1024,10 +1402,12 @@ pub fn run(context: tauri::Context) {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                before_close(window, api);
-            }
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => before_close(window, api),
+            // A window that has gone takes its workspace with it, and its
+            // place in the session unless it was the last one.
+            tauri::WindowEvent::Destroyed => forget(window.app_handle(), window.label()),
+            _ => {}
         })
         .setup(move |app| {
             builder.mount_events(app);
@@ -1112,6 +1492,21 @@ mod tests {
             vec![PathBuf::from("/a/one.md"), PathBuf::from("/a/two.md")]
         );
         assert!(held().is_empty(), "a second window would open them again");
+    }
+
+    #[test]
+    fn a_new_window_takes_the_lowest_number_nothing_is_using() {
+        assert_eq!(next_label(&[]), "window-2", "the first one after `main`");
+        assert_eq!(
+            next_label(&["main".to_owned(), "window-2".to_owned()]),
+            "window-3"
+        );
+        // A window in the middle having closed, its number comes back
+        // rather than the count going up for the life of the session.
+        assert_eq!(
+            next_label(&["main".to_owned(), "window-3".to_owned()]),
+            "window-2"
+        );
     }
 
     /// CI guard: the committed bindings must match what the current

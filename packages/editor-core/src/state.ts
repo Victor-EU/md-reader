@@ -1,4 +1,4 @@
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { defaultKeymap, history, historyField, historyKeymap } from '@codemirror/commands';
 import { commonmarkLanguage, markdown } from '@codemirror/lang-markdown';
 import { foldNodeProp, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
@@ -200,16 +200,56 @@ export interface StateOptions {
   review?: boolean;
 }
 
+function configured(options: StateOptions): Extension[] {
+  return [
+    baseExtensions(options.mode ?? 'edit', options.preview, {
+      dark: options.dark,
+      review: options.review,
+    }),
+    options.extra ?? [],
+  ];
+}
+
 export function createEditorState(doc: string, options: StateOptions = {}): EditorState {
   return EditorState.create({
     doc,
     selection: options.selection ?? EditorSelection.single(0),
-    extensions: [
-      baseExtensions(options.mode ?? 'edit', options.preview, {
-        dark: options.dark,
-        review: options.review,
-      }),
-      options.extra ?? [],
-    ],
+    extensions: configured(options),
   });
+}
+
+/**
+ * The fields a serialized state carries besides its text: the undo
+ * history, which is the whole reason a state is serialized at all.
+ */
+const serialized = { history: historyField };
+
+/**
+ * A state as a string: the buffer, the selection, and the undo history
+ * (plan WP 2.5).
+ *
+ * A tab moved to another window is rebuilt there from this, which is
+ * what lets the reader undo on the other side an edit they made on this
+ * one. Nothing else about the state travels — the decorations, the
+ * marks and the conflicts are all derived from the text and from what
+ * the window taking it in knows.
+ */
+export function serializeEditorState(state: EditorState): string {
+  return JSON.stringify(state.toJSON(serialized));
+}
+
+/**
+ * The other half, and `null` for a string that is not one of these.
+ *
+ * A window only ever reads what another window of the same build wrote,
+ * so the failure is not one that should happen; saying so rather than
+ * throwing is what lets the caller fall back to the plain text it also
+ * carries instead of losing a document to it.
+ */
+export function editorStateFromJSON(json: string, options: StateOptions = {}): EditorState | null {
+  try {
+    return EditorState.fromJSON(JSON.parse(json), { extensions: configured(options) }, serialized);
+  } catch {
+    return null;
+  }
 }
