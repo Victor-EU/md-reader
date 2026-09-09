@@ -180,6 +180,13 @@ describe('read mode', () => {
     workspace.unmountRead();
     mountRead();
     expect(blocks()).toEqual(['h1', 'p', 'h2', 'h2', 'p', 'pre']);
+
+    // And opening it again brings back what it hid. The blocks under a
+    // fold are not in the page at all (plan WP 2.7), so this is the
+    // window being built again rather than a class coming off.
+    (read().querySelector('button[data-fold="section-one"]') as HTMLButtonElement).click();
+    expect(blocks()).toEqual(before);
+    expect(workspace.activeTab?.folded).toEqual([]);
   });
 
   it('switches to Edit at the word that was clicked', async () => {
@@ -259,7 +266,12 @@ describe('read mode', () => {
     expect(host.scrollTop).toBeGreaterThan(0);
   });
 
-  it('renders a long document in chunks and finishes in the background', async () => {
+  /**
+   * Plan WP 2.7: the page holds a window onto the document, not the
+   * document. A long file is walked to the end -- that is what the
+   * outline needs -- but only what the reader can see is ever built.
+   */
+  it('holds a window onto a long document, not the whole of it', async () => {
     const long = Array.from(
       { length: 400 },
       (_, i) => `## Heading ${i}\n\n${'word '.repeat(60)}`,
@@ -269,7 +281,7 @@ describe('read mode', () => {
     mountRead();
     const first = read().children.length;
     expect(first).toBeGreaterThan(0);
-    expect(first).toBeLessThan(800);
+    expect(first).toBeLessThan(60);
     expect(workspace.outlineComplete).toBe(false);
 
     const deadline = Date.now() + 5000;
@@ -277,7 +289,34 @@ describe('read mode', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
     expect(workspace.outlineComplete).toBe(true);
-    expect(read().children.length).toBe(800);
     expect(workspace.outline.length).toBe(400);
+    // Eight hundred blocks were found and none of the ones off screen
+    // were built; what stands in for them is the scroll they still have.
+    expect(read().children.length).toBeLessThan(60);
+    expect(host.scrollHeight).toBeGreaterThan(10 * host.clientHeight);
+  });
+
+  it('builds what the reader scrolls to and lets go of what they leave', async () => {
+    const long = Array.from(
+      { length: 400 },
+      (_, i) => `## Heading ${i}\n\n${'word '.repeat(60)}`,
+    ).join('\n\n');
+    start({ '/long.md': long });
+    await workspace.openPath('/long.md');
+    mountRead();
+    const deadline = Date.now() + 5000;
+    while (!workspace.outlineComplete && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(read().querySelector('#heading-0')).not.toBeNull();
+
+    // Down to the end, a screenful at a time, as a reader would.
+    for (let i = 0; i < 400 && host.scrollTop + host.clientHeight < host.scrollHeight - 1; i++) {
+      host.scrollTop += host.clientHeight;
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+    }
+    expect(read().querySelector('#heading-399')).not.toBeNull();
+    expect(read().querySelector('#heading-0')).toBeNull();
+    expect(read().children.length).toBeLessThan(60);
   });
 });

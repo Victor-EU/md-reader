@@ -105,12 +105,11 @@ describe('the inline marks', () => {
     ipc.files.set('/a/latin1.md', {
       content: 'One two three.\n',
       format: { encoding: 'windows-1252' },
-      read_only: true,
     });
     await edit('/a/latin1.md');
     select(at('two'), at('two') + 3);
     expect(workspace.bold()).toBe(false);
-    expect(workspace.status).toContain('read-only');
+    expect(workspace.status).toContain('convert to UTF-8');
   });
 });
 
@@ -302,7 +301,6 @@ describe('find and replace', () => {
     ipc.files.set('/a/latin1.md', {
       content: 'One two three.\n',
       format: { encoding: 'windows-1252' },
-      read_only: true,
     });
     await edit('/a/latin1.md');
     workspace.openFind(true);

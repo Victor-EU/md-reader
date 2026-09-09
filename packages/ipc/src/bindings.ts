@@ -324,11 +324,8 @@ export type DocumentMeta = {
 	modified_ms: number | null,
 	/**  BLAKE3 of the bytes on disk, hex. The token a save must present. */
 	hash: string,
-	/**
-	 *  True for a file that is not UTF-8: it was decoded for display and
-	 *  cannot be saved until converted.
-	 */
-	read_only: boolean,
+	/**  Why this document cannot be edited, or `None` when it can be. */
+	read_only: ReadOnly | null,
 	format: FileFormat,
 };
 
@@ -346,7 +343,7 @@ export type DocumentState = {
 export type Eol = "lf" | "crlf" | "cr";
 
 /**  Errors, serializable so the frontend can branch on `kind`. */
-export type Error = { kind: "not_implemented"; command: string } | { kind: "read"; path: string; message: string } | { kind: "write"; path: string; message: string } | { kind: "hash_mismatch"; path: string; expected: string; actual: string } | { kind: "read_only_encoding"; path: string; encoding: string } | { kind: "unavailable"; what: string; message: string } | { kind: "bad_query"; query: string; message: string };
+export type Error = { kind: "not_implemented"; command: string } | { kind: "read"; path: string; message: string } | { kind: "write"; path: string; message: string } | { kind: "hash_mismatch"; path: string; expected: string; actual: string } | { kind: "read_only_encoding"; path: string; encoding: string } | { kind: "too_large"; path: string; byte_len: number; limit: number } | { kind: "unavailable"; what: string; message: string } | { kind: "bad_query"; query: string; message: string };
 
 /**  Payload of the `external_change` event (design 6.4). */
 export type ExternalChange = {
@@ -496,6 +493,13 @@ export type PositionEdit = {
 	to: number,
 	insert: string,
 };
+
+/**  Why a document cannot be edited, for the one banner that says so. */
+export type ReadOnly = 
+/**  Not UTF-8. It was decoded to be read, and converting it is offered. */
+"encoding" | 
+/**  Over [`EDITABLE_BYTES`], so it opens in Read mode only. */
+"size";
 
 /**
  *  What a window asks for when it starts.

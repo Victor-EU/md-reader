@@ -114,7 +114,7 @@ import { basename, dirname, inside, resolvePath, shortenDir, tabLabels } from '.
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
 import { FolderSearch } from './search.svelte.ts';
-import { count, countWords, describeError, describeFormat } from './text.ts';
+import { count, countWords, describeError, describeFormat, describeReadOnly } from './text.ts';
 import {
   CHECK_INTERVAL_MS,
   FIRST_CHECK_DELAY_MS,
@@ -532,7 +532,7 @@ export class Workspace {
     this.remember(path);
     const { meta } = opened;
     this.status = meta.read_only
-      ? `${basename(path)} is ${meta.format.encoding}; convert to UTF-8 to edit`
+      ? describeReadOnly(meta.read_only, basename(path), meta)
       : `${basename(path)} · ${describeFormat(meta.format)}`;
     return true;
   }
@@ -555,7 +555,11 @@ export class Workspace {
     // to let the webview read that folder and below (design 8).
     void this.options.commands.allowDocumentImages(path);
     void this.options.commands.watch(path);
-    void this.options.commands.snapshot(path, content, 'user');
+    // A file too large to edit gets no history: nothing in the app can
+    // change it, so there would never be a second version to compare the
+    // first with -- and taking one would send the whole of a very large
+    // document over the IPC and into the store, on every open.
+    if (meta.read_only !== 'size') void this.options.commands.snapshot(path, content, 'user');
     return { doc, meta };
   }
 
@@ -961,9 +965,26 @@ export class Workspace {
 
   // --- modes and the editor view ------------------------------------------
 
+  /**
+   * Whether this document can be put in an editor at all (design 8).
+   *
+   * Over ten megabytes it cannot. Read mode draws a window onto the
+   * document and holds in the page only what is on screen (plan WP 2.7);
+   * an editor holds the whole of it in one live view, with decorations
+   * over every visible line and an undo history behind it. Saying so is
+   * the honest answer, and better than opening it and hanging.
+   */
+  private editorFits(doc: Doc): boolean {
+    const meta = doc.meta;
+    if (meta?.read_only !== 'size') return true;
+    this.status = describeReadOnly('size', doc.label, meta);
+    return false;
+  }
+
   setMode(mode: ViewMode): void {
     const tab = this.activeTab;
     if (tab?.kind !== 'document' || tab.mode === mode) return;
+    if (mode !== 'read' && !this.editorFits(this.doc(tab))) return;
     // Read is a different view; Edit and Source are the same view
     // reconfigured, which is what keeps switching between them instant.
     if (tab.mode === 'read') this.unmountRead();
@@ -1090,6 +1111,7 @@ export class Workspace {
     const tab = this.activeTab;
     if (tab?.kind !== 'document') return;
     const doc = this.doc(tab);
+    if (!this.editorFits(doc)) return;
     const at = Math.max(0, Math.min(offset, doc.state.doc.length));
     this.unmountRead();
     tab.selection = EditorSelection.single(at);
@@ -1217,7 +1239,7 @@ export class Workspace {
 
   private async writeNow(doc: Doc, options: WriteOptions): Promise<boolean> {
     if (doc.meta?.read_only) {
-      this.status = `${doc.label} is ${doc.meta.format.encoding}; convert to UTF-8 to edit`;
+      this.status = describeReadOnly(doc.meta.read_only, doc.label, doc.meta);
       return false;
     }
     // A conflict is a question about what the file should say, and until
@@ -1276,7 +1298,9 @@ export class Workspace {
       byte_len: result.data.byte_len,
       modified_ms: result.data.modified_ms,
       hash: result.data.hash,
-      read_only: false,
+      // Whatever it was, it is ours now: the app wrote these bytes, in
+      // UTF-8, and a document it can write is one it can edit.
+      read_only: null,
       format,
     };
     doc.markSaved(written, options.auto !== true);
@@ -1379,7 +1403,7 @@ export class Workspace {
     return (
       this.settings.autosave &&
       doc.path !== null &&
-      doc.meta?.read_only !== true &&
+      doc.meta?.read_only == null &&
       !hasConflicts(doc.state)
     );
   }
@@ -1973,7 +1997,7 @@ export class Workspace {
     if (!tab) return false;
     const doc = this.doc(tab);
     if (doc.meta?.read_only) {
-      this.status = `${doc.label} is read-only`;
+      this.status = describeReadOnly(doc.meta.read_only, doc.label, doc.meta);
       return false;
     }
     const view = this.mounted?.view;
@@ -2065,7 +2089,7 @@ export class Workspace {
     const reading = this.reading?.view;
     if (!doc || !reading || tab?.kind !== 'document') return false;
     if (doc.meta?.read_only) {
-      this.status = `${doc.label} is read-only`;
+      this.status = describeReadOnly(doc.meta.read_only, doc.label, doc.meta);
       return false;
     }
     const target = {
@@ -2096,6 +2120,10 @@ export class Workspace {
   openFind(replace: boolean): void {
     const tab = this.activeTab;
     if (tab?.kind !== 'document') return;
+    // Matches are drawn by an editor extension, so a document that has no
+    // editor has no find bar either; it says so rather than opening one
+    // that would report no matches in a document full of them.
+    if (tab.mode === 'read' && !this.editorFits(this.doc(tab))) return;
     if (tab.mode === 'read') this.setMode('edit');
     const selected = this.selectedWithin();
     this.find = {
@@ -2177,8 +2205,9 @@ export class Workspace {
   /** A read-only document says so rather than quietly doing nothing. */
   private editable(): boolean {
     const doc = this.activeDoc;
-    if (doc?.meta?.read_only !== true) return true;
-    this.status = `${doc.label} is read-only`;
+    const reason = doc?.meta?.read_only;
+    if (!doc?.meta || !reason) return true;
+    this.status = describeReadOnly(reason, doc.label, doc.meta);
     return false;
   }
 
@@ -2833,6 +2862,10 @@ export class Workspace {
    */
   private repaint(): void {
     this.mounted?.view.dispatch({ effects: setDarkEffect(this.darkPage) });
+    // Read mode holds the blocks it has measured and a gap standing in
+    // for the ones it has not (plan WP 2.7). A change of size or measure
+    // is a change to every one of those numbers, so it is told.
+    this.reading?.view.remeasure();
   }
 
   /**

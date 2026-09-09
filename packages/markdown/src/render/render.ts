@@ -1,7 +1,7 @@
 import type { SyntaxNode, Tree } from '@lezer/common';
 import { commentParts } from '../annotate/comments.ts';
 import { calloutType } from './callouts.ts';
-import { FootnoteNumbers, footnoteDefinitions } from './footnotes.ts';
+import { type FootnoteAnchor, FootnoteNumbers, type FootnoteReference } from './footnotes.ts';
 import {
   element,
   type RenderElement,
@@ -11,8 +11,9 @@ import {
   textOf,
 } from './nodes.ts';
 import { properties } from './properties.ts';
-import { normalizeLabel, type Reference, referenceDefinitions } from './references.ts';
+import { normalizeLabel, type Reference } from './references.ts';
 import { Slugger } from './slug.ts';
+import { scanSource } from './source.ts';
 import { HtmlStack, tagRenders, tokenizeHtml } from './whitelist.ts';
 
 /** What the view may do with one image source (design 8). */
@@ -47,6 +48,14 @@ export interface RenderOptions {
   references?: Map<string, Reference>;
   /** The labels footnote definitions give; scanned from the source by default. */
   footnotes?: Set<string>;
+  /**
+   * The order the numbers 1, 2, 3 are handed out in, for a view that
+   * renders blocks in the order the reader reaches them rather than the
+   * order they are written in (plan WP 2.7). Left out, the numbers are
+   * handed out as the render meets them, which for a whole-document
+   * render is the same thing.
+   */
+  footnoteOrder?: Iterable<string | FootnoteReference>;
   /** Design 8's image rules. Loads nothing when left out. */
   image?: ImageResolver;
   /**
@@ -208,13 +217,30 @@ export class Renderer {
     options: RenderOptions = {},
   ) {
     this.slugger = options.slugger ?? new Slugger();
-    this.references = options.references ?? referenceDefinitions(source);
-    this.footnoteLabels = options.footnotes ?? footnoteDefinitions(source);
+    // One walk of the file for both of them, unless the caller has
+    // already made it: a view that renders block by block scans once and
+    // hands the answers to every renderer it builds (plan WP 2.7).
+    const scan =
+      options.references && options.footnotes
+        ? { references: options.references, notes: options.footnotes }
+        : scanSource(source);
+    this.references = options.references ?? scan.references;
+    this.footnoteLabels = options.footnotes ?? scan.notes;
     // Footnote anchors share the heading namespace, so they go through the
     // same slugger: a heading called "Fn 1" cannot steal `#fn-1`.
     this.footnotes = new FootnoteNumbers((id) => this.slugger.slug(id));
+    if (options.footnoteOrder) this.footnotes.seed(options.footnoteOrder);
     this.resolveImage = options.image ?? noImages;
     this.interactiveTasks = options.interactiveTasks ?? false;
+  }
+
+  /**
+   * What one label's footnote will be called, asked before the block that
+   * holds it has been rendered: a view that has to scroll to `#fn-3` may
+   * not have drawn the note yet (plan WP 2.7).
+   */
+  footnoteAnchor(label: string): FootnoteAnchor {
+    return this.footnotes.anchor(label);
   }
 
   /** Every top-level block of a tree, in document order. */
@@ -487,8 +513,8 @@ export class Renderer {
   private footnote(node: SyntaxNode): RenderElement {
     const labelNode = node.getChild('FootnoteLabel');
     const label = labelNode ? this.slice(labelNode.from, labelNode.to) : '';
-    // A note referred to nowhere above has nothing to link back to.
-    const referenced = !this.footnotes.unseen(label);
+    // A note nothing refers to has nothing to link back to.
+    const referenced = this.footnotes.referenced(label);
     const anchor = this.footnotes.anchor(label);
     const body = this.blockChildren(node);
     const back = element(
@@ -908,7 +934,7 @@ export class Renderer {
     if (!this.footnoteLabels.has(normalizeLabel(label))) {
       return [text(this.slice(node.from, node.to), node.from, node.to)];
     }
-    const first = this.footnotes.unseen(label);
+    const first = this.footnotes.first(label, node.from);
     const anchor = this.footnotes.anchor(label);
     const attrs: Record<string, string> = { href: `#${anchor.id}`, class: 'mdr-fnref' };
     // Only the first reference carries the id the note links back to.

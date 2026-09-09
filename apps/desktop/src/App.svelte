@@ -1,4 +1,5 @@
 <script lang="ts">
+import Banner from './components/Banner.svelte';
 import EditorPane from './components/EditorPane.svelte';
 import FindBar from './components/FindBar.svelte';
 import Palette from './components/Palette.svelte';
@@ -83,6 +84,7 @@ function drop(event: DragEvent) {
 <div class="frame" ondragover={(event) => event.preventDefault()} ondrop={drop} role="application">
   <TabStrip {workspace} />
   <Toolbar {workspace} {registry} />
+  <Banner {workspace} />
   {#if workspace.find.open}
     <FindBar {workspace} {registry} />
   {/if}

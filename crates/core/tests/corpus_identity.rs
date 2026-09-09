@@ -51,7 +51,7 @@ fn open_and_save_unchanged_is_byte_identical() {
         let target = scratch.join(file.file_name().expect("name"));
         std::fs::write(&target, &original).expect("copy");
         let doc = read_document(&target).expect("open");
-        if doc.meta.read_only {
+        if doc.meta.read_only.is_some() {
             continue;
         }
         let view = editor_view(&doc.content);
@@ -71,7 +71,7 @@ fn one_edit_changes_only_its_bytes() {
     for file in files() {
         let original = std::fs::read(&file).expect("read corpus file");
         let doc = read_document(&file).expect("open");
-        if doc.meta.read_only || doc.content.is_empty() {
+        if doc.meta.read_only.is_some() || doc.content.is_empty() {
             continue;
         }
         let view = editor_view(&doc.content);

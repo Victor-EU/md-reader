@@ -1,4 +1,10 @@
-import type { FileFormat, Error as IpcError } from '@mdreader/ipc';
+import {
+  type DocumentMeta,
+  EDITABLE_BYTES,
+  type FileFormat,
+  type Error as IpcError,
+  type ReadOnly,
+} from '@mdreader/ipc';
 import type { Span } from '@mdreader/markdown';
 
 /**
@@ -52,6 +58,35 @@ export function describeFormat(format: FileFormat): string {
   return `${encoding} · ${eol}`;
 }
 
+/**
+ * A file's size the way its own operating system says it: decimal units,
+ * and no more precision than the number carries. 10 MB, not 9.5 MiB.
+ */
+export function describeSize(bytes: number): string {
+  const units = ['bytes', 'KB', 'MB', 'GB'];
+  let at = 0;
+  let size = bytes;
+  while (size >= 1000 && at < units.length - 1) {
+    size /= 1000;
+    at += 1;
+  }
+  const rounded = at === 0 || size >= 100 ? Math.round(size) : Math.round(size * 10) / 10;
+  return `${rounded} ${units[at]}`;
+}
+
+/**
+ * Why a document cannot be edited, in a sentence (design 8).
+ *
+ * One wording, used by the banner over the page, the status line when a
+ * command is refused, and the line the file gets when it opens — so the
+ * reader is told the same thing wherever they meet it.
+ */
+export function describeReadOnly(reason: ReadOnly, name: string, meta: DocumentMeta): string {
+  return reason === 'encoding'
+    ? `${name} is ${meta.format.encoding.toUpperCase()}; convert to UTF-8 to edit`
+    : `${name} is ${describeSize(meta.byte_len)}; files over ${describeSize(EDITABLE_BYTES)} open for reading only`;
+}
+
 /** A typed IPC error as a status bar line. No dialogs (build plan rule 5). */
 export function describeError(error: IpcError): string {
   switch (error.kind) {
@@ -59,6 +94,8 @@ export function describeError(error: IpcError): string {
       return `${error.path} changed on disk; reload before saving`;
     case 'read_only_encoding':
       return `${error.path} is ${error.encoding}; convert to UTF-8 to edit`;
+    case 'too_large':
+      return `${error.path} is ${describeSize(error.byte_len)}, and the app opens files up to ${describeSize(error.limit)}`;
     case 'not_implemented':
       return `${error.command} is not implemented yet`;
     case 'unavailable':

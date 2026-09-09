@@ -16,6 +16,7 @@ import type {
   MergeResult,
   Override,
   PositionEdit,
+  ReadOnly,
   Restore,
   Result,
   SaveResult,
@@ -28,6 +29,7 @@ import type {
   TabMove,
   WindowContent,
 } from './index.ts';
+import { EDITABLE_BYTES, OPEN_BYTES } from './index.ts';
 
 /**
  * An in-memory implementation of the generated command surface, for the
@@ -40,7 +42,13 @@ import type {
 export interface FakeFile {
   content: string;
   format?: Partial<FileFormat>;
-  read_only?: boolean;
+  read_only?: ReadOnly | null;
+  /**
+   * What the file weighs on disk, when a test needs a size it does not
+   * want to hold in memory. Design 8's ceilings are megabytes apart, and
+   * a test about them is about the number, not about the bytes.
+   */
+  byte_len?: number;
 }
 
 export interface FakeIpc {
@@ -302,14 +310,21 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     const file = files.get(path);
     if (!file) return err({ kind: 'read', path, message: 'No such file or directory' });
     const format = { ...defaultFormat(file.content), ...file.format };
+    const byteLen = file.byte_len ?? new TextEncoder().encode(file.content).length;
+    // Design 8's ceilings, as `read_document` applies them.
+    if (byteLen > OPEN_BYTES) {
+      return err({ kind: 'too_large', path, byte_len: byteLen, limit: OPEN_BYTES });
+    }
+    const reason: ReadOnly | null =
+      format.encoding === 'utf-8' ? (byteLen > EDITABLE_BYTES ? 'size' : null) : 'encoding';
     return ok({
       content: file.content,
       meta: {
         path,
-        byte_len: new TextEncoder().encode(file.content).length,
+        byte_len: byteLen,
         modified_ms: Date.now(),
         hash: fakeHash(file.content),
-        read_only: file.read_only ?? format.encoding !== 'utf-8',
+        read_only: file.read_only === undefined ? reason : file.read_only,
         format,
       },
     });
@@ -384,10 +399,11 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     convertDocumentToUtf8: (path) => {
       const file = files.get(path);
       if (file)
+        // No `read_only` of its own: the rule above decides again, the
+        // way Rust's convert re-reads the file it just wrote.
         files.set(path, {
           content: file.content,
           format: { ...file.format, encoding: 'utf-8' },
-          read_only: false,
         });
       return record('convert_document_to_utf8', [path], read(path));
     },

@@ -18,8 +18,8 @@ pub use assets::{AssetWrite, copy_asset, store_asset};
 pub use blocks::block_diff;
 pub use diff::{apply, edits, merge3};
 pub use document::{
-    Document, DocumentMeta, Error, FileFormat, SaveResult, convert_to_utf8, encode, hash_bytes,
-    read_document, save_document,
+    Document, DocumentMeta, EDITABLE_BYTES, Error, FileFormat, OPEN_BYTES, ReadOnly, SaveResult,
+    convert_to_utf8, encode, hash_bytes, read_document, save_document,
 };
 pub use eol::Eol;
 pub use folder::{Folder, Index, create_file, list_dir, rename};

@@ -18,6 +18,29 @@ use crate::eol::{self, Eol};
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 const UTF8: &str = "utf-8";
 
+/// Design 8's two ceilings, in bytes.
+///
+/// Up to `EDITABLE_BYTES` a file opens like any other. Above it the app
+/// still shows the file but will not put it in an editor: Read mode
+/// renders a window onto the document (plan WP 2.7), while Edit holds the
+/// whole of it in a live view with decorations over every visible line.
+/// Above `OPEN_BYTES` the honest answer is that this is not the program
+/// for that file, and saying so beats opening it and hanging.
+///
+/// Megabytes here are the decimal ones the file's own size is reported in.
+pub const EDITABLE_BYTES: u64 = 10_000_000;
+pub const OPEN_BYTES: u64 = 100_000_000;
+
+/// Why a document cannot be edited, for the one banner that says so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadOnly {
+    /// Not UTF-8. It was decoded to be read, and converting it is offered.
+    Encoding,
+    /// Over [`EDITABLE_BYTES`], so it opens in Read mode only.
+    Size,
+}
+
 /// A document as read from disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 pub struct Document {
@@ -55,9 +78,8 @@ pub struct DocumentMeta {
     pub modified_ms: Option<u64>,
     /// BLAKE3 of the bytes on disk, hex. The token a save must present.
     pub hash: String,
-    /// True for a file that is not UTF-8: it was decoded for display and
-    /// cannot be saved until converted.
-    pub read_only: bool,
+    /// Why this document cannot be edited, or `None` when it can be.
+    pub read_only: Option<ReadOnly>,
     pub format: FileFormat,
 }
 
@@ -89,6 +111,14 @@ pub enum Error {
     },
     #[error("{path} is {encoding}; convert it to UTF-8 before saving")]
     ReadOnlyEncoding { path: PathBuf, encoding: String },
+    #[error("{path} is {byte_len} bytes, and the app opens files up to {limit}")]
+    TooLarge {
+        path: PathBuf,
+        #[specta(type = specta_typescript::Number)]
+        byte_len: u64,
+        #[specta(type = specta_typescript::Number)]
+        limit: u64,
+    },
     #[error("{what} is unavailable: {message}")]
     Unavailable { what: String, message: String },
     #[error("{query} is not a search that can be run: {message}")]
@@ -142,6 +172,18 @@ fn decode(bytes: &[u8]) -> (String, &'static str) {
 /// # Errors
 /// Fails when the file cannot be read.
 pub fn read_document(path: &Path) -> Result<Document, Error> {
+    // Asked of the file rather than of what was read: a 200 MB file is
+    // refused without first pulling 200 MB into memory to measure it.
+    let size = std::fs::metadata(path)
+        .map_err(|e| read_error(path, &e))?
+        .len();
+    if size > OPEN_BYTES {
+        return Err(Error::TooLarge {
+            path: path.to_path_buf(),
+            byte_len: size,
+            limit: OPEN_BYTES,
+        });
+    }
     let bytes = std::fs::read(path).map_err(|e| read_error(path, &e))?;
     let hash = hash_bytes(&bytes);
     let bom = bytes.starts_with(BOM);
@@ -155,7 +197,7 @@ pub fn read_document(path: &Path) -> Result<Document, Error> {
             byte_len: bytes.len() as u64,
             modified_ms: modified_ms(path),
             hash,
-            read_only: encoding != UTF8,
+            read_only: read_only_reason(encoding, bytes.len() as u64),
             format: FileFormat {
                 eol: stats.dominant(),
                 mixed_eol: stats.mixed(),
@@ -171,6 +213,18 @@ pub fn read_document(path: &Path) -> Result<Document, Error> {
             },
         },
     })
+}
+
+/// Why a file just read cannot be edited (design 8). Encoding first: a
+/// file that is both is one the app cannot write at all.
+fn read_only_reason(encoding: &str, byte_len: u64) -> Option<ReadOnly> {
+    if encoding != UTF8 {
+        Some(ReadOnly::Encoding)
+    } else if byte_len > EDITABLE_BYTES {
+        Some(ReadOnly::Size)
+    } else {
+        None
+    }
 }
 
 /// Build the bytes a save writes: the editor's content in the file's
@@ -289,7 +343,7 @@ mod tests {
         assert!(!f.mixed_eol);
         assert!(f.trailing_newline);
         assert_eq!(f.encoding, "utf-8");
-        assert!(!doc.meta.read_only);
+        assert!(doc.meta.read_only.is_none());
         assert_eq!(doc.meta.hash.len(), 64);
     }
 
@@ -311,7 +365,7 @@ mod tests {
     fn read_detects_a_legacy_encoding_as_read_only() {
         let path = write("latin1.md", b"caf\xe9 au lait\n");
         let doc = read_document(&path).expect("read");
-        assert!(doc.meta.read_only);
+        assert_eq!(doc.meta.read_only, Some(ReadOnly::Encoding));
         assert_ne!(doc.meta.format.encoding, "utf-8");
         assert!(doc.content.contains("caf"));
         assert!(matches!(
@@ -319,8 +373,57 @@ mod tests {
             Err(Error::ReadOnlyEncoding { .. })
         ));
         let converted = convert_to_utf8(&path).expect("convert");
-        assert!(!converted.meta.read_only);
+        assert!(converted.meta.read_only.is_none());
         assert_eq!(converted.content, "café au lait\n");
+    }
+
+    /// Design 8: above 10 MB the app shows the file but will not edit it.
+    #[test]
+    fn a_file_over_the_edit_limit_opens_for_reading_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.md");
+        let body = "# Big\n\n".to_owned() + &"word ".repeat(2_000_000);
+        assert!(body.len() as u64 > EDITABLE_BYTES);
+        std::fs::write(&path, &body).unwrap();
+        let doc = read_document(&path).expect("read");
+        assert_eq!(doc.meta.read_only, Some(ReadOnly::Size));
+        assert_eq!(doc.meta.byte_len, body.len() as u64);
+        // Still a whole document: reading it is the point of opening it.
+        assert_eq!(doc.content.len(), body.len());
+    }
+
+    /// And a file of exactly the limit opens like any other, which is the
+    /// half of the rule a limit is most likely to get wrong.
+    #[test]
+    fn a_file_at_the_edit_limit_opens_as_usual() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nearly.md");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(EDITABLE_BYTES).unwrap();
+        drop(file);
+        let doc = read_document(&path).expect("read");
+        assert!(doc.meta.read_only.is_none());
+        assert_eq!(doc.meta.byte_len, EDITABLE_BYTES);
+    }
+
+    /// Above 100 MB the answer is no, and it is given without reading the
+    /// file: the error carries the size so the app can say what it found.
+    #[test]
+    fn a_file_over_the_open_limit_is_refused_by_its_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.md");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(OPEN_BYTES + 1).unwrap();
+        drop(file);
+        match read_document(&path) {
+            Err(Error::TooLarge {
+                byte_len, limit, ..
+            }) => {
+                assert_eq!(byte_len, OPEN_BYTES + 1);
+                assert_eq!(limit, OPEN_BYTES);
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
     }
 
     #[test]

@@ -54,7 +54,9 @@ export { type DomOptions, type DomResult, readDom, toDom } from './render/dom.ts
 export {
   type FootnoteAnchor,
   FootnoteNumbers,
+  type FootnoteReference,
   footnoteDefinitions,
+  footnoteReferences,
 } from './render/footnotes.ts';
 export { type HtmlOptions, toHtml } from './render/html.ts';
 export {
@@ -77,6 +79,7 @@ export {
   renderDocument,
 } from './render/render.ts';
 export { Slugger } from './render/slug.ts';
+export { type SourceScan, scanSource } from './render/source.ts';
 export {
   allowedAttrs,
   HtmlStack,

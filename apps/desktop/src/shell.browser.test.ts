@@ -303,6 +303,31 @@ describe('read mode', () => {
     expect(pane.scrollTop).toBeGreaterThan(0);
   });
 
+  /**
+   * A panel of rows is a flex column, and a flex column shrinks its
+   * children to fit rather than letting them overflow. At a hundred rows
+   * that is a pixel off each of them; at the thousands of headings a
+   * very large document has (plan WP 2.7) it is a panel that looks empty
+   * — which is what it did, in the app, on a twelve megabyte file.
+   */
+  it('gives every heading of a long document a row to itself', async () => {
+    const long = Array.from({ length: 400 }, (_, i) => `## Heading ${i}\n\nWords.`).join('\n\n');
+    ipc.files.set('/long.md', { content: long });
+    picked = ['/long.md'];
+    await press('KeyO');
+    target.style.height = '300px';
+    await press('KeyB', { shift: true });
+    for (let i = 0; i < 40 && shell.workspace.outline.length < 400; i++) await settle();
+
+    const entries = [...target.querySelectorAll<HTMLElement>('.outline-entry')];
+    expect(entries).toHaveLength(400);
+    expect((entries[0] as HTMLElement).offsetHeight).toBeGreaterThan(10);
+    // And the panel is what scrolls, rather than the rows being squeezed
+    // into it.
+    const panel = target.querySelector('.outline') as HTMLElement;
+    expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight * 4);
+  });
+
   it('keeps the outline in the sidebar when the mode changes', async () => {
     await press('KeyB', { shift: true });
     await press('KeyE', { alt: true });

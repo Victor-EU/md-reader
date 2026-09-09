@@ -66,7 +66,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       id: 'file.convert',
       title: 'Convert to UTF-8',
       group: 'File',
-      enabled: () => workspace.activeDoc?.meta?.read_only === true,
+      enabled: () => workspace.activeDoc?.meta?.read_only === 'encoding',
       run: () => workspace.convertToUtf8(),
     },
     {

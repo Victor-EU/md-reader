@@ -1,7 +1,27 @@
+import type { SyntaxNode } from '@lezer/common';
 import { describe, expect, it } from 'vitest';
 import { parser } from '../parser.ts';
+import { footnoteReferences } from './footnotes.ts';
 import { toHtml } from './html.ts';
-import { type ImageResolver, type RenderOptions, renderDocument } from './render.ts';
+import type { RenderNode } from './nodes.ts';
+import { type ImageResolver, Renderer, type RenderOptions, renderDocument } from './render.ts';
+
+/** The top-level blocks of a document, so a test can build them in any order. */
+function topBlocks(source: string): SyntaxNode[] {
+  const out: SyntaxNode[] = [];
+  for (let child = parser.parse(source).topNode.firstChild; child; child = child.nextSibling) {
+    out.push(child.node);
+  }
+  return out;
+}
+
+/** Whatever was built, as the HTML a case can read. */
+function asHtml(nodes: readonly (RenderNode | null)[]): string {
+  return toHtml(
+    nodes.filter((node): node is RenderNode => node !== null),
+    { ranges: false, indent: false },
+  );
+}
 
 /** The rendered document, without the ranges, so a case reads as HTML. */
 function render(source: string, options: RenderOptions = {}): string {
@@ -49,6 +69,42 @@ describe('footnotes', () => {
     const html = render('a[^n]\n\n[^n]: one\n\n    two\n');
     expect(html).toContain('<p>one</p>');
     expect(html).toContain('<p>two <a href="#fnref-1"');
+  });
+
+  /**
+   * Plan WP 2.7: Read mode builds blocks in the order the reader reaches
+   * them, so the numbering cannot be a property of the render. Told the
+   * order the source mentions each label in, a renderer handed the last
+   * block first gives every one of them the number it would have had.
+   */
+  it('numbers by the document even when the blocks are built out of order', () => {
+    const source = 'a[^b] c[^a]\n\n[^a]: first defined\n\n[^b]: second defined\n';
+    const blocks = topBlocks(source);
+    const renderer = new Renderer(source, { footnoteOrder: footnoteReferences(source) });
+    // Built last block first, and read back in document order.
+    const built = blocks
+      .map((node) => node)
+      .reverse()
+      .map((node) => renderer.block(node));
+    const html = asHtml(built.reverse());
+    expect(html).toContain('<a href="#fn-1" class="mdr-fnref" id="fnref-1">1</a>');
+    expect(html).toContain('<a href="#fn-2" class="mdr-fnref" id="fnref-2">2</a>');
+    expect(html).toContain('<div class="mdr-footnote" id="fn-2" data-footnote="a">');
+    expect(html).toContain('<div class="mdr-footnote" id="fn-1" data-footnote="b">');
+  });
+
+  /**
+   * And the id the note links back to goes on the reference the source
+   * makes first, not on whichever one was drawn first.
+   */
+  it('gives the back link to the first mention, whenever it is built', () => {
+    const source = 'x[^n]\n\ny[^n]\n\n[^n]: note\n';
+    const blocks = topBlocks(source);
+    const renderer = new Renderer(source, { footnoteOrder: footnoteReferences(source) });
+    const second = asHtml([renderer.block(blocks[1] as SyntaxNode)]);
+    const first = asHtml([renderer.block(blocks[0] as SyntaxNode)]);
+    expect(second).toContain('<a href="#fn-1" class="mdr-fnref">1</a>');
+    expect(first).toContain('<a href="#fn-1" class="mdr-fnref" id="fnref-1">1</a>');
   });
 
   it('keeps footnote anchors out of the way of heading ids', () => {

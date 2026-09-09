@@ -34,11 +34,26 @@ describe('fake ipc', () => {
       '/l.md': { content: 'caf', format: { encoding: 'windows-1252' } },
     });
     const doc = await unwrap(ipc.commands.openDocument('/l.md'));
-    expect(doc.meta.read_only).toBe(true);
+    expect(doc.meta.read_only).toBe('encoding');
     const result = await ipc.commands.saveDocument('/l.md', 'x', doc.meta.hash, doc.meta.format);
     expect(result).toMatchObject({ status: 'error', error: { kind: 'read_only_encoding' } });
     const converted = await unwrap(ipc.commands.convertDocumentToUtf8('/l.md'));
-    expect(converted.meta.read_only).toBe(false);
+    expect(converted.meta.read_only).toBeNull();
+  });
+
+  /** Design 8's ceilings, which the fake applies so the shell can be tested against them. */
+  it('opens a large file for reading only and refuses a huge one', async () => {
+    const ipc = createFakeIpc({
+      '/big.md': { content: '# Big\n', byte_len: 42_000_000 },
+      '/huge.md': { content: '# Huge\n', byte_len: 120_000_000 },
+      '/small.md': '# Small\n',
+    });
+    expect((await unwrap(ipc.commands.openDocument('/big.md'))).meta.read_only).toBe('size');
+    expect((await unwrap(ipc.commands.openDocument('/small.md'))).meta.read_only).toBeNull();
+    expect(await ipc.commands.openDocument('/huge.md')).toMatchObject({
+      status: 'error',
+      error: { kind: 'too_large', byte_len: 120_000_000, limit: 100_000_000 },
+    });
   });
 
   it('lists a folder one level at a time, folders first', async () => {
