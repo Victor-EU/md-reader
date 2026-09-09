@@ -217,6 +217,12 @@ export interface WorkspaceOptions {
    * then the update commands report that there is nothing to check.
    */
   updater?: Updater;
+  /**
+   * Names the window for the OS (plan WP 2.8). Only Tauri has one to
+   * name; a browser tab is named by its document title, which is not
+   * this app's to set.
+   */
+  setTitle?: (title: string) => void;
 }
 
 /** What a file we create ourselves looks like until the user says otherwise. */
@@ -355,6 +361,22 @@ export class Workspace {
    * build and the tests both want.
    */
   systemDark = $state(false);
+  /**
+   * Whether the tab strip is the window's title bar (plan WP 2.8).
+   *
+   * True on macOS under Tauri, where the window has no bar of its own
+   * and the strip is drawn where one would be. False in a browser, and
+   * on the platforms whose decorations are still the system's.
+   */
+  titleBar = $state(false);
+  /**
+   * Whether the window is full screen. macOS takes its three buttons
+   * back for the duration and draws them over the top of the screen
+   * itself, so the room kept for them goes back to the tabs.
+   */
+  fullScreen = $state(false);
+  /** Whether the strip has to keep room for the window's own buttons. */
+  lights: boolean = $derived(this.titleBar && !this.fullScreen);
   outline = $state<OutlineEntry[]>([]);
   /** False while a long document is still being parsed in the background. */
   outlineComplete = $state(true);
@@ -422,6 +444,11 @@ export class Workspace {
     this.search = new FolderSearch(options.commands, say, () => this.folder.root);
   }
 
+  /** Tell the OS what this window is called; `App.svelte` keeps it current. */
+  nameWindow(): void {
+    this.options.setTitle?.(this.windowTitle);
+  }
+
   activeTab: Tab | null = $derived(this.tabs.find((tab) => tab.id === this.activeId) ?? null);
   activeDoc: Doc | null = $derived(this.activeTab ? this.docOf(this.activeTab) : null);
   /** What the Changes badge counts: changes the reader has not marked seen. */
@@ -458,6 +485,18 @@ export class Workspace {
     ),
   );
   canReopen: boolean = $derived(this.closed.length > 0);
+  /**
+   * What the window is called (plan WP 2.8).
+   *
+   * Nothing draws it any more — the title bar is the tab strip — but
+   * macOS still lists windows by it in the Window menu and under Mission
+   * Control, and two windows both answering to "MD Reader" are no help
+   * there. The tab in front is the answer, as it is in a browser.
+   */
+  windowTitle: string = $derived.by(() => {
+    const at = this.tabs.findIndex((tab) => tab.id === this.activeId);
+    return this.labels[at] ?? 'MD Reader';
+  });
   /**
    * What the mounted view is built from. It changes when another tab comes
    * to the front, and when a document's buffer is replaced under one.

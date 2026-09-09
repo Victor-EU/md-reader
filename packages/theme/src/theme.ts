@@ -82,7 +82,11 @@ export interface Ui {
   muted: string;
   border: string;
   hover: string;
-  /** The active tab, which reads as the front of the page. */
+  /**
+   * The front of the window: the open tab and the bar under it, which
+   * together read as the front of the page (plan WP 2.8). Lighter than
+   * `bg` in every appearance, so the strip behind it recedes.
+   */
   active: string;
   accent: string;
   /** An unsaved change, wherever one is shown. */

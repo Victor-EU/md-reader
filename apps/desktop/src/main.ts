@@ -9,8 +9,10 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 // Which pulls in every theme's colours and the bundled faces.
 import './app.css';
+import { isMac } from './lib/platform.ts';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
+import { watchFullScreen } from './lib/titlebar.ts';
 import { tauriUpdater } from './lib/update.ts';
 
 const FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'] }];
@@ -40,7 +42,36 @@ const shell = createShell({
   // version is whatever the config says, and the endpoint would answer
   // every launch with the release that is already running.
   updater: isTauri() && import.meta.env.PROD ? tauriUpdater() : undefined,
+  // Nothing draws the window's name now that the tabs are where it used
+  // to be, but the Window menu and Mission Control still read it.
+  setTitle: isTauri()
+    ? (title) => {
+        void getCurrentWindow().setTitle(title);
+      }
+    : undefined,
 });
+
+/*
+ * The tab strip is this window's title bar (plan WP 2.8). macOS draws
+ * the window no bar of its own and keeps its three buttons in the corner
+ * the strip leaves clear for them; Windows and Linux keep their
+ * decorations for now, and a browser build has none to keep.
+ *
+ * Full screen is when that corner is not wanted, and a resize is the
+ * only news of it the page gets — see `watchFullScreen` for why one
+ * question at that moment is not enough.
+ */
+if (isTauri() && isMac) {
+  const self = getCurrentWindow();
+  shell.workspace.titleBar = true;
+  watchFullScreen(
+    (listener) => window.addEventListener('resize', listener),
+    () => self.isFullscreen(),
+    (full) => {
+      shell.workspace.fullScreen = full;
+    },
+  );
+}
 
 // The system's light and dark, kept current for the settings that follow
 // it. The paper is what decides whether the page is dark, but "system" is

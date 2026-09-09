@@ -112,6 +112,15 @@ describe('the contrast floor', () => {
         expect(contrast(ui.muted, ui.bg), 'muted text').toBeGreaterThanOrEqual(TOKEN);
         expect(contrast(ui.accent, ui.bg), 'accent').toBeGreaterThanOrEqual(TOKEN);
         expect(contrast(ui.dirty, ui.bg), 'the unsaved dot').toBeGreaterThanOrEqual(QUIET);
+        // The front of the window — the tab that is open and the bar
+        // under it — is `active` rather than `bg` (plan WP 2.8), and the
+        // same chrome text is drawn on it.
+        expect(contrast(ui.fg, ui.active), 'chrome text in front').toBeGreaterThanOrEqual(INK);
+        expect(contrast(ui.muted, ui.active), 'muted text in front').toBeGreaterThanOrEqual(TOKEN);
+        expect(contrast(ui.accent, ui.active), 'accent in front').toBeGreaterThanOrEqual(TOKEN);
+        expect(contrast(ui.dirty, ui.active), 'the unsaved dot in front').toBeGreaterThanOrEqual(
+          QUIET,
+        );
 
         for (const paper of papers) {
           const page = paletteFor(theme, appearance).papers[paper];

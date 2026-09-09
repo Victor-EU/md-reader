@@ -30,6 +30,15 @@ $effect(() => {
 });
 
 /**
+ * Name the window after the tab in front (plan WP 2.8). The title bar
+ * no longer draws it, but the Window menu and Mission Control still
+ * read it, and a window called after the file in it is findable there.
+ */
+$effect(() => {
+  workspace.nameWindow();
+});
+
+/**
  * The whole keymap, derived from the command registry. A key the editor
  * has already handled arrives with `defaultPrevented` set and is left
  * alone; anything bound to a command belongs to the shell, enabled or not,
