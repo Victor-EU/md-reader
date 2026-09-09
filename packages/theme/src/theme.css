@@ -73,6 +73,10 @@
   --mdr-note: var(--note-note);
   --mdr-callout: var(--callout-note);
   --mdr-conflict: var(--callout-warning);
+  --mdr-change-added: var(--note-keep);
+  --mdr-change-changed: var(--note-attention);
+  --mdr-change-removed: var(--note-remove);
+  --mdr-change-moved: var(--note-rewrite);
 }
 
 :root[data-appearance="dark"] {
@@ -150,6 +154,10 @@
   --mdr-note: var(--note-note);
   --mdr-callout: var(--callout-note);
   --mdr-conflict: var(--callout-warning);
+  --mdr-change-added: var(--note-keep);
+  --mdr-change-changed: var(--note-attention);
+  --mdr-change-removed: var(--note-remove);
+  --mdr-change-moved: var(--note-rewrite);
 }
 
 .mdr-code span {
@@ -233,6 +241,10 @@
     --mdr-note: var(--note-note);
     --mdr-callout: var(--callout-note);
     --mdr-conflict: var(--callout-warning);
+    --mdr-change-added: var(--note-keep);
+    --mdr-change-changed: var(--note-attention);
+    --mdr-change-removed: var(--note-remove);
+    --mdr-change-moved: var(--note-rewrite);
   }
   :root:not([data-appearance]) .mdr-code span {
     color: var(--shiki-dark);

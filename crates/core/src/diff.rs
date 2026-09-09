@@ -11,6 +11,7 @@
 //! elsewhere on that line keeps its place.
 
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::ops::Range;
 
 use similar::{Algorithm, DiffOp, capture_diff_slices};
@@ -84,11 +85,13 @@ fn utf16_len(text: &str) -> u32 {
     u32::try_from(text.encode_utf16().count()).unwrap_or(u32::MAX)
 }
 
-/// A lower bound on the number of lines that must be inserted or deleted:
-/// every line one side holds more copies of than the other is one of them.
-/// O(n+m), which is what decides whether Myers can be afforded.
-fn distance_floor(old: &[&str], new: &[&str]) -> usize {
-    let mut counts: HashMap<&str, i32> = HashMap::with_capacity(old.len() + new.len());
+/// A lower bound on the number of elements that must be inserted or
+/// deleted: every one a side holds more copies of than the other is one
+/// of them. O(n+m), which is what decides whether Myers can be afforded.
+/// Shared with the block alignment, which asks the same question of
+/// blocks that this asks of lines.
+pub(crate) fn distance_floor<T: Eq + Hash>(old: &[T], new: &[T]) -> usize {
+    let mut counts: HashMap<&T, i32> = HashMap::with_capacity(old.len() + new.len());
     for line in old {
         *counts.entry(line).or_default() += 1;
     }

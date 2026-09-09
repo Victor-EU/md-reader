@@ -115,6 +115,14 @@ function pageVariables(palette: Palette): string[] {
     // is the one that is legible on the black paper as well as the
     // white (plan WP 2.1).
     '--mdr-conflict: var(--callout-warning);',
+    // The change marks. Their meanings are the ones the annotation
+    // notes already have names for, and taking the colours from there is
+    // what makes them legible on the black paper as well as the white
+    // (plan WP 2.2).
+    '--mdr-change-added: var(--note-keep);',
+    '--mdr-change-changed: var(--note-attention);',
+    '--mdr-change-removed: var(--note-remove);',
+    '--mdr-change-moved: var(--note-rewrite);',
   ];
 }
 

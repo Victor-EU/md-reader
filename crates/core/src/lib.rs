@@ -3,6 +3,7 @@
 
 pub mod assets;
 pub mod atomic;
+pub mod blocks;
 pub mod diff;
 pub mod document;
 pub mod eol;
@@ -12,6 +13,7 @@ pub mod types;
 pub mod watch;
 
 pub use assets::{AssetWrite, copy_asset, store_asset};
+pub use blocks::block_diff;
 pub use diff::{apply, edits, merge3};
 pub use document::{
     Document, DocumentMeta, Error, FileFormat, SaveResult, convert_to_utf8, encode, hash_bytes,
@@ -25,6 +27,6 @@ pub use state::{
 };
 pub use types::{
     Block, BlockOp, Conflict, DirEntry, ExternalChange, FileRemoved, FileRenamed, MergeResult,
-    PositionEdit, SearchHit, SearchOptions, SnapshotAuthor, SnapshotInfo,
+    PositionEdit, SearchHit, SearchOptions, SnapshotAuthor, SnapshotInfo, WordRun,
 };
 pub use watch::{WatchEvent, Watcher};

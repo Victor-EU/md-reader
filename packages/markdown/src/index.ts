@@ -39,6 +39,7 @@ export {
   paletteEntry,
   paletteMeanings,
 } from './annotate/palette.ts';
+export { commonBlocks, type DocBlock, flattenBlocks } from './blocks.ts';
 export { type CorpusFile, corpusFiles, goldenSet } from './corpus.ts';
 export { Callout } from './extensions/callout.ts';
 export { Footnote } from './extensions/footnote.ts';

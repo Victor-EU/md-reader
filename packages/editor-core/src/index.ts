@@ -4,7 +4,6 @@ export {
   changeRuns,
   changesField,
   type LineChange,
-  lineChanges,
   nextChange,
   previousChange,
   setChanges,

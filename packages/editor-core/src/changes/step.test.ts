@@ -1,7 +1,6 @@
 import { EditorSelection, EditorState, type StateCommand } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
-import type { LineChange } from './lines.ts';
-import { changesField, setChanges } from './markers.ts';
+import { changesField, type LineChange, setChanges } from './markers.ts';
 import { changeRuns, nextChange, previousChange } from './step.ts';
 
 const doc = ['one', 'two', 'three', 'four', 'five', 'six', 'seven'].join('\n');

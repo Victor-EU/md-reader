@@ -342,12 +342,19 @@ fn confirm_close(app: tauri::AppHandle, window: tauri::WebviewWindow) {
     close_now(&app, window.label());
 }
 
-/// Align two block lists for the semantic diff (WP 2.x).
+/// Align two block lists for the semantic diff (design 7.3, plan WP 2.2).
+///
+/// The frontend sends the middle: the blocks the two sides already agree
+/// on at each end are matched off there, where the saving is in what
+/// never crosses the bridge.
+///
+/// It cannot fail. Both sides arrive as arguments, so there is nothing
+/// to read, nothing to lock, and no answer but the alignment of what
+/// was sent.
 #[tauri::command]
 #[specta::specta]
-fn block_diff(old_blocks: Vec<Block>, new_blocks: Vec<Block>) -> Result<Vec<BlockOp>, Error> {
-    let _ = (old_blocks, new_blocks);
-    not_implemented("block_diff")
+fn block_diff(old_blocks: Vec<Block>, new_blocks: Vec<Block>) -> Vec<BlockOp> {
+    mdreader_core::block_diff(&old_blocks, &new_blocks)
 }
 
 /// List a directory, honouring `.gitignore` (WP 2.x).

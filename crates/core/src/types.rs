@@ -68,14 +68,57 @@ pub struct Block {
     pub to: u32,
 }
 
+/// A run of words that differ inside a pair of blocks the diff matched
+/// (design 7.3 step 3), as offsets into each side's block text.
+///
+/// The offsets are into the block's text and not into the document,
+/// because the text is the normalized form: the words of a rewrapped
+/// paragraph are in different places in the file and the same places in
+/// what it says. Reverting is a block at a time, which is what the
+/// block's own range is for.
+///
+/// One side is empty where the run is only an insertion or only a
+/// deletion, and sits where the missing words would go.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct WordRun {
+    pub old_from: u32,
+    pub old_to: u32,
+    pub new_from: u32,
+    pub new_to: u32,
+}
+
+/// One step of the alignment of two block lists (design 7.3).
+///
+/// The whole alignment is returned, `Equal` included, because that is
+/// what makes it an alignment: a consumer can walk both sides in step
+/// and knows what became of every block. `old` and `new` are indices
+/// into the lists that were sent, which carry the source ranges.
+///
+/// A block that moved is reported once, where it arrived. Reporting the
+/// place it left as a deletion as well would mark the reader's document
+/// in two places for one thing having happened.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum BlockOp {
-    Equal { old: u32, new: u32 },
-    Changed { old: u32, new: u32 },
-    Moved { old: u32, new: u32 },
-    Inserted { new: u32 },
-    Deleted { old: u32 },
+    Equal {
+        old: u32,
+        new: u32,
+    },
+    Changed {
+        old: u32,
+        new: u32,
+        words: Vec<WordRun>,
+    },
+    Moved {
+        old: u32,
+        new: u32,
+    },
+    Inserted {
+        new: u32,
+    },
+    Deleted {
+        old: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]

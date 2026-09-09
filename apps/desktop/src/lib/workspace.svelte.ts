@@ -30,7 +30,7 @@ import {
   highlightEdit,
   italicEdit,
   keepMineHere,
-  lineChanges,
+  type LineChange,
   linkEdit,
   type MatchCount,
   nextChange,
@@ -65,8 +65,11 @@ import type {
 import {
   type AnnotationKind,
   commentSpans,
+  commonBlocks,
   copyForAi,
+  type DocBlock,
   extractAnnotations,
+  flattenBlocks,
   headings,
   type ImageResolver,
   type OutlineEntry,
@@ -84,6 +87,7 @@ import {
   readingSettings,
   zoomed,
 } from './appearance.ts';
+import { blockChanges } from './changes.ts';
 import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
 import { imageResolver } from './images.ts';
@@ -1022,7 +1026,6 @@ export class Workspace {
       format,
     };
     doc.markSaved(written, options.auto !== true);
-    this.pushChanges(doc);
     this.remember(path);
     // A save is a version too, and the one a later restore compares
     // with. An autosave says which it is, because the history keeps a
@@ -1035,6 +1038,10 @@ export class Workspace {
       void this.options.commands.allowDocumentImages(path);
     }
     if (options.auto !== true) this.status = `Saved ${basename(path)}`;
+    // Last, because what the marks say is not what the save says: the
+    // line in the bar is the answer to the key that was pressed, and it
+    // has no business waiting on a scan.
+    await this.pushChanges(doc);
     return true;
   }
 
@@ -1253,8 +1260,11 @@ export class Workspace {
     doc.base = Text.of(change.content.split('\n'));
     doc.missing = false;
     if (doc.meta) doc.meta = { ...doc.meta, hash: change.hash };
-    this.pushChanges(doc);
     this.status = describeWrite(basename(change.path), merged);
+    // Awaited, so that a write is finished when the marks beside it are:
+    // the count in the bar and the marks in the margin are one answer to
+    // "what arrived", and they may not disagree for a frame.
+    await this.pushChanges(doc);
   }
 
   /**
@@ -1408,32 +1418,95 @@ export class Workspace {
     const doc = this.activeDoc;
     if (!doc) return;
     doc.markReviewed();
-    this.pushChanges(doc);
+    this.showChanges(doc, []);
     this.status = 'Marked as reviewed';
   }
 
   /**
-   * Work out the change runs and hand them to the gutter.
+   * The blocks of a document as it stands, or null while the parse has
+   * not reached the end of it.
    *
-   * The line diff of Phase 1 is replaced by the semantic engine of WP 2.2
-   * behind this call: what the gutter is given is a list of runs either
-   * way, and in Phase 2 it arrives from Rust a moment later instead of
-   * from here at once.
+   * The tree is the editor's own, kept up to date a keystroke at a time,
+   * so a scan of a long document costs a walk and not a parse. Asked for
+   * the way the outline asks (design 4.1); where both want it, the
+   * second call finds the work done.
+   *
+   * A parse that has not finished cannot be flattened: the blocks past
+   * where it stopped are missing, and a diff would call them all deleted.
+   * The marks stay where they are and the next scan tries again, which
+   * is the same thing the field does between the keystroke and the diff.
    */
-  private pushChanges(doc: Doc): void {
-    doc.changes = lineChanges(doc.reviewed, doc.state.doc);
+  private blocksOf(doc: Doc): DocBlock[] | null {
+    const length = doc.state.doc.length;
+    const tree = ensureSyntaxTree(doc.state, length, OUTLINE_TIMEOUT) ?? syntaxTree(doc.state);
+    if (tree.length < length) return null;
+    return doc.blocksFor(doc.state.doc, (source) => flattenBlocks(tree, source));
+  }
+
+  /**
+   * Work out the change runs and hand them to the gutter (plan WP 2.2).
+   *
+   * The alignment is Rust's, over the blocks both sides flatten to. What
+   * crosses the bridge is the middle: the blocks the two versions
+   * already agree on at each end are matched off here, so somebody
+   * typing sends a paragraph and not a document.
+   */
+  private async pushChanges(doc: Doc): Promise<void> {
+    // Nothing has happened since they last looked, which is the state a
+    // document is opened in and the one a save leaves it in.
+    if (doc.reviewed === doc.state.doc) {
+      this.showChanges(doc, []);
+      return;
+    }
+    const fresh = this.blocksOf(doc);
+    if (fresh === null) {
+      this.scheduleChangeScan();
+      return;
+    }
+    const old = doc.reviewedBlocks();
+    const { head, tail } = commonBlocks(old, fresh);
+    const of = doc.state.doc;
+    const aligned = await this.options.commands.blockDiff(
+      old.slice(head, old.length - tail),
+      fresh.slice(head, fresh.length - tail),
+    );
+    // The buffer has moved on, so the offsets these were worked out
+    // against are not the ones in front of the reader. The transaction
+    // that moved it has already asked for another scan.
+    if (doc.state.doc !== of) return;
+    // The indices name blocks in the slices that were sent, which start
+    // `head` into the lists they were cut from.
+    const ops = aligned.map((op) => {
+      const at = { ...op };
+      if ('old' in at) at.old += head;
+      if ('new' in at) at.new += head;
+      return at;
+    });
+    this.showChanges(doc, blockChanges(ops, fresh, of));
+  }
+
+  /** What the gutter and the badge are told, in one place. */
+  private showChanges(doc: Doc, runs: LineChange[]): void {
+    doc.changes = runs;
     const mounted = this.mounted;
     if (mounted && mounted.tab.docId === doc.id) {
-      mounted.view.dispatch({ effects: setChanges.of(doc.changes) });
+      mounted.view.dispatch({ effects: setChanges.of(runs) });
     }
   }
 
+  /**
+   * The scan waits for the typing to stop rather than running through
+   * it: the marks are mapped through every edit as it happens, so what
+   * waits here is only the question of which runs there are, and asking
+   * it in the middle of a burst answers about a buffer that has already
+   * moved on.
+   */
   private scheduleChangeScan(): void {
-    if (this.changeTimer !== null) return;
+    if (this.changeTimer !== null) clearTimeout(this.changeTimer);
     this.changeTimer = setTimeout(() => {
       this.changeTimer = null;
       const doc = this.activeDoc;
-      if (doc) this.pushChanges(doc);
+      if (doc) void this.pushChanges(doc);
     }, CHANGE_SCAN_DELAY);
   }
 

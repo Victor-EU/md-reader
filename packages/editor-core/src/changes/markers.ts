@@ -7,13 +7,28 @@ import {
   type Text,
 } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView } from '@codemirror/view';
-import type { ChangeKind, LineChange } from './lines.ts';
+
+/**
+ * What happened to a run of lines between two versions of a document.
+ * `removed` marks a place rather than a range: the text that was there is
+ * not in the buffer to point at. `moved` is the same words somewhere
+ * else, which the semantic engine can tell from a rewrite (design 7.3).
+ */
+export type ChangeKind = 'added' | 'changed' | 'removed' | 'moved';
+
+/** A run of lines that differ, in the buffer's own 1-based line numbers. */
+export interface LineChange {
+  from: number;
+  /** The line after the run, so `to === from` is a deletion. */
+  to: number;
+  kind: ChangeKind;
+}
 
 /**
  * The change runs to draw. They are handed in rather than computed here:
- * in Phase 1 the shell diffs the buffer against the last reviewed
- * snapshot line by line, and in Phase 2 the same effect carries what the
- * semantic engine returns from Rust (plan WP 2.2).
+ * the shell flattens the buffer and the last reviewed snapshot into
+ * blocks, has Rust align them, and turns the alignment into runs
+ * (plan WP 2.2).
  */
 export const setChanges = StateEffect.define<readonly LineChange[]>();
 
@@ -21,6 +36,7 @@ const marks: Record<ChangeKind, Decoration> = {
   added: Decoration.line({ class: 'cm-change cm-change-added' }),
   changed: Decoration.line({ class: 'cm-change cm-change-changed' }),
   removed: Decoration.line({ class: 'cm-change cm-change-removed' }),
+  moved: Decoration.line({ class: 'cm-change cm-change-moved' }),
 };
 
 function build(doc: Text, changes: readonly LineChange[]): DecorationSet {
@@ -75,6 +91,9 @@ const changesTheme = EditorView.theme({
   },
   '.cm-change-added::before': { '--mdr-change': 'var(--mdr-change-added, #16a34a)' },
   '.cm-change-changed::before': { '--mdr-change': 'var(--mdr-change-changed, #d97706)' },
+  // The same words in another place, which is not the same event as new
+  // words and does not read as one (design 7.3 step 4).
+  '.cm-change-moved::before': { '--mdr-change': 'var(--mdr-change-moved, #0ea5e9)' },
   // Nothing of a deleted run is left to mark, so it is a notch above the
   // line that closed over it rather than a bar beside it.
   '.cm-change-removed::before': {

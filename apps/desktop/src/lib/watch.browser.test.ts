@@ -235,12 +235,20 @@ describe('a file that goes away', () => {
   });
 });
 
+/**
+ * Three paragraphs, one line each, which is what the change marks are
+ * about: the unit the engine aligns is the block, so a fixture whose
+ * lines are all one paragraph would be one mark however much of it
+ * changed (plan WP 2.2).
+ */
+const three = 'one\n\ntwo\n\nthree\n';
+
 describe('what the reader has seen', () => {
   it('counts what arrived and stops counting once it is marked reviewed', async () => {
-    open({ '/a/one.md': 'one\ntwo\nthree\n' });
+    open({ '/a/one.md': three });
     await workspace.openPath('/a/one.md');
     expect(workspace.unreviewed).toBe(0);
-    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\nTWO\nthree\n'));
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\nTWO\n\nthree\n'));
     expect(workspace.unreviewed).toBe(1);
     workspace.markReviewed();
     expect(workspace.unreviewed).toBe(0);
@@ -248,20 +256,55 @@ describe('what the reader has seen', () => {
   });
 
   it('draws the change in the gutter', async () => {
-    open({ '/a/one.md': 'one\ntwo\nthree\n' });
+    open({ '/a/one.md': three });
     await workspace.openPath('/a/one.md');
     edit();
-    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\nTWO\nthree\n'));
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\nTWO\n\nthree\n'));
     expect(host.querySelectorAll('.cm-change-changed').length).toBe(1);
     workspace.markReviewed();
     expect(host.querySelectorAll('.cm-change').length).toBe(0);
   });
 
-  it('keeps the markers beside their text while the reader types', async () => {
-    open({ '/a/one.md': 'one\ntwo\nthree\n' });
+  /**
+   * The case design 7.3 exists for. An agent that reflows a document to
+   * eighty columns has replaced every line of it and said nothing
+   * different, and the line diff this replaced would have marked all of
+   * them.
+   */
+  it('says nothing about a write that only rewrapped a paragraph', async () => {
+    open({ '/a/one.md': 'one\n\nthe cat sat on the mat and did not move again\n' });
     await workspace.openPath('/a/one.md');
     edit();
-    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\ntwo\nTHREE\n'));
+    await workspace.externalChange(
+      ipc.externalWrite('/a/one.md', 'one\n\nthe cat sat on\nthe mat and did\nnot move again\n'),
+    );
+    expect(workspace.activeDoc?.text).toBe(
+      'one\n\nthe cat sat on\nthe mat and did\nnot move again\n',
+    );
+    expect(workspace.unreviewed).toBe(0);
+    expect(host.querySelectorAll('.cm-change').length).toBe(0);
+  });
+
+  /**
+   * The whole paragraph, not the line inside it that holds the word.
+   * The block is what changed; which words in it did is what the word
+   * runs say, and what Review mode will draw (design 7.3).
+   */
+  it('marks the paragraph a word changed in, not one line of it', async () => {
+    open({ '/a/one.md': 'one\n\nthe cat\nsat on\nthe mat\n' });
+    await workspace.openPath('/a/one.md');
+    edit();
+    await workspace.externalChange(
+      ipc.externalWrite('/a/one.md', 'one\n\nthe cat\nsat on\nthe rug\n'),
+    );
+    expect(host.querySelectorAll('.cm-change-changed').length).toBe(3);
+  });
+
+  it('keeps the markers beside their text while the reader types', async () => {
+    open({ '/a/one.md': three });
+    await workspace.openPath('/a/one.md');
+    edit();
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\ntwo\n\nTHREE\n'));
     const doc = workspace.activeDoc;
     if (!doc) throw new Error('no document');
     const before = doc.state.field(changesField).iter().from;
@@ -276,25 +319,27 @@ describe('what the reader has seen', () => {
    * the by-hand pass found the marks drawn and no way to walk them.
    */
   it('steps the cursor from one changed run to the next, and wraps', async () => {
-    open({ '/a/one.md': 'one\ntwo\nthree\nfour\nfive\n' });
+    open({ '/a/one.md': 'one\n\ntwo\n\nthree\n\nfour\n\nfive\n' });
     await workspace.openPath('/a/one.md');
     edit();
-    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\nTWO\nthree\nFOUR\nfive\n'));
+    await workspace.externalChange(
+      ipc.externalWrite('/a/one.md', 'one\n\nTWO\n\nthree\n\nFOUR\n\nfive\n'),
+    );
     const line = () => {
       const state = workspace.view?.state;
       if (!state) throw new Error('no view');
       return state.doc.lineAt(state.selection.main.head).number;
     };
     expect(workspace.stepChange(true)).toBe(true);
-    expect(line()).toBe(2);
+    expect(line()).toBe(3);
     // A cursor already on a change is looking at it, so next means the
     // one after — and past the last one it comes back to the first.
     expect(workspace.stepChange(true)).toBe(true);
-    expect(line()).toBe(4);
+    expect(line()).toBe(7);
     expect(workspace.stepChange(true)).toBe(true);
-    expect(line()).toBe(2);
+    expect(line()).toBe(3);
     expect(workspace.stepChange(false)).toBe(true);
-    expect(line()).toBe(4);
+    expect(line()).toBe(7);
   });
 
   it('says so rather than moving when nothing has changed', async () => {
@@ -306,10 +351,10 @@ describe('what the reader has seen', () => {
   });
 
   it('steps from Read mode by switching to the view that has a cursor', async () => {
-    open({ '/a/one.md': 'one\ntwo\nthree\nfour\n' });
+    open({ '/a/one.md': 'one\n\ntwo\n\nthree\n\nfour\n' });
     await workspace.openPath('/a/one.md');
     edit();
-    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\ntwo\nTHREE\nfour\n'));
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\ntwo\n\nTHREE\n\nfour\n'));
     workspace.unmount();
     workspace.setMode('read');
     expect(workspace.stepChange(true)).toBe(true);
@@ -317,7 +362,7 @@ describe('what the reader has seen', () => {
     workspace.mount(host);
     const state = workspace.view?.state;
     if (!state) throw new Error('no view');
-    expect(state.doc.lineAt(state.selection.main.head).number).toBe(3);
+    expect(state.doc.lineAt(state.selection.main.head).number).toBe(5);
   });
 
   it('saving marks the document as seen', async () => {

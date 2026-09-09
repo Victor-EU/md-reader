@@ -89,8 +89,18 @@ export const commands = {
 	takeLaunchPaths: () => __TAURI_INVOKE<string[]>("take_launch_paths"),
 	/**  The window has finished what it wanted to do before closing. */
 	confirmClose: () => __TAURI_INVOKE<void>("confirm_close"),
-	/**  Align two block lists for the semantic diff (WP 2.x). */
-	blockDiff: (oldBlocks: Block[], newBlocks: Block[]) => typedError<BlockOp[], Error>(__TAURI_INVOKE("block_diff", { oldBlocks, newBlocks })),
+	/**
+	 *  Align two block lists for the semantic diff (design 7.3, plan WP 2.2).
+	 * 
+	 *  The frontend sends the middle: the blocks the two sides already agree
+	 *  on at each end are matched off there, where the saving is in what
+	 *  never crosses the bridge.
+	 * 
+	 *  It cannot fail. Both sides arrive as arguments, so there is nothing
+	 *  to read, nothing to lock, and no answer but the alignment of what
+	 *  was sent.
+	 */
+	blockDiff: (oldBlocks: Block[], newBlocks: Block[]) => __TAURI_INVOKE<BlockOp[]>("block_diff", { oldBlocks, newBlocks }),
 	/**  List a directory, honouring `.gitignore` (WP 2.x). */
 	listDir: (path: string) => typedError<DirEntry[], Error>(__TAURI_INVOKE("list_dir", { path })),
 	/**  Search file contents under `root` (WP 2.x). */
@@ -138,7 +148,19 @@ export type Block = {
 	to: number,
 };
 
-export type BlockOp = { op: "equal"; old: number; new: number } | { op: "changed"; old: number; new: number } | { op: "moved"; old: number; new: number } | { op: "inserted"; new: number } | { op: "deleted"; old: number };
+/**
+ *  One step of the alignment of two block lists (design 7.3).
+ * 
+ *  The whole alignment is returned, `Equal` included, because that is
+ *  what makes it an alignment: a consumer can walk both sides in step
+ *  and knows what became of every block. `old` and `new` are indices
+ *  into the lists that were sent, which carry the source ranges.
+ * 
+ *  A block that moved is reported once, where it arrived. Reporting the
+ *  place it left as a deletion as well would mark the reader's document
+ *  in two places for one thing having happened.
+ */
+export type BlockOp = { op: "equal"; old: number; new: number } | { op: "changed"; old: number; new: number; words: WordRun[] } | { op: "moved"; old: number; new: number } | { op: "inserted"; new: number } | { op: "deleted"; old: number };
 
 /**  A hunk both sides changed, for the frontend to render as a conflict. */
 export type Conflict = {
@@ -423,6 +445,26 @@ export type WindowContent = {
 	sidebar?: boolean,
 	/**  Whether Read mode was showing the comments it folds away (4.3). */
 	comments?: boolean,
+};
+
+/**
+ *  A run of words that differ inside a pair of blocks the diff matched
+ *  (design 7.3 step 3), as offsets into each side's block text.
+ * 
+ *  The offsets are into the block's text and not into the document,
+ *  because the text is the normalized form: the words of a rewrapped
+ *  paragraph are in different places in the file and the same places in
+ *  what it says. Reverting is a block at a time, which is what the
+ *  block's own range is for.
+ * 
+ *  One side is empty where the run is only an insertion or only a
+ *  deletion, and sits where the missing words would go.
+ */
+export type WordRun = {
+	old_from: number,
+	old_to: number,
+	new_from: number,
+	new_to: number,
 };
 
 /* Tauri Specta runtime */

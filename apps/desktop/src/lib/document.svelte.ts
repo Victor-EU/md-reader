@@ -6,6 +6,7 @@ import {
   type PreviewOptions,
 } from '@mdreader/editor-core';
 import type { DocumentMeta } from '@mdreader/ipc';
+import { type DocBlock, flattenBlocks, parser } from '@mdreader/markdown';
 import { basename } from './paths.ts';
 
 let counter = 0;
@@ -62,6 +63,18 @@ export class Doc {
   remoteImages = $state(false);
   private readonly preview: ((doc: Doc) => PreviewOptions) | undefined;
   private readonly extra: Extension[];
+  /**
+   * The two flattenings worth keeping: the buffer's and the one the
+   * marks are measured against (plan WP 2.2).
+   *
+   * Two, because of what happens when the reader says they have seen the
+   * document: `reviewed` becomes the buffer, and the buffer is the list
+   * the scan just made. Keeping both turns the parse that would follow
+   * every save of a long document into a lookup, and it is the same
+   * lookup that makes opening a file cost one flattening rather than
+   * two for a diff that is empty by construction.
+   */
+  private flattened: { of: Text; blocks: DocBlock[] }[] = [];
 
   constructor(text: string, options: DocOptions = {}) {
     this.path = options.path ?? null;
@@ -76,6 +89,30 @@ export class Doc {
     });
     this.base = this.state.doc;
     this.reviewed = this.state.doc;
+  }
+
+  /**
+   * A version of this document as blocks, flattening it if it is not one
+   * of the two already in hand.
+   */
+  blocksFor(text: Text, flatten: (source: string) => DocBlock[]): DocBlock[] {
+    const found = this.flattened.find((entry) => entry.of === text);
+    if (found) return found.blocks;
+    const blocks = flatten(text.toString());
+    this.flattened = [{ of: text, blocks }, ...this.flattened].slice(0, 2);
+    return blocks;
+  }
+
+  /**
+   * The blocks of the version the marks are measured against (WP 2.2).
+   *
+   * This side has no tree of its own — it is a snapshot, not a buffer —
+   * so where it is not in hand it is parsed headlessly, with the same
+   * parser the editor uses, which is what makes the two lists
+   * comparable.
+   */
+  reviewedBlocks(): DocBlock[] {
+    return this.blocksFor(this.reviewed, (source) => flattenBlocks(parser.parse(source), source));
   }
 
   /** Read afresh on every widget, so a toggle needs no new state. */

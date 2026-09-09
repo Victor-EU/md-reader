@@ -92,6 +92,76 @@ export function fakeHash(text: string): string {
   return h.toString(16).padStart(8, '0');
 }
 
+/**
+ * A block alignment with none of the passes that make the real one worth
+ * having: a longest common subsequence over the blocks, and what is left
+ * over paired off in the order it comes. No similarity threshold, no
+ * moves, one word run per changed block.
+ *
+ * It is enough for the shell, whose job is to flatten both sides, send
+ * the middle, and turn what comes back into marks. Which blocks pair
+ * with which is decided in `crates/core/src/blocks.rs` and tested there
+ * against the semantic diff cases of design 7.3.
+ */
+export function fakeAlign(old: Block[], fresh: Block[]): BlockOp[] {
+  const same = (a: Block | undefined, b: Block | undefined) =>
+    a !== undefined && b !== undefined && a.kind === b.kind && a.text === b.text;
+  const rows = old.length;
+  const columns = fresh.length;
+  const table = new Int32Array((rows + 1) * (columns + 1));
+  const cell = (at: number) => table[at] ?? 0;
+  for (let row = rows - 1; row >= 0; row -= 1) {
+    for (let column = columns - 1; column >= 0; column -= 1) {
+      const at = row * (columns + 1) + column;
+      table[at] = same(old[row], fresh[column])
+        ? cell(at + columns + 2) + 1
+        : Math.max(cell(at + columns + 1), cell(at + 1));
+    }
+  }
+  const ops: BlockOp[] = [];
+  let row = 0;
+  let column = 0;
+  while (row < rows || column < columns) {
+    if (row < rows && column < columns && same(old[row], fresh[column])) {
+      ops.push({ op: 'equal', old: row, new: column });
+      row += 1;
+      column += 1;
+      continue;
+    }
+    const fromRow = row;
+    const fromColumn = column;
+    while (row < rows || column < columns) {
+      if (row < rows && column < columns && same(old[row], fresh[column])) break;
+      const at = row * (columns + 1) + column;
+      if (row < rows && (column >= columns || cell(at + columns + 1) >= cell(at + 1))) row += 1;
+      else column += 1;
+    }
+    const paired = Math.min(row - fromRow, column - fromColumn);
+    for (let step = paired; step < row - fromRow; step += 1) {
+      ops.push({ op: 'deleted', old: fromRow + step });
+    }
+    for (let step = 0; step < column - fromColumn; step += 1) {
+      const at = fromColumn + step;
+      if (step < paired) {
+        ops.push({
+          op: 'changed',
+          old: fromRow + step,
+          new: at,
+          words: [
+            {
+              old_from: 0,
+              old_to: old[fromRow + step]?.text.length ?? 0,
+              new_from: 0,
+              new_to: fresh[at]?.text.length ?? 0,
+            },
+          ],
+        });
+      } else ops.push({ op: 'inserted', new: at });
+    }
+  }
+  return ops;
+}
+
 const ok = <T>(data: T): Result<T, IpcError> => ({ status: 'ok', data });
 const err = <T>(error: IpcError): Result<T, IpcError> => ({ status: 'error', error });
 const notImplemented = <T>(command: string): Result<T, IpcError> =>
@@ -332,7 +402,7 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       return record<void>('confirm_close', [], undefined);
     },
     blockDiff: (oldBlocks: Block[], newBlocks: Block[]) =>
-      record('block_diff', [oldBlocks, newBlocks], notImplemented<BlockOp[]>('block_diff')),
+      record('block_diff', [oldBlocks, newBlocks], fakeAlign(oldBlocks, newBlocks)),
     listDir: (path) => record('list_dir', [path], notImplemented('list_dir')),
     search: (root, query, options) =>
       record('search', [root, query, options], notImplemented('search')),
