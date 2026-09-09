@@ -51,6 +51,19 @@ directory, owner-readable only) every time it connects, so it follows the
 port and picks up a rotated token by itself. `Rotate the Agent Token` in
 the palette is how you stop anything that was configured by hand.
 
+## Exporting a page
+
+`Export as HTML…` in the palette writes the document in front of you as a
+page that opens anywhere: the same renderer Read mode uses, the theme you
+are reading in inlined, fences coloured, formulas set as MathML and
+diagrams drawn. No stylesheet to fetch, no fonts to install, no scripts,
+no network.
+
+Images travel inside the page as `data:` URLs while they are small enough
+to mail — over four megabytes of them and they are copied into a folder
+beside it instead. The status bar says which happened. See
+[ADR 0029](docs/adr/0029-wp-3.2-html-export.md).
+
 ## Prerequisites
 
 - Node 24 and pnpm 12 (`corepack enable` or `npm i -g pnpm`)

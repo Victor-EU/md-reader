@@ -19,7 +19,8 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use mdreader_core::{
     AgentAnswer, AgentAsk, AgentDocument, AgentRequest, AgentStatus, AssetWrite, Block, BlockOp,
-    Bounds, DirEntry, Document, Error, ExternalChange, FileFormat, FileMatches, FileRemoved,
+    Bounds, DirEntry, Document, Error, ExportWrite, ExternalChange, FileFormat, FileMatches,
+    FileRemoved,
     FileRenamed, Folder, FolderChange, History, MergeResult, Override, Overrides, Restore,
     SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session, Settings,
     SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher, WindowContent,
@@ -250,6 +251,42 @@ fn import_asset(
     let write = mdreader_core::copy_asset(&document, &source)?;
     allow_images(&app, &document)?;
     Ok(write)
+}
+
+/// Write a rendered document out as a page of its own (plan WP 3.2).
+///
+/// The page arrives already rendered -- the markdown renderer is the
+/// frontend's, and what it produces is what Read mode shows -- with a
+/// numbered sentinel where each local image goes. What this adds is the
+/// images, which are dealt with here because the bytes are here.
+///
+/// An image outside the folders the asset protocol has been opened to is
+/// not read. Read mode could not have shown it either, and an export is
+/// not a way around the fence design 8 puts around a document's folder;
+/// the page names it and does not carry it, which is what a missing
+/// image already looks like.
+#[tauri::command]
+#[specta::specta]
+fn export_html(
+    app: tauri::AppHandle,
+    path: PathBuf,
+    html: String,
+    images: Vec<PathBuf>,
+) -> Result<ExportWrite, Error> {
+    let scope = tauri::Manager::asset_protocol_scope(&app);
+    let reachable: Vec<PathBuf> = images
+        .into_iter()
+        .map(|image| {
+            if scope.is_allowed(&image) {
+                image
+            } else {
+                // Its own name, which `write_export` counts as an image
+                // the page names and has not got.
+                PathBuf::from(image.file_name().unwrap_or_default())
+            }
+        })
+        .collect();
+    mdreader_core::write_export(&path, &html, &reachable)
 }
 
 /// Rewrite a non-UTF-8 file as UTF-8 and return it freshly read.
@@ -1661,6 +1698,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             allow_document_images,
             write_asset,
             import_asset,
+            export_html,
             watch,
             unwatch,
             merge3,

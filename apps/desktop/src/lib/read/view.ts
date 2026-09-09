@@ -558,7 +558,7 @@ export class ReadView {
       if (old.live) this.kept.push(old);
       else old.el = null;
     }
-    this.options.enhance?.run([el]);
+    void this.options.enhance?.run([el]);
   }
 
   /** The top-level node a slot was taken from. */

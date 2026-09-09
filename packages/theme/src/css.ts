@@ -1,8 +1,11 @@
 import {
+  type Appearance,
   codeTokens,
   noteKinds,
   type Palette,
   type Paper,
+  paletteFor,
+  paperIsDark,
   papers,
   type Theme,
   tokenClass,
@@ -167,6 +170,30 @@ function themeBlocks(theme: Theme): string {
   ].join('\n');
 }
 
+/**
+ * The rules that are not variables: which token class reads which
+ * variable, and which note kind and callout type mean which colour. They
+ * say nothing a theme can disagree about, so one copy serves all four —
+ * and serves an exported page, which carries one theme and these.
+ */
+function tailBlocks(theme: Theme): string[] {
+  return [
+    // A highlighted fence names its tokens rather than colouring them
+    // (plan WP 2.6), so this is where a fence gets its colours — from
+    // the same variables the live editor's highlighter reads.
+    ...codeTokens.map((token) =>
+      block(`.mdr-code .${tokenClass(token)}`, [`color: var(${tokenVariable(token)});`]),
+    ),
+    // One colour per meaning and per callout type, on the attribute both
+    // the rendered page and the editor's widgets already carry. The
+    // colour itself is the theme's; these only say which name to read.
+    ...noteKinds.map((kind) => block(NOTE_SELECTOR(kind), [`--mdr-note: var(--note-${kind});`])),
+    ...Object.keys(theme.light.callouts).map((type) =>
+      block(`[data-callout="${type}"]`, [`--mdr-callout: var(--callout-${type});`]),
+    ),
+  ];
+}
+
 export function themeCss(list: readonly Theme[]): string {
   const first = list[0];
   if (!first) throw new Error('a stylesheet needs at least one theme');
@@ -200,19 +227,40 @@ export function themeCss(list: readonly Theme[]): string {
       ]),
     ),
     ...list.map(themeBlocks),
-    // A highlighted fence names its tokens rather than colouring them
-    // (plan WP 2.6), so this is where a fence gets its colours — from
-    // the same variables the live editor's highlighter reads.
-    ...codeTokens.map((token) =>
-      block(`.mdr-code .${tokenClass(token)}`, [`color: var(${tokenVariable(token)});`]),
-    ),
-    // One colour per meaning and per callout type, on the attribute both
-    // the rendered page and the editor's widgets already carry. The
-    // colour itself is the theme's; these only say which name to read.
-    ...noteKinds.map((kind) => block(NOTE_SELECTOR(kind), [`--mdr-note: var(--note-${kind});`])),
-    ...Object.keys(first.light.callouts).map((type) =>
-      block(`[data-callout="${type}"]`, [`--mdr-callout: var(--callout-${type});`]),
-    ),
+    ...tailBlocks(first),
   ];
   return `${head}${parts.join('\n')}`;
+}
+
+/**
+ * One theme, in one dress, as a stylesheet that stands on its own (plan
+ * WP 3.2).
+ *
+ * The generated stylesheet above carries all four themes and chooses
+ * between them with three attributes a script writes onto the root
+ * element. An exported page has no script and no settings arriving a
+ * moment later, so what it gets instead is the same variables with the
+ * choice already made — and it gets them from the same three functions,
+ * so a colour added to the palette reaches an export without anyone
+ * having to remember it.
+ *
+ * The tail is the part of the stylesheet that is not variables at all:
+ * which token class reads which variable, and which note kind and
+ * callout type mean which colour. Those are the same in every theme.
+ */
+export function pageCss(theme: Theme, appearance: Appearance, paper: Paper): string {
+  const palette = paletteFor(theme, appearance);
+  // The page follows the paper, not the window: the high-contrast black
+  // paper is a dark page in a light window, and its code has to be
+  // highlighted for a dark ground.
+  const page = paletteFor(theme, paperIsDark(appearance, paper) ? 'dark' : 'light');
+  return [
+    block(':root', [
+      `color-scheme: ${appearance};`,
+      ...uiVariables(palette),
+      ...paperVariables(palette, paper),
+      ...pageVariables(page),
+    ]),
+    ...tailBlocks(theme),
+  ].join('\n');
 }

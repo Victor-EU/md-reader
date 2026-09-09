@@ -167,8 +167,15 @@ function paint(code: HTMLElement, lines: { content: string; color?: string }[][]
 }
 
 export interface Enhancer {
-  /** Enhance everything inside these elements. Returns immediately. */
-  run(roots: readonly HTMLElement[]): void;
+  /**
+   * Enhance everything inside these elements.
+   *
+   * Read mode does not wait for this: a slow diagram must not hold up a
+   * page that is already legible without it. The promise is for the one
+   * caller that has to wait — an export, which is finished only when
+   * every fence, formula and diagram is (plan WP 3.2).
+   */
+  run(roots: readonly HTMLElement[], options?: EnhanceOptions): Promise<void>;
   destroy(): void;
 }
 
@@ -179,6 +186,21 @@ export interface EnhancerOptions {
    * it cannot be given both and left to the stylesheet.
    */
   dark?: () => boolean;
+}
+
+export interface EnhanceOptions {
+  /**
+   * What KaTeX writes a formula as. The window gets `html`, which is
+   * spans positioned against KaTeX's own stylesheet and its own fonts;
+   * an export gets `mathml`, which is a browser's own business and needs
+   * neither, and so travels inside a single file (plan WP 3.2).
+   *
+   * Per run rather than per enhancer, because the difference is in the
+   * one call that writes the formula: the loaded module, the highlighter
+   * and its grammars are the same either way, and an export should not
+   * mean a second copy of them.
+   */
+  math?: 'html' | 'mathml';
 }
 
 export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
@@ -229,7 +251,7 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
     }
   }
 
-  async function math(roots: readonly HTMLElement[]): Promise<void> {
+  async function math(roots: readonly HTMLElement[], output: 'html' | 'mathml'): Promise<void> {
     const nodes = targets(roots, '[data-tex]');
     if (nodes.length === 0) return;
     for (const node of nodes) node.setAttribute(DONE, '');
@@ -243,7 +265,7 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
           throwOnError: false,
           // The document may come from a model; `\href` and friends stay off.
           trust: false,
-          output: 'html',
+          output,
         });
       } catch {
         // Leave the TeX source in place: it is what the file says.
@@ -276,11 +298,17 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
   }
 
   return {
-    run(roots) {
+    async run(roots, run = {}) {
       if (!alive || roots.length === 0) return;
-      void highlight(roots);
-      void math(roots);
-      void diagrams(roots);
+      // Settled rather than all: each of the three already leaves the
+      // document as it was when it cannot do its part, and a library
+      // that never loads is the same thing one step earlier. It should
+      // not cost the other two their turn, or an export its page.
+      await Promise.allSettled([
+        highlight(roots),
+        math(roots, run.math ?? 'html'),
+        diagrams(roots),
+      ]);
     },
     destroy() {
       alive = false;

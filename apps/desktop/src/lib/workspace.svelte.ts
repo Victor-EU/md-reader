@@ -105,12 +105,14 @@ import {
   pageIsDark,
   type Reading,
   readingSettings,
+  resolveAppearance,
   withOverride,
   zoomed,
 } from './appearance.ts';
 import { blockChanges } from './changes.ts';
 import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
+import { describeExport, exportPage } from './export.ts';
 import { Folder } from './folder.svelte.ts';
 import { snapshotTime } from './history.ts';
 import { imageResolver } from './images.ts';
@@ -205,6 +207,8 @@ export interface WorkspaceOptions {
   pickFolder?: () => Promise<string | null>;
   /** The OS save panel, for the first save of an untitled document. */
   pickSaveTarget?: (suggested: string) => Promise<string | null>;
+  /** The same panel, asking where an exported page goes (plan WP 3.2). */
+  pickExportTarget?: (suggested: string) => Promise<string | null>;
   /** Opens a link in the system browser; the webview never navigates. */
   openExternal?: (url: string) => void;
   /** Shiki, KaTeX and Mermaid. Left out in tests, which do not need them. */
@@ -2150,6 +2154,54 @@ export class Workspace {
       const doc = this.activeDoc;
       if (doc) void this.pushChanges(doc);
     }, CHANGE_SCAN_DELAY);
+  }
+
+  // --- export -------------------------------------------------------------
+
+  /**
+   * The document in front as a page of its own (plan WP 3.2).
+   *
+   * Rendered here rather than lifted out of Read mode: what is in the
+   * page there is a screenful and two margins of it, which is the whole
+   * point of that view and the wrong thing to save. So the same renderer
+   * runs over the whole document, and the same enhancers over the
+   * result, and this waits for them -- an export is finished only when
+   * every fence, formula and diagram is.
+   *
+   * What the reader is looking at is what they get: their theme, their
+   * paper, their measure, their size, and the comments shown or folded
+   * away as they have them.
+   */
+  async exportHtml(): Promise<void> {
+    const tab = this.activeTab;
+    const doc = tab && this.docOf(tab);
+    if (!doc) return;
+    const target = (await this.options.pickExportTarget?.(this.exportTarget(doc))) ?? null;
+    if (target === null) return;
+    // A large document is a second or two of rendering, and half of that
+    // is Shiki over its fences. The line is the only thing that says so.
+    this.status = `Exporting ${doc.label}…`;
+    const page = await exportPage({
+      source: doc.state.doc.toString(),
+      title: doc.label,
+      images: { path: doc.path, remote: doc.remoteImages },
+      comments: this.comments,
+      reading: withOverride(this.settings, doc.reading),
+      appearance: resolveAppearance(this.settings.appearance, this.systemDark),
+      enhancer: this.options.enhancer,
+    });
+    const result = await this.options.commands.exportHtml(target, page.html, page.images);
+    this.status =
+      result.status === 'error'
+        ? describeError(result.error)
+        : describeExport(result.data, basename(target));
+  }
+
+  /** Where an exported page is offered: beside the document, named after it. */
+  private exportTarget(doc: Doc): string {
+    const name = `${(doc.path === null ? this.saveTarget(doc) : basename(doc.path)).replace(/\.[^.]*$/, '')}.html`;
+    const folder = doc.path === null ? this.saveFolder() : dirname(doc.path);
+    return folder === '' ? name : resolvePath(folder, name);
   }
 
   // --- annotations --------------------------------------------------------

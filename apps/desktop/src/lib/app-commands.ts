@@ -69,6 +69,16 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.activeDoc?.meta?.read_only === 'encoding',
       run: () => workspace.convertToUtf8(),
     },
+    // A copy of the document that opens anywhere, with no app around it
+    // (plan WP 3.2). It asks where to put it, which is the second of the
+    // two dialogs design 4.5 allows.
+    {
+      id: 'file.exportHtml',
+      title: 'Export as HTML…',
+      group: 'File',
+      enabled: hasDoc,
+      run: () => void workspace.exportHtml(),
+    },
     {
       id: 'file.close',
       title: 'Close Tab',

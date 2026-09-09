@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { themeCss } from './css.ts';
+import { pageCss, themeCss } from './css.ts';
 import { codeHighlight } from './highlight.ts';
 import { tokenOfColor, tokenTheme } from './shiki.ts';
 import {
@@ -205,5 +205,46 @@ describe('the two highlighters', () => {
 describe('the generated stylesheet', () => {
   it('is what the JSON says', async () => {
     await expect(themeCss(themes)).toMatchFileSnapshot('./theme.css');
+  });
+});
+
+/**
+ * What an exported page wears (plan WP 3.2). The window picks a theme
+ * with three attributes a script writes; a page with no script gets the
+ * same variables with the choice already made, and these are the ways
+ * the two can be said to agree.
+ */
+describe('one theme, resolved', () => {
+  const one = themeById('one');
+
+  it('needs no attribute to say which theme it is', () => {
+    const css = pageCss(one, 'light', 'white');
+    expect(css).toContain(':root {');
+    expect(css).not.toContain('[data-theme=');
+    expect(css).not.toContain('@media');
+  });
+
+  it('says what the generated stylesheet would have selected', () => {
+    for (const appearance of ['light', 'dark'] as const) {
+      for (const paper of papers) {
+        const resolved = pageCss(themeById('grove'), appearance, paper);
+        const palette = paletteFor(themeById('grove'), appearance);
+        const page = paletteFor(
+          themeById('grove'),
+          paperIsDark(appearance, paper) ? 'dark' : 'light',
+        );
+        expect(resolved).toContain(`color-scheme: ${appearance};`);
+        // The paper follows the window; the ink on it follows the paper.
+        expect(resolved).toContain(`--page-bg: ${palette.papers[paper].bg};`);
+        expect(resolved).toContain(`--tok-keyword: ${page.code.keyword};`);
+      }
+    }
+  });
+
+  it('carries the rules that are not variables, so a fence is coloured', () => {
+    const css = pageCss(one, 'dark', 'white');
+    expect(css).toContain('.mdr-code .tok-keyword {');
+    expect(css).toContain('[data-callout="warning"] {');
+    expect(css).toContain('--mdr-note: var(--note-rewrite);');
   });
 });

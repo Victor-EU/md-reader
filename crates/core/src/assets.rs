@@ -36,6 +36,14 @@ pub struct AssetWrite {
     pub written: bool,
 }
 
+/// What these bytes are, by what they start with rather than by what
+/// anything calls them. The extension this app would store them under,
+/// and what an export names their media type from.
+#[must_use]
+pub fn image_type(bytes: &[u8]) -> Option<&'static str> {
+    sniff(bytes)
+}
+
 /// The image formats we recognise, by what the bytes actually start with.
 fn sniff(bytes: &[u8]) -> Option<&'static str> {
     const FTYP: &[(&[u8], &str)] = &[

@@ -1,0 +1,486 @@
+/*
+ * A rendered document, dressed (design 11, plan WP 2.7).
+ *
+ * Its own file because Read mode is not the only thing that wears it:
+ * an exported page is this stylesheet, the theme's variables with the
+ * choice already made, and nothing else (plan WP 3.2). One file, so a
+ * change to what a callout looks like changes both, and there is no
+ * second copy to drift.
+ *
+ * Every colour here is a variable. Which variable is which colour is the
+ * theme's business, and the theme's stylesheet is loaded before this
+ * one; an export writes the same names into a `:root` of its own.
+ *
+ * Two of these rules dress controls rather than the document: the fold
+ * arrow beside a heading, and a fence's copy button. Both are put into
+ * the page by the Read view, an export has neither, and the rules stay
+ * here anyway rather than splitting a stylesheet in two by which piece
+ * of code built which element.
+ */
+
+/*
+ * The three bundled families of design 11, each with the system stacks
+ * behind it: a document in a script the bundled faces do not cover, or a
+ * build with the fonts missing, still reads. An exported page carries no
+ * faces at all and falls through to the same stacks.
+ */
+:root {
+  --family-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --family-serif: "Source Serif 4 Variable", ui-serif, Georgia, "Times New Roman", serif;
+  --family-mono:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
+/*
+ * The typography of design 11: a measure the reader sets, line height
+ * 1.6, and a scale that keeps four heading levels apart without being
+ * loud. The size and the measure are settings, so both are variables.
+ */
+.read {
+  max-width: var(--read-measure);
+  margin: 0 auto;
+  padding: 32px 24px 50vh;
+  font-family: var(--read-family);
+  font-size: var(--read-size);
+  line-height: 1.6;
+  color: var(--page-fg);
+  outline: none;
+}
+
+/* Comments are hidden by the renderer, folded sections by the view. */
+.read [hidden],
+.read .mdr-folded-away {
+  display: none;
+}
+
+/*
+ * The comment toggle (design 4.3). Showing them is one class on the
+ * article: the notes are already in the page, folded away, so the switch
+ * costs nothing and works on a document still rendering in chunks.
+ *
+ * What each meaning is coloured comes from the theme, on the `data-kind`
+ * attribute the editor's own note widgets carry too.
+ */
+.read.mdr-show-comments .mdr-comment[data-kind] {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+  margin: 0 2px;
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--mdr-note) 35%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--mdr-note) 12%, transparent);
+  font-size: 0.8em;
+  vertical-align: baseline;
+}
+
+.read.mdr-show-comments .mdr-comment-kind {
+  font-weight: 600;
+  color: var(--mdr-note);
+}
+
+.read.mdr-show-comments .mdr-comment-kind::after {
+  content: ":";
+}
+
+/* A block comment is a note of its own, so it sits on its own line. */
+.read.mdr-show-comments .mdr-comment-block > .mdr-comment[data-kind] {
+  display: inline-flex;
+}
+
+/*
+ * A comment outside the vocabulary is not an annotation, so it has no
+ * chip — but the toggle says comments, so it shows as the source it is.
+ */
+.read.mdr-show-comments .mdr-comment:not([data-kind]) {
+  display: inline;
+  opacity: 0.55;
+  font-size: 0.85em;
+}
+
+.read > * {
+  margin: 0 0 0.9em;
+}
+
+.read h1,
+.read h2,
+.read h3,
+.read h4,
+.read h5,
+.read h6 {
+  position: relative;
+  margin: 1.6em 0 0.5em;
+  line-height: 1.25;
+  font-weight: 650;
+}
+
+.read > :first-child {
+  margin-top: 0;
+}
+
+.read h1 {
+  font-size: 1.9em;
+}
+.read h2 {
+  font-size: 1.5em;
+}
+.read h3 {
+  font-size: 1.25em;
+}
+.read h4 {
+  font-size: 1.1em;
+}
+.read h5,
+.read h6 {
+  font-size: 1em;
+  color: var(--page-muted);
+}
+
+.mdr-fold {
+  position: absolute;
+  left: -1.1em;
+  top: 0.25em;
+  width: 1em;
+  height: 1em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--page-muted);
+  opacity: 0;
+  cursor: default;
+}
+
+.mdr-fold::before {
+  content: "▾";
+}
+
+.mdr-fold:focus-visible {
+  opacity: 1;
+}
+
+.read .folded .mdr-fold,
+.read :is(h1, h2, h3, h4, h5, h6):hover .mdr-fold {
+  opacity: 1;
+}
+
+.read .folded .mdr-fold::before {
+  content: "▸";
+}
+
+.read a {
+  color: var(--page-accent);
+  text-decoration-color: color-mix(in srgb, var(--page-accent) 40%, transparent);
+}
+
+.read code {
+  font-family: var(--family-mono);
+  font-size: 0.9em;
+}
+
+.read :not(pre) > code {
+  /* The paper's own code ground, not the chrome's: a grey chip on a
+     yellow page belongs to a different window. */
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+
+.read pre {
+  position: relative;
+  background: var(--code-bg);
+  border: 1px solid var(--page-border);
+  border-radius: 6px;
+  /* Room at the top for the language and the copy button. */
+  padding: 24px 12px 10px;
+  overflow-x: auto;
+  /* AI output has long lines; design 11 wraps them by default. */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/*
+ * A fence's language and its copy button (design 11). Both are put in
+ * the `pre` by the Read view and taken out of flow, so the block's text
+ * is still exactly the code — which is what the copy button copies and
+ * what a selection across the page picks up.
+ */
+.read .mdr-code-lang,
+.read .mdr-copy {
+  position: absolute;
+  top: 3px;
+  font-family: var(--family-sans);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.read .mdr-code-lang {
+  left: 12px;
+  color: var(--page-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.read .mdr-copy {
+  right: 8px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--page-muted);
+  cursor: default;
+  /* Quiet until the pointer is on the block, and always there for the
+     keyboard. */
+  opacity: 0;
+}
+
+.read pre:hover .mdr-copy,
+.read .mdr-copy:focus-visible {
+  opacity: 1;
+}
+
+.read .mdr-copy:hover {
+  border-color: var(--page-border);
+  background: var(--hover-bg);
+  color: var(--page-fg);
+}
+
+.read pre.mdr-html {
+  color: var(--page-muted);
+}
+
+.read blockquote {
+  border-left: 3px solid var(--page-border);
+  padding-left: 14px;
+  color: var(--page-muted);
+}
+
+/*
+ * One colour per canonical callout type (design 5.1), from the theme, on
+ * the `data-callout` attribute — the same attribute and the same colour
+ * the editor's live preview uses, so the two modes agree.
+ */
+.read blockquote.mdr-callout {
+  border-left-width: 4px;
+  border-left-color: var(--mdr-callout);
+  background: color-mix(in srgb, var(--mdr-callout) 7%, transparent);
+  border-radius: 0 6px 6px 0;
+  padding: 8px 14px;
+  color: inherit;
+}
+
+.mdr-callout-title {
+  font-weight: 650;
+  color: var(--mdr-callout);
+  margin-bottom: 0.3em;
+}
+
+/* A folded callout: `details` in place of `blockquote`, same skin. */
+.read details.mdr-callout {
+  border-left: 4px solid var(--mdr-callout);
+  background: color-mix(in srgb, var(--mdr-callout) 7%, transparent);
+  border-radius: 0 6px 6px 0;
+  padding: 8px 14px;
+  margin: 0.9em 0;
+}
+
+.read details.mdr-callout > .mdr-callout-title {
+  cursor: pointer;
+  margin-bottom: 0;
+}
+
+.read details.mdr-callout[open] > .mdr-callout-title {
+  margin-bottom: 0.3em;
+}
+
+.read ul,
+.read ol {
+  padding-left: 1.5em;
+}
+
+.read li {
+  margin: 0.15em 0;
+}
+
+.read li.mdr-task {
+  list-style: none;
+  margin-left: -1.2em;
+}
+
+.read li.mdr-task input {
+  margin-right: 0.4em;
+}
+
+.mdr-table-wrap {
+  overflow-x: auto;
+}
+
+.read table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+
+.read th,
+.read td {
+  border: 1px solid var(--page-border);
+  padding: 4px 10px;
+  text-align: left;
+  /* Design 11's aligned numerics: a column of figures lines up. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Striping, mixed from the page's own ink so it works on every paper. */
+.read tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--page-fg) 5%, transparent);
+}
+
+.read mark {
+  background: var(--mark);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.read hr {
+  border: 0;
+  border-top: 1px solid var(--page-border);
+  margin: 1.6em 0;
+}
+
+.read .mdr-frontmatter {
+  border-left: 3px solid var(--page-border);
+  padding-left: 14px;
+  color: var(--page-muted);
+  font-size: 0.9em;
+}
+
+.read .mdr-frontmatter pre {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+/* Frontmatter as the properties panel of design 5.1: one row per key. */
+.read .mdr-properties {
+  display: grid;
+  grid-template-columns: minmax(6em, max-content) 1fr;
+  gap: 2px 14px;
+  font-size: 0.9em;
+}
+
+.read .mdr-property {
+  display: contents;
+}
+
+.read .mdr-property-key {
+  font-weight: 600;
+}
+
+.read .mdr-property-value {
+  word-break: break-word;
+}
+
+/* Footnotes, where the file puts them. */
+.read .mdr-footnote {
+  display: grid;
+  grid-template-columns: 2em 1fr;
+  font-size: 0.92em;
+  color: var(--page-muted);
+  margin: 0.4em 0;
+}
+
+.read .mdr-footnote + .mdr-footnote {
+  margin-top: 0;
+}
+
+.read .mdr-fn-number {
+  text-align: right;
+  padding-right: 0.6em;
+}
+
+.read .mdr-fn-body > :first-child {
+  margin-top: 0;
+}
+
+.read .mdr-fn-body > :last-child {
+  margin-bottom: 0;
+}
+
+.read .mdr-fn-back {
+  text-decoration: none;
+}
+
+.read .mdr-fnref-sup {
+  font-size: 0.75em;
+  line-height: 0;
+}
+
+.read .mdr-fnref {
+  text-decoration: none;
+  padding: 0 0.15em;
+}
+
+/* The inline HTML whitelist of design 5.3, styled as the elements they are. */
+.read kbd {
+  font-family: var(--family-mono);
+  font-size: 0.85em;
+  border: 1px solid var(--page-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.read sub,
+.read sup {
+  line-height: 0;
+}
+
+.read details > summary {
+  cursor: pointer;
+}
+
+.read .mdr-image {
+  color: var(--page-muted);
+  font-style: italic;
+}
+
+/*
+ * An image the reader has not allowed. Design 8 blocks remote sources
+ * until a document is trusted, so the placeholder has to say which case
+ * this is rather than looking like a broken file.
+ */
+.read .mdr-image[data-blocked]::before {
+  content: "◇ ";
+}
+
+.read .mdr-image[data-blocked="remote"]::after {
+  content: " (remote image blocked)";
+  font-size: 0.85em;
+}
+
+.read .mdr-math-block {
+  overflow-x: auto;
+  text-align: center;
+}
+
+.read .mdr-mermaid {
+  min-height: 2em;
+  text-align: center;
+  font-family: var(--family-mono);
+  font-size: 0.9em;
+  color: var(--page-muted);
+  white-space: pre-wrap;
+}
+
+.read .mdr-mermaid-done {
+  white-space: normal;
+}
+
+.read .mdr-mermaid-failed {
+  color: var(--dirty);
+}
+
+.read img {
+  max-width: 100%;
+}

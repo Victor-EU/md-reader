@@ -1,4 +1,4 @@
-export { themeCss } from './css.ts';
+export { pageCss, themeCss } from './css.ts';
 export { codeHighlight, type TagColor } from './highlight.ts';
 export { type TextMateTheme, tokenOfColor, tokenTheme, tokenThemeName } from './shiki.ts';
 export {

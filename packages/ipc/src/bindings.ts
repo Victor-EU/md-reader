@@ -38,6 +38,21 @@ export const commands = {
 	 *  the bridge at all.
 	 */
 	importAsset: (document: string, source: string) => typedError<AssetWrite, Error>(__TAURI_INVOKE("import_asset", { document, source })),
+	/**
+	 *  Write a rendered document out as a page of its own (plan WP 3.2).
+	 * 
+	 *  The page arrives already rendered -- the markdown renderer is the
+	 *  frontend's, and what it produces is what Read mode shows -- with a
+	 *  numbered sentinel where each local image goes. What this adds is the
+	 *  images, which are dealt with here because the bytes are here.
+	 * 
+	 *  An image outside the folders the asset protocol has been opened to is
+	 *  not read. Read mode could not have shown it either, and an export is
+	 *  not a way around the fence design 8 puts around a document's folder;
+	 *  the page names it and does not carry it, which is what a missing
+	 *  image already looks like.
+	 */
+	exportHtml: (path: string, html: string, images: string[]) => typedError<ExportWrite, Error>(__TAURI_INVOKE("export_html", { path, html, images })),
 	/**  Watch a file for writes by other processes. */
 	watch: (path: string) => typedError<null, Error>(__TAURI_INVOKE("watch", { path })),
 	/**  Stop watching a file. */
@@ -499,6 +514,22 @@ export type Eol = "lf" | "crlf" | "cr";
 
 /**  Errors, serializable so the frontend can branch on `kind`. */
 export type Error = { kind: "not_implemented"; command: string } | { kind: "read"; path: string; message: string } | { kind: "write"; path: string; message: string } | { kind: "hash_mismatch"; path: string; expected: string; actual: string } | { kind: "read_only_encoding"; path: string; encoding: string } | { kind: "too_large"; path: string; byte_len: number; limit: number } | { kind: "unavailable"; what: string; message: string } | { kind: "bad_query"; query: string; message: string };
+
+/**  What an export did, for the line the status bar shows. */
+export type ExportWrite = {
+	path: string,
+	/**  True when the images travel inside the page. */
+	embedded: boolean,
+	/**  How many images the page carries or names. */
+	images: number,
+	/**
+	 *  How many of them are named but not there: unreadable, or bytes
+	 *  that are not an image this app recognises.
+	 */
+	missing: number,
+	/**  Where the copies went, when they were copied. */
+	folder: string | null,
+};
 
 /**  Payload of the `external_change` event (design 6.4). */
 export type ExternalChange = {

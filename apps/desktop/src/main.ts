@@ -16,6 +16,7 @@ import { watchFullScreen } from './lib/titlebar.ts';
 import { tauriUpdater } from './lib/update.ts';
 
 const FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'] }];
+const PAGE_FILTERS = [{ name: 'HTML', extensions: ['html', 'htm'] }];
 
 const shell = createShell({
   commands,
@@ -25,6 +26,7 @@ const shell = createShell({
     return Array.isArray(picked) ? picked : [picked];
   },
   pickSaveTarget: (suggested) => save({ defaultPath: suggested, filters: FILTERS }),
+  pickExportTarget: (suggested) => save({ defaultPath: suggested, filters: PAGE_FILTERS }),
   pickFolder: async () => {
     const picked = await open({ multiple: false, directory: true });
     return Array.isArray(picked) ? (picked[0] ?? null) : picked;

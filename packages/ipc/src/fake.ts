@@ -9,6 +9,7 @@ import type {
   Commands,
   DirEntry,
   Document,
+  ExportWrite,
   ExternalChange,
   FileFormat,
   FileHit,
@@ -279,6 +280,9 @@ function defaultFormat(content: string): FileFormat {
 }
 
 /** The magic numbers the real `store_asset` recognises, for the fake. */
+/** What `EMBED_LIMIT` is worth in `crates/core/src/export.rs`. */
+const EXPORT_EMBED_LIMIT = 4 * 1024 * 1024;
+
 function fakeSniff(bytes: string): string | null {
   if (bytes.startsWith('\x89PNG')) return 'png';
   if (bytes.startsWith('\xff\xd8\xff')) return 'jpg';
@@ -389,6 +393,40 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     return err({ kind: 'write', path: dir, message: 'too many images with this name' });
   };
 
+  /**
+   * The fake half of `write_export`: the same sentinel, the same choice
+   * between carrying the images and putting them in a folder beside the
+   * page, so a shell test can read the line the status bar will show and
+   * the page the reader will open.
+   */
+  const writeExport = (
+    path: string,
+    html: string,
+    images: string[],
+  ): Result<ExportWrite, IpcError> => {
+    const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    const stem = path.slice(cut + 1).replace(/\.[^.]*$/, '');
+    const total = images.reduce((sum, image) => sum + (files.get(image)?.content.length ?? 0), 0);
+    const folder = total <= EXPORT_EMBED_LIMIT ? null : `${path.slice(0, cut)}/${stem}-images`;
+    let missing = 0;
+    const urls = images.map((image) => {
+      const name = image.split(/[/\\]/).pop() ?? '';
+      const content = files.get(image)?.content;
+      const ext = content === undefined ? null : fakeSniff(content);
+      if (content === undefined || ext === null) {
+        missing += 1;
+        return name;
+      }
+      if (folder === null) return `data:image/${ext};base64,${btoa(content)}`;
+      files.set(`${folder}/${name}`, { content });
+      return `${stem}-images/${name}`;
+    });
+    files.set(path, {
+      content: html.replace(/mdr-export-image-(\d+)/g, (whole, n) => urls[Number(n)] ?? whole),
+    });
+    return ok({ path, embedded: folder === null, images: images.length, missing, folder });
+  };
+
   const commands: Commands = {
     openDocument: (path) => record('open_document', [path], read(path)),
     saveDocument: (path, content, expectedHash, format) => {
@@ -443,6 +481,8 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     allowDocumentImages: (path) => record('allow_document_images', [path], ok(null)),
     writeAsset: (document, name, data) =>
       record('write_asset', [document, name, data], storeAsset(document, name, atob(data))),
+    exportHtml: (path, html, images) =>
+      record('export_html', [path, html, images], writeExport(path, html, images)),
     importAsset: (document, source) => {
       const file = files.get(source);
       const result = file
