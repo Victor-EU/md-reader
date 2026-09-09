@@ -44,6 +44,24 @@ export {
   newlinePlan,
 } from './commands/newline.ts';
 export {
+  addConflicts,
+  type ConflictRegion,
+  conflictAt,
+  conflictRegion,
+  conflictState,
+  conflicts,
+  conflictsChanged,
+  conflictsField,
+  conflictWidgets,
+  hasConflicts,
+  keepMine,
+  keepMineHere,
+  nextConflict,
+  resolveConflict,
+  takeTheirs,
+  takeTheirsHere,
+} from './conflict/index.ts';
+export {
   type AnchorRange,
   addProperty,
   blockWidgetsField,

@@ -981,25 +981,29 @@ body,
   white-space: nowrap;
 }
 
+/* A cell that does something when it is pressed: the updater's, and the
+   conflict count that takes the reader to the next one. Still a cell in
+   the bar, not a button drawn like one. */
+.status .cell.act {
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.status .cell.act:hover {
+  color: var(--bar-fg);
+}
+
 /* The updater's one cell (plan WP 1.12). It sits after the message so it
    is the last thing on the line, and it is only there when it has
    something to say. */
 .status .cell.update {
   color: var(--accent);
   font: inherit;
-}
-
-.status .cell.update.act {
-  border: 0;
-  padding: 0;
-  background: none;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.status .cell.update.act:hover {
-  color: var(--bar-fg);
 }
 
 /* --- palette ------------------------------------------------------------ */

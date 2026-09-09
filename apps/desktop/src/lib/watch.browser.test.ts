@@ -105,7 +105,7 @@ describe('a write by somebody else', () => {
     expect(workspace.status).toContain('1 change merged in');
   });
 
-  it('keeps our version of a conflicting hunk and says it set theirs aside', async () => {
+  it('keeps our version of a conflicting hunk and offers theirs beside it', async () => {
     open({ '/a/one.md': 'one\n' });
     await workspace.openPath('/a/one.md');
     edit();
@@ -114,8 +114,9 @@ describe('a write by somebody else', () => {
     workspace.view?.dispatch({ changes: { from: 0, to: 3, insert: 'ours' } });
     await workspace.externalChange(ipc.externalWrite('/a/one.md', 'theirs\n'));
     expect(doc.text).toBe('ours\n');
-    expect(workspace.status).toContain('set aside');
-    // Nothing is lost: what arrived is in the history.
+    expect(workspace.unsettled).toBe(1);
+    expect(workspace.status).toContain('1 conflict to settle');
+    // Nothing is lost: what arrived is in the history as well.
     const stored = await ipc.commands.listSnapshots('/a/one.md');
     expect(stored.status === 'ok' && stored.data.some((s) => s.author === 'external')).toBe(true);
   });

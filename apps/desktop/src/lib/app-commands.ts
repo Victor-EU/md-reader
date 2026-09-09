@@ -196,6 +196,32 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.unreviewed > 0,
       run: () => workspace.markReviewed(),
     },
+    // Settling a hunk both sides wrote (scenario S5). No shortcuts:
+    // the choice is two buttons in the widget itself, and a reader who
+    // has one open reaches it from the status bar or the palette. Three
+    // more chords for something that happens once in a session would be
+    // three fewer left for something that happens all the time.
+    {
+      id: 'edit.nextConflict',
+      title: 'Next Conflict',
+      group: 'Edit',
+      enabled: () => workspace.unsettled > 0,
+      run: () => workspace.stepConflict(),
+    },
+    {
+      id: 'edit.keepMine',
+      title: 'Keep Mine',
+      group: 'Edit',
+      enabled: () => workspace.unsettled > 0,
+      run: () => workspace.settleConflict(true),
+    },
+    {
+      id: 'edit.takeTheirs',
+      title: 'Take Theirs',
+      group: 'Edit',
+      enabled: () => workspace.unsettled > 0,
+      run: () => workspace.settleConflict(false),
+    },
     {
       id: 'edit.copyForAi',
       title: 'Copy for AI',

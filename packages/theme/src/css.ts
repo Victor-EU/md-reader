@@ -110,6 +110,11 @@ function pageVariables(palette: Palette): string[] {
     '--mdr-quote: var(--page-border);',
     '--mdr-note: var(--note-note);',
     '--mdr-callout: var(--callout-note);',
+    // A conflict is a question waiting on the reader, which is what the
+    // warning callout's colour already means in this palette -- and it
+    // is the one that is legible on the black paper as well as the
+    // white (plan WP 2.1).
+    '--mdr-conflict: var(--callout-warning);',
   ];
 }
 

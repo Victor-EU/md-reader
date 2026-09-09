@@ -1,30 +1,40 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import {
+  ChangeSet,
   EditorSelection,
   type EditorState,
   type Extension,
+  type StateEffect,
   Text,
   type Transaction,
 } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import {
   type AnnotationEdit,
+  addConflicts,
   applyLink,
   boldEdit,
+  type ConflictRegion,
   codeEdit,
   colorEdit,
   commentEdit,
+  conflictRegion,
+  conflicts,
+  conflictsChanged,
   countMatches,
   type EditorMode,
   findNext,
   findPrevious,
   getSearchQuery,
+  hasConflicts,
   highlightEdit,
   italicEdit,
+  keepMineHere,
   lineChanges,
   linkEdit,
   type MatchCount,
   nextChange,
+  nextConflict,
   previousChange,
   replaceAll,
   replaceNext,
@@ -35,17 +45,19 @@ import {
   setModeEffect,
   setSearchQuery,
   strikethroughEdit,
+  takeTheirsHere,
   toggleTaskAt,
 } from '@mdreader/editor-core';
 import type {
   Commands,
+  Conflict,
   DocumentMeta,
   DocumentState,
   ExternalChange,
   FileFormat,
   FileRemoved,
   FileRenamed,
-  PositionEdit,
+  MergeResult,
   Settings,
   TabKind,
   WindowContent,
@@ -243,6 +255,27 @@ function untitledNumber(name: string): number {
 }
 
 /**
+ * A hunk the merge could not decide, as a region of the buffer after the
+ * hunks it could decide have been applied to it.
+ */
+function raise(changes: ChangeSet, hunk: Conflict): ConflictRegion {
+  return conflictRegion(changes.mapPos(hunk.from, -1), changes.mapPos(hunk.to, -1), hunk.theirs);
+}
+
+/**
+ * What the status bar says about a write that arrived (design 7.2): what
+ * came in on its own, and what is waiting on the reader.
+ */
+function describeWrite(name: string, merged: MergeResult): string {
+  const said = [`${name} changed on disk`];
+  if (merged.changes.length > 0) said.push(`${count(merged.changes.length, 'change')} merged in`);
+  if (merged.conflicts.length > 0) {
+    said.push(`${count(merged.conflicts.length, 'conflict')} to settle`);
+  }
+  return said.join(' · ');
+}
+
+/**
  * The window's state: which documents are open, which tabs show them,
  * which tab is in front, and the one editor view that is mounted for it.
  * Everything the shell can do to a document goes through here, so the
@@ -314,6 +347,8 @@ export class Workspace {
   private mounted: { view: EditorView; tab: Tab } | null = null;
   /** A change step asked for from Read mode, waiting for the editor. */
   private pendingStep: boolean | null = null;
+  /** The same, for a conflict: the widget only exists in the editor. */
+  private pendingConflict = false;
   private reading: { view: ReadView; tab: Tab } | null = null;
   private untitledCount = 0;
   private epoch = $state(0);
@@ -332,6 +367,13 @@ export class Workspace {
   activeDoc: Doc | null = $derived(this.activeTab ? this.docOf(this.activeTab) : null);
   /** What the Changes badge counts: runs the reader has not marked seen. */
   unreviewed: number = $derived(this.activeDoc?.changes.length ?? 0);
+  /**
+   * Hunks this document has open questions about, which is what holds
+   * its save (design 7.2). Read off the buffer's own state, because that
+   * is where the regions live and where they are mapped through every
+   * edit the reader makes.
+   */
+  unsettled: number = $derived(this.activeDoc ? conflicts(this.activeDoc.state).length : 0);
   /**
    * What the find bar counts. Read from the document's own state rather
    * than the view's, because that is the one both the editor and this
@@ -739,6 +781,10 @@ export class Workspace {
       this.pendingStep = null;
       this.runStep(forward);
     }
+    if (this.pendingConflict) {
+      this.pendingConflict = false;
+      this.runConflictStep();
+    }
     view.focus();
   }
 
@@ -840,7 +886,17 @@ export class Workspace {
     if (!doc) return;
     doc.state = view.state;
     let changed = false;
+    let conflictsMoved = false;
     for (const tr of trs) {
+      if (conflictsChanged(tr)) {
+        conflictsMoved = true;
+        // Said here rather than where the choice was made, because the
+        // choice is made in two places: the buttons in the widget go
+        // straight to the editor, and the palette goes through
+        // `settleConflict`. Both arrive as a transaction.
+        if (tr.isUserEvent('conflict.keep')) this.status = 'Kept your version';
+        else if (tr.isUserEvent('conflict.take')) this.status = 'Took their version';
+      }
       if (!tr.docChanged) continue;
       changed = true;
       // Tabs that are not mounted keep their own cursor; map it through.
@@ -853,14 +909,24 @@ export class Workspace {
     if (changed) {
       this.scheduleWordCount();
       this.scheduleChangeScan();
-      this.scheduleAutosave(doc);
       // Only a document with no file has text the session has to carry.
       if (doc.path === null) this.touchSoon();
     }
+    // A question opening or closing is a reason to reconsider the timer
+    // as much as an edit is. Keeping mine settles one without writing a
+    // byte, so nothing else would tell the timer that the save it was
+    // holding could go ahead; a question opening is what calls off a
+    // write the last keystroke had already set.
+    if (changed || conflictsMoved) this.scheduleAutosave(doc);
   }
 
   // --- saving -------------------------------------------------------------
 
+  /**
+   * Whether Save is offered at all. A document with a conflict open is
+   * still offered it: the save is held, but a greyed-out command with no
+   * explanation is worse than one that says why when it is pressed.
+   */
   get canSave(): boolean {
     const doc = this.activeDoc;
     return doc !== null && !doc.meta?.read_only;
@@ -898,6 +964,22 @@ export class Workspace {
   private async writeNow(doc: Doc, options: WriteOptions): Promise<boolean> {
     if (doc.meta?.read_only) {
       this.status = `${doc.label} is ${doc.meta.format.encoding}; convert to UTF-8 to edit`;
+      return false;
+    }
+    // A conflict is a question about what the file should say, and until
+    // it is answered the buffer holds one of the two answers rather than
+    // the document (design 7.2). Writing it would settle the question in
+    // our favour without asking, and lose theirs -- which is the one
+    // thing the whole merge exists to prevent.
+    const open = conflicts(doc.state).length;
+    if (open > 0) {
+      // Said when the reader asked for the save, not when a timer did.
+      // The bar already reads `Save held` beside the count; a line about
+      // it from a write nobody asked for would only push out the one
+      // that says what arrived and why.
+      if (options.auto !== true) {
+        this.status = `${doc.label}: ${count(open, 'conflict')} to settle before it can be saved`;
+      }
       return false;
     }
     let path = doc.path;
@@ -975,7 +1057,12 @@ export class Workspace {
       changes: [],
     });
     const merged = this.status;
-    if (!(await this.writeNow(doc, { ...options, retrying: true }))) return false;
+    if (!(await this.writeNow(doc, { ...options, retrying: true }))) {
+      // The merge's own message says what arrived and what is left to
+      // settle, which is the reason this write did not happen.
+      if (hasConflicts(doc.state)) this.status = merged;
+      return false;
+    }
     if (options.auto !== true) this.status = `${this.status} · ${merged}`;
     return true;
   }
@@ -1014,16 +1101,29 @@ export class Workspace {
    *
    * Not one nobody has named: the first save is where the reader says
    * where it goes. Not one the app cannot write either, which is the
-   * read-only encodings of WP 1.1.
+   * read-only encodings of WP 1.1. And not one with a conflict open: a
+   * timer must not answer a question the reader has not (design 7.2).
    */
   private autosaves(doc: Doc): boolean {
-    return this.settings.autosave && doc.path !== null && doc.meta?.read_only !== true;
+    return (
+      this.settings.autosave &&
+      doc.path !== null &&
+      doc.meta?.read_only !== true &&
+      !hasConflicts(doc.state)
+    );
   }
 
-  /** The buffer moved ahead of the file; put it back in `AUTOSAVE_DELAY`. */
+  /**
+   * The buffer moved ahead of the file; put it back in `AUTOSAVE_DELAY`.
+   *
+   * The timer is cleared before the question of whether to set another
+   * one, so this is also how a pending write is called off: a conflict
+   * that lands between a keystroke and the timer it set would otherwise
+   * leave that timer to fire, be refused, and say so.
+   */
   private scheduleAutosave(doc: Doc): void {
-    if (!this.autosaves(doc)) return;
     this.cancelAutosave(doc);
+    if (!this.autosaves(doc)) return;
     this.autosaveTimers.set(
       doc.id,
       setTimeout(() => {
@@ -1121,9 +1221,10 @@ export class Workspace {
    * A clean buffer takes the whole write. A dirty one keeps the reader's
    * edit and takes the hunks only they touched, as one transaction, so
    * the cursor, the scroll position, the folds and the undo history all
-   * map through. A hunk both sides changed keeps the version in the
-   * buffer and is set aside with a snapshot of theirs, so nothing is
-   * lost while Phase 1 has no way to show both (WP 2.1).
+   * map through. A hunk both sides changed becomes a conflict region:
+   * the buffer keeps our version, theirs is held beside the document,
+   * and the reader is offered both (plan WP 2.1). Save is held for that
+   * document until they have chosen.
    *
    * There is no dialog anywhere in this, which is the point of it.
    *
@@ -1143,46 +1244,57 @@ export class Workspace {
       doc.text,
       change.content,
     );
-    const edits = merged.changes;
-    const conflicts = merged.conflicts.length;
-    // What arrived is kept whatever we do with it, so a hunk set aside is
-    // in the history rather than gone (design 4.4).
+    // What arrived is kept whatever we do with it, so a hunk still under
+    // discussion is in the history rather than gone (design 4.4).
     void this.options.commands.snapshot(change.path, change.content, 'external');
-    this.applyExternal(doc, edits);
+    this.applyExternal(doc, merged);
     // Their version is the file now, so it is what the next merge and the
     // next save compare against.
     doc.base = Text.of(change.content.split('\n'));
     doc.missing = false;
     if (doc.meta) doc.meta = { ...doc.meta, hash: change.hash };
     this.pushChanges(doc);
-    const name = basename(change.path);
-    this.status =
-      conflicts > 0
-        ? `${name} changed on disk · ${count(conflicts, 'conflicting change')} set aside, your version kept`
-        : edits.length === 0
-          ? `${name} changed on disk`
-          : `${name} changed on disk · ${count(edits.length, 'change')} merged in`;
+    this.status = describeWrite(basename(change.path), merged);
   }
 
-  /** Apply an external write to a document, wherever it is being shown. */
-  private applyExternal(doc: Doc, edits: readonly PositionEdit[]): void {
-    if (edits.length === 0) return;
-    const changes = edits.map((edit) => ({
-      from: edit.from,
-      to: edit.to,
-      insert: edit.insert,
-    }));
+  /**
+   * Apply an external write to a document, wherever it is being shown.
+   *
+   * One transaction carries both halves of the merge. The hunks only
+   * they touched are the changes; the hunks both sides touched are the
+   * regions, which the reader will settle. Doing it in one is not
+   * tidiness: it is one undo step rather than two, and there is no
+   * moment in between where the regions name text that has already
+   * moved under them.
+   *
+   * The merge answers in offsets into the buffer as it was, and a state
+   * field reads its effects against the buffer as it will be, which is
+   * the convention every CodeMirror field is written to. So the change
+   * set is built first and the regions are mapped through it.
+   */
+  private applyExternal(doc: Doc, merged: MergeResult): void {
+    if (merged.changes.length === 0 && merged.conflicts.length === 0) return;
+    const changes = ChangeSet.of(
+      merged.changes.map((edit) => ({ from: edit.from, to: edit.to, insert: edit.insert })),
+      doc.state.doc.length,
+    );
+    const effects: StateEffect<unknown>[] = [];
+    if (merged.conflicts.length > 0) {
+      effects.push(addConflicts.of(merged.conflicts.map((hunk) => raise(changes, hunk))));
+    }
     const mounted = this.mounted;
     if (mounted && mounted.tab.docId === doc.id) {
       // Through the view, which is what maps the cursor and the folds.
-      mounted.view.dispatch({ changes, userEvent: 'external.change' });
+      mounted.view.dispatch({ changes, effects, userEvent: 'external.change' });
       return;
     }
     // Read mode has no editor to dispatch to, so the buffer is updated
-    // and the page is rendered again from it.
-    const reading = this.reading?.tab.docId === doc.id;
+    // and the page is rendered again from it -- but only when the text
+    // moved. A write that is all conflict changes no text, and a reader
+    // in Read mode should not be scrolled for a widget they cannot see.
+    const reading = this.reading?.tab.docId === doc.id && !changes.empty;
     if (reading) this.unmountRead();
-    const transaction = doc.state.update({ changes, userEvent: 'external.change' });
+    const transaction = doc.state.update({ changes, effects, userEvent: 'external.change' });
     doc.state = transaction.state;
     for (const tab of this.tabs) {
       if (tab.docId !== doc.id) continue;
@@ -1192,6 +1304,50 @@ export class Workspace {
       }
     }
     if (reading) this.epoch += 1;
+  }
+
+  // --- settling a conflict --------------------------------------------------
+
+  /**
+   * Go to the next hunk both sides wrote (scenario S5).
+   *
+   * Read mode has no cursor to put on one and no widget to draw, so the
+   * step happens in Edit, which is the same reasoning as stepping
+   * changes: the editor arrives from its own effect a moment later, so
+   * the step waits in `pendingConflict` and `mount` runs it.
+   */
+  stepConflict(): boolean {
+    const tab = this.activeTab;
+    if (tab?.kind !== 'document') return false;
+    if (tab.mode === 'read') {
+      this.pendingConflict = true;
+      this.setMode('edit');
+      return true;
+    }
+    return this.runConflictStep();
+  }
+
+  private runConflictStep(): boolean {
+    const view = this.mounted?.view;
+    if (!view) return false;
+    if (nextConflict(view)) return true;
+    this.status = 'Nothing is waiting on you';
+    return false;
+  }
+
+  /**
+   * Settle the region the cursor is in, from the keyboard. The buttons
+   * in the widget are the same two calls; this is the way to them for a
+   * reader whose hands are on the keys.
+   */
+  settleConflict(mine: boolean): boolean {
+    const view = this.mounted?.view;
+    if (!view) return false;
+    if (!(mine ? keepMineHere : takeTheirsHere)(view)) {
+      this.status = 'Put the cursor in a conflict first';
+      return false;
+    }
+    return true;
   }
 
   /**

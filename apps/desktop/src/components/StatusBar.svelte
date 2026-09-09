@@ -1,5 +1,5 @@
 <script lang="ts">
-import { describeFormat } from '../lib/text.ts';
+import { count, describeFormat } from '../lib/text.ts';
 import { describeUpdate, updateAction } from '../lib/update.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
@@ -23,6 +23,10 @@ const format = $derived(doc?.meta ? describeFormat(doc.meta.format) : doc ? 'UTF
 const saveState = $derived.by(() => {
   if (!doc) return '';
   if (workspace.saving) return 'Saving…';
+  // A conflict holds the write, whatever the buffer's state (design
+  // 7.2). Saying `Unsaved changes` here would be true and useless: the
+  // reader would wait for a timer that is deliberately not running.
+  if (workspace.unsettled > 0) return 'Save held';
   if (doc.meta?.read_only) return 'Read only';
   // A file that is gone is not "saved", however clean the buffer is.
   if (doc.missing) return 'File is gone';
@@ -38,6 +42,12 @@ const saveState = $derived.by(() => {
  */
 const update = $derived(describeUpdate(workspace.update));
 const updates = $derived(updateAction(workspace.update));
+/**
+ * The one thing in the bar that is waiting on the reader, so it is the
+ * one cell that is a button: pressing it goes to the next conflict,
+ * switching to Edit if that is where the widget is (scenario S5).
+ */
+const conflicts = $derived(workspace.unsettled === 0 ? '' : count(workspace.unsettled, 'conflict'));
 </script>
 
 <div class="bar status">
@@ -46,6 +56,11 @@ const updates = $derived(updateAction(workspace.update));
     {#if cursor}<span class="cell">{cursor}</span>{/if}
     <span class="cell">{format}</span>
     <span class="cell" class:dirty={doc.dirty || doc.missing}>{saveState}</span>
+    {#if conflicts !== ''}
+      <button type="button" class="cell act dirty" onclick={() => workspace.stepConflict()}>
+        {conflicts}
+      </button>
+    {/if}
     {#if !workspace.settings.autosave}<span class="cell">Autosave off</span>{/if}
   {/if}
   <span class="message">{workspace.status}</span>

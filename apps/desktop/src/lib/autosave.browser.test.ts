@@ -1,3 +1,4 @@
+import type { MergeResult } from '@mdreader/ipc';
 import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Workspace } from './workspace.svelte.ts';
@@ -11,10 +12,15 @@ let saveTarget: string | null = null;
 
 const FILES = { '/a/one.md': '# One\n', '/a/two.md': '# Two\n' };
 
-function open(files: Record<string, string> = FILES) {
+/**
+ * `merge` stands in for the Rust merge, which decides what conflicts.
+ * The fake's own answer is a whole-document conflict whenever both sides
+ * have moved, so a test about a race that merges cleanly has to say so.
+ */
+function open(files: Record<string, string> = FILES, merge?: () => MergeResult) {
   ipc = createFakeIpc(files);
   workspace = new Workspace({
-    commands: ipc.commands,
+    commands: merge ? { ...ipc.commands, merge3: () => Promise.resolve(merge()) } : ipc.commands,
     pickSaveTarget: (name) => {
       suggested = name;
       return Promise.resolve(saveTarget);
@@ -198,19 +204,46 @@ describe('autosave', () => {
   });
 
   it('merges the write that got there first and tries again, without a word about it', async () => {
+    // Their line goes to the top, ours to the bottom: two hunks with a
+    // line between them, which is the merge deciding on its own.
+    open(FILES, () => ({ changes: [{ from: 0, to: 5, insert: '# ONE' }], conflicts: [] }));
     await workspace.openPath('/a/one.md');
     edit();
     type('mine\n');
     // Somebody else writes the file while the timer is running. Nothing
     // told this window, so its expected hash is the one it opened with.
-    ipc.externalWrite('/a/one.md', '# One\ntheirs\n');
+    ipc.externalWrite('/a/one.md', '# ONE\n');
 
     await pause();
-    await vi.waitFor(() => expect(contentOf('/a/one.md')).toBe('# One\nmine\n'));
+    await vi.waitFor(() => expect(contentOf('/a/one.md')).toBe('# ONE\nmine\n'));
     // Refused once on the hash, then written after the merge.
     expect(writes()).toBe(2);
     expect(workspace.status).toMatch(/changed on disk/);
     expect(workspace.status).not.toMatch(/Saved/);
+  });
+
+  /**
+   * The same race, where the merge cannot decide. The retry is held
+   * rather than written: a timer must not answer a question the reader
+   * has not been asked yet (design 7.2, plan WP 2.1).
+   */
+  it('holds the write when the race turns out to be a conflict', async () => {
+    await workspace.openPath('/a/one.md');
+    edit();
+    type('mine\n');
+    ipc.externalWrite('/a/one.md', '# One\ntheirs\n');
+
+    await pause();
+    await vi.waitFor(() => expect(workspace.unsettled).toBe(1));
+    expect(contentOf('/a/one.md')).toBe('# One\ntheirs\n');
+    expect(workspace.activeDoc?.text).toBe('# One\nmine\n');
+    expect(workspace.status).toContain('1 conflict to settle');
+
+    // And it stays held: the timer does not come back for another go.
+    const written = writes();
+    type(' more\n');
+    await pause();
+    expect(writes()).toBe(written);
   });
 
   /**
@@ -221,12 +254,7 @@ describe('autosave', () => {
   it('does not mark a write from somebody else as read just because it saved', async () => {
     await workspace.openPath('/a/one.md');
     edit();
-    await workspace.externalChange({
-      path: '/a/one.md',
-      content: '# One\nfrom the agent\n',
-      hash: 'whatever',
-      changes: [],
-    });
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', '# One\nfrom the agent\n'));
     expect(workspace.unreviewed).toBeGreaterThan(0);
 
     type('and mine\n');

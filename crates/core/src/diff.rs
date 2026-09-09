@@ -482,8 +482,11 @@ mod tests {
     }
 
     /// The merge cases table from design section 10. `merged` is what the
-    /// buffer holds once Phase 1 has applied the non-conflicting hunks;
-    /// a conflicting hunk keeps our version until WP 2.1 offers a choice.
+    /// buffer holds when the write lands: the hunks only they touched,
+    /// applied, with our version kept everywhere both sides wrote.
+    /// `taken` is what it holds when the reader has answered every one
+    /// of those with "take theirs" (plan WP 2.1). The two are the same
+    /// row where there was nothing to answer.
     struct Case {
         name: &'static str,
         base: &'static str,
@@ -491,6 +494,22 @@ mod tests {
         theirs: &'static str,
         merged: &'static str,
         conflicts: usize,
+        taken: &'static str,
+    }
+
+    /// Their side of everything: the hunks they alone changed, and the
+    /// hunks both of us did, each as the edit the widget's second button
+    /// makes. Sorted and non-overlapping, which is what `apply` wants and
+    /// what `changes_and_conflicts_never_overlap` proves they are.
+    fn take_everything(result: &MergeResult) -> Vec<PositionEdit> {
+        let mut edits = result.changes.clone();
+        edits.extend(result.conflicts.iter().map(|hunk| PositionEdit {
+            from: hunk.from,
+            to: hunk.to,
+            insert: hunk.theirs.clone(),
+        }));
+        edits.sort_by_key(|edit| edit.from);
+        edits
     }
 
     const CASES: &[Case] = &[
@@ -501,6 +520,7 @@ mod tests {
             theirs: "one\nTWO\nthree\n",
             merged: "one\nTWO\nthree\n",
             conflicts: 0,
+            taken: "one\nTWO\nthree\n",
         },
         Case {
             name: "only we changed anything",
@@ -509,6 +529,7 @@ mod tests {
             theirs: "one\ntwo\nthree\n",
             merged: "one\nTWO\nthree\n",
             conflicts: 0,
+            taken: "one\nTWO\nthree\n",
         },
         Case {
             // S4: the agent rewrites sections 1 and 5 while the unsaved
@@ -519,6 +540,7 @@ mod tests {
             theirs: "AAA\nb\nc\nd\nEEE\n",
             merged: "AAA\nb\nCCC\nd\nEEE\n",
             conflicts: 0,
+            taken: "AAA\nb\nCCC\nd\nEEE\n",
         },
         Case {
             name: "the same change on both sides",
@@ -527,6 +549,7 @@ mod tests {
             theirs: "a\nBBB\nc\n",
             merged: "a\nBBB\nc\n",
             conflicts: 0,
+            taken: "a\nBBB\nc\n",
         },
         Case {
             name: "insertions in different places",
@@ -535,6 +558,7 @@ mod tests {
             theirs: "a\nnew from them\nb\nc\nd\n",
             merged: "a\nnew from them\nb\nc\nnew from us\nd\n",
             conflicts: 0,
+            taken: "a\nnew from them\nb\nc\nnew from us\nd\n",
         },
         Case {
             name: "whitespace only, elsewhere",
@@ -543,6 +567,7 @@ mod tests {
             theirs: "a\n\nb\n\nc\nd\n",
             merged: "a\n\nb\n\nc\nDDD\n",
             conflicts: 0,
+            taken: "a\n\nb\n\nc\nDDD\n",
         },
         Case {
             name: "both delete the same lines",
@@ -551,6 +576,7 @@ mod tests {
             theirs: "a\nd\n",
             merged: "a\nd\n",
             conflicts: 0,
+            taken: "a\nd\n",
         },
         Case {
             // No untouched line between the two edits, so there is no
@@ -561,6 +587,7 @@ mod tests {
             theirs: "a\nb\nCCC\nd\n",
             merged: "a\nBBB\nc\nd\n",
             conflicts: 1,
+            taken: "a\nb\nCCC\nd\n",
         },
         Case {
             // Adjacency again: with nothing between the inserted line and
@@ -571,6 +598,7 @@ mod tests {
             theirs: "a\nb\nnew\nc\n",
             merged: "a\nb\nCCC\n",
             conflicts: 1,
+            taken: "a\nb\nnew\nc\n",
         },
         Case {
             name: "the same line, changed differently",
@@ -579,6 +607,7 @@ mod tests {
             theirs: "a\ntheirs\nc\n",
             merged: "a\nours\nc\n",
             conflicts: 1,
+            taken: "a\ntheirs\nc\n",
         },
         Case {
             name: "whitespace only, on the line we are editing",
@@ -587,6 +616,7 @@ mod tests {
             theirs: "a\nb \nc\n",
             merged: "a\nb edited\nc\n",
             conflicts: 1,
+            taken: "a\nb \nc\n",
         },
         Case {
             name: "they deleted the region we are editing",
@@ -595,6 +625,7 @@ mod tests {
             theirs: "a\nd\n",
             merged: "a\nb\nC edited\nd\n",
             conflicts: 1,
+            taken: "a\nd\n",
         },
         Case {
             name: "a full rewrite",
@@ -603,6 +634,7 @@ mod tests {
             theirs: "completely\ndifferent\ntext\n",
             merged: "a\nb edited\nc\n",
             conflicts: 1,
+            taken: "completely\ndifferent\ntext\n",
         },
         Case {
             name: "both appended at the end",
@@ -611,6 +643,7 @@ mod tests {
             theirs: "a\nb\ntheirs\n",
             merged: "a\nb\nours\n",
             conflicts: 1,
+            taken: "a\nb\ntheirs\n",
         },
         Case {
             name: "one conflict does not hold up the rest",
@@ -619,6 +652,18 @@ mod tests {
             theirs: "AAA\nb\nc\nTHEIRS\ne\nf\nGGG\n",
             merged: "AAA\nb\nc\nOURS\ne\nf\nGGG\n",
             conflicts: 1,
+            taken: "AAA\nb\nc\nTHEIRS\ne\nf\nGGG\n",
+        },
+        Case {
+            // Our other change was never part of the argument, and
+            // settling the argument their way leaves it where it is.
+            name: "a conflict beside a change of our own",
+            base: "a\nb\nc\nd\ne\n",
+            ours: "a\nOURS\nc\nMINE\ne\n",
+            theirs: "a\nTHEIRS\nc\nd\ne\n",
+            merged: "a\nOURS\nc\nMINE\ne\n",
+            conflicts: 1,
+            taken: "a\nTHEIRS\nc\nMINE\ne\n",
         },
     ];
 
@@ -639,6 +684,14 @@ mod tests {
                 case.name,
                 result.conflicts
             );
+            // What the buffer holds once the reader has taken their side
+            // of every hunk both of us wrote (plan WP 2.1).
+            assert_eq!(
+                apply(case.ours, &take_everything(&result)),
+                case.taken,
+                "taking theirs for {}",
+                case.name
+            );
         }
     }
 
@@ -656,6 +709,12 @@ mod tests {
                 result.conflicts.len(),
                 case.conflicts,
                 "conflicts for {}",
+                case.name
+            );
+            assert_eq!(
+                apply(&crlf(case.ours), &take_everything(&result)),
+                crlf(case.taken),
+                "taking theirs for {}",
                 case.name
             );
         }

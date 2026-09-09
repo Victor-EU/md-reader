@@ -72,6 +72,7 @@
   --mdr-quote: var(--page-border);
   --mdr-note: var(--note-note);
   --mdr-callout: var(--callout-note);
+  --mdr-conflict: var(--callout-warning);
 }
 
 :root[data-appearance="dark"] {
@@ -148,6 +149,7 @@
   --mdr-quote: var(--page-border);
   --mdr-note: var(--note-note);
   --mdr-callout: var(--callout-note);
+  --mdr-conflict: var(--callout-warning);
 }
 
 .mdr-code span {
@@ -230,6 +232,7 @@
     --mdr-quote: var(--page-border);
     --mdr-note: var(--note-note);
     --mdr-callout: var(--callout-note);
+    --mdr-conflict: var(--callout-warning);
   }
   :root:not([data-appearance]) .mdr-code span {
     color: var(--shiki-dark);

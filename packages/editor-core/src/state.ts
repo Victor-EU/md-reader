@@ -20,6 +20,7 @@ import { extensions as dialect } from '@mdreader/markdown';
 import { changeMarkers } from './changes/index.ts';
 import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 import { insertNewlineMarkdown } from './commands/newline.ts';
+import { conflictWidgets } from './conflict/index.ts';
 import {
   codeHighlightDark,
   codeHighlightLight,
@@ -156,6 +157,12 @@ export function baseExtensions(
     // What has changed since the reader last looked, in both Edit and
     // Source: a change is a change whichever projection is in front.
     changeMarkers(),
+    // Hunks an external write and the reader both touched, offered as a
+    // choice rather than decided for them (design 7.2). Outside the mode
+    // compartment as well: a conflict is not a decoration of one
+    // projection, it is the state of the document, and the shell reads
+    // this field to hold the save whichever view is in front.
+    conflictWidgets(),
     // Find and replace, drawn whenever the bar is open (design 4.5).
     findExtensions(),
     modeCompartment.of(modeExtension(mode)),
