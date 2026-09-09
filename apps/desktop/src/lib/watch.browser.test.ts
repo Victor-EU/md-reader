@@ -27,6 +27,12 @@ function edit() {
   workspace.mount(host);
 }
 
+/**
+ * The margin bars are measured rather than decorated, so they are drawn
+ * in the view's measure phase, which is a frame away.
+ */
+const drawn = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
 const commandsCalled = () => ipc.calls.map((call) => call.command);
 
 beforeEach(() => {
@@ -260,8 +266,10 @@ describe('what the reader has seen', () => {
     await workspace.openPath('/a/one.md');
     edit();
     await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\nTWO\n\nthree\n'));
+    await drawn();
     expect(host.querySelectorAll('.cm-change-changed').length).toBe(1);
     workspace.markReviewed();
+    await drawn();
     expect(host.querySelectorAll('.cm-change').length).toBe(0);
   });
 
@@ -282,13 +290,14 @@ describe('what the reader has seen', () => {
       'one\n\nthe cat sat on\nthe mat and did\nnot move again\n',
     );
     expect(workspace.unreviewed).toBe(0);
+    await drawn();
     expect(host.querySelectorAll('.cm-change').length).toBe(0);
   });
 
   /**
    * The whole paragraph, not the line inside it that holds the word.
-   * The block is what changed; which words in it did is what the word
-   * runs say, and what Review mode will draw (design 7.3).
+   * The block is what changed; which words in it did is what Review mode
+   * draws (design 7.3).
    */
   it('marks the paragraph a word changed in, not one line of it', async () => {
     open({ '/a/one.md': 'one\n\nthe cat\nsat on\nthe mat\n' });
@@ -297,7 +306,13 @@ describe('what the reader has seen', () => {
     await workspace.externalChange(
       ipc.externalWrite('/a/one.md', 'one\n\nthe cat\nsat on\nthe rug\n'),
     );
-    expect(host.querySelectorAll('.cm-change-changed').length).toBe(3);
+    await drawn();
+    const bar = host.querySelector('.cm-change-changed')?.getBoundingClientRect();
+    const paragraph = workspace.view?.state.doc;
+    if (!bar || !paragraph) throw new Error('nothing drawn');
+    // One bar, and it is as tall as the three lines it is beside.
+    expect(host.querySelectorAll('.cm-change-changed')).toHaveLength(1);
+    expect(bar.height).toBeGreaterThan(2 * (workspace.view?.defaultLineHeight ?? 0));
   });
 
   it('keeps the markers beside their text while the reader types', async () => {
@@ -307,10 +322,11 @@ describe('what the reader has seen', () => {
     await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\ntwo\n\nTHREE\n'));
     const doc = workspace.activeDoc;
     if (!doc) throw new Error('no document');
-    const before = doc.state.field(changesField).iter().from;
+    const at = () => doc.state.field(changesField)[0]?.from;
+    const before = at();
     // Typing above the change moves it down by exactly what was typed.
     workspace.view?.dispatch({ changes: { from: 0, to: 0, insert: 'new line\n' } });
-    expect(doc.state.field(changesField).iter().from).toBe(before + 'new line\n'.length);
+    expect(at()).toBe((before ?? 0) + 'new line\n'.length);
   });
 
   /**

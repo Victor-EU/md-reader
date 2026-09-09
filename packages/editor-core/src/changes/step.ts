@@ -1,33 +1,26 @@
 import { EditorSelection, type EditorState, type StateCommand } from '@codemirror/state';
-import { changesField } from './markers.ts';
+import { changes } from './markers.ts';
 
 /**
  * Stepping through the external changes (design scenario S4): "the human
  * presses a key to step through the changes, then marks reviewed".
  *
- * The runs are read back off the marks rather than kept beside them. The
- * marks are already mapped through every edit the reader makes, so they
- * are the only description of where the changes are that stays true while
- * the reader types and the next diff catches up.
+ * The stops are the change records, which are mapped through every edit
+ * the reader makes, so they stay beside their text while the reader
+ * types and the next scan catches up. One stop per change and not per
+ * run of marked lines: three revised list items are three things that
+ * happened, three panels in Review mode, and three things to step
+ * through, even though the margin draws them as one bar.
  */
 
-/** The first position of each run of marked lines, in document order. */
-export function changeRuns(state: EditorState): number[] {
-  const marked = state.field(changesField, false);
-  if (!marked) return [];
-  const starts: number[] = [];
-  let last = -2;
-  for (const iter = marked.iter(); iter.value !== null; iter.next()) {
-    const line = state.doc.lineAt(iter.from).number;
-    // Consecutive marked lines are one change, not one each.
-    if (line !== last + 1) starts.push(iter.from);
-    last = line;
-  }
-  return starts;
+/** Where each change begins, in document order. */
+export function changeStops(state: EditorState): number[] {
+  return [...changes(state)].map((record) => record.from).sort((a, b) => a - b);
 }
 
 /**
- * Put the cursor at the next run after it, or the previous one before it.
+ * Put the cursor at the next change after it, or the previous one before
+ * it.
  *
  * Stepping wraps, as find does: a reader who starts in the middle of the
  * document still wants to see what changed above them, and a step that
@@ -35,7 +28,7 @@ export function changeRuns(state: EditorState): number[] {
  */
 function step(forward: boolean): StateCommand {
   return ({ state, dispatch }) => {
-    const starts = changeRuns(state);
+    const starts = changeStops(state);
     const first = starts[0];
     const final = starts.at(-1);
     if (first === undefined || final === undefined) return false;

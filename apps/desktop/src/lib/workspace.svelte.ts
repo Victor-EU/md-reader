@@ -7,6 +7,7 @@ import {
   type StateEffect,
   Text,
   type Transaction,
+  type TransactionSpec,
 } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import {
@@ -14,6 +15,7 @@ import {
   addConflicts,
   applyLink,
   boldEdit,
+  type ChangeRecord,
   type ConflictRegion,
   codeEdit,
   colorEdit,
@@ -30,7 +32,6 @@ import {
   highlightEdit,
   italicEdit,
   keepMineHere,
-  type LineChange,
   linkEdit,
   type MatchCount,
   nextChange,
@@ -38,11 +39,13 @@ import {
   previousChange,
   replaceAll,
   replaceNext,
+  revertChangeAtCursor,
   SearchQuery,
   setChanges,
   setDarkEffect,
   setFindOpen,
   setModeEffect,
+  setReviewEffect,
   setSearchQuery,
   strikethroughEdit,
   takeTheirsHere,
@@ -59,6 +62,8 @@ import type {
   FileRenamed,
   MergeResult,
   Settings,
+  SidebarPanel,
+  SnapshotInfo,
   TabKind,
   WindowContent,
 } from '@mdreader/ipc';
@@ -90,6 +95,7 @@ import {
 import { blockChanges } from './changes.ts';
 import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
+import { snapshotTime } from './history.ts';
 import { imageResolver } from './images.ts';
 import { proposeFileName } from './naming.ts';
 import { imageLink, isImagePath, pastePlan, toBase64 } from './paste.ts';
@@ -294,6 +300,18 @@ export class Workspace {
   words = $state(0);
   saving = $state(false);
   sidebar = $state(false);
+  /** Which of the sidebar's panels is showing (design 4.1, 4.4). */
+  panel = $state<SidebarPanel>('outline');
+  /**
+   * Whether the change panels are drawn over the editor (design 4.4).
+   *
+   * A window preference rather than a document one, like the comments
+   * toggle: it says how the reader wants to be shown changes, and they
+   * do not want it answered again for every tab.
+   */
+  review = $state(false);
+  /** The versions of the active document, newest first (design 4.4). */
+  snapshots = $state<SnapshotInfo[]>([]);
   /** Whether Read mode shows the comments it folds away (design 4.3). */
   comments = $state(false);
   /**
@@ -369,8 +387,15 @@ export class Workspace {
 
   activeTab: Tab | null = $derived(this.tabs.find((tab) => tab.id === this.activeId) ?? null);
   activeDoc: Doc | null = $derived(this.activeTab ? this.docOf(this.activeTab) : null);
-  /** What the Changes badge counts: runs the reader has not marked seen. */
+  /** What the Changes badge counts: changes the reader has not marked seen. */
   unreviewed: number = $derived(this.activeDoc?.changes.length ?? 0);
+  /**
+   * Whether the marks are answering a question other than the usual one
+   * (design 4.4). It belongs in the status bar because the sidebar can
+   * be shut, and a reader looking at marks should never have to wonder
+   * what they are marks of.
+   */
+  comparing: boolean = $derived(this.activeDoc?.against !== null && this.activeDoc !== null);
   /**
    * Hunks this document has open questions about, which is what holds
    * its save (design 7.2). Read off the buffer's own state, because that
@@ -604,6 +629,8 @@ export class Workspace {
     const leaving = this.activeTab ? this.docOf(this.activeTab) : null;
     this.activeId = id;
     this.countNow();
+    // The panel is about the document in front, so it follows it.
+    if (this.sidebar && this.panel === 'history') void this.refreshHistory();
     this.touch();
     // Switching tabs is one of the moments autosave writes (design 6.6).
     // Two tabs on the same document are not leaving it.
@@ -758,6 +785,7 @@ export class Workspace {
         // it is being shown on, so every mount says which it is.
         setDarkEffect(this.darkPage),
         setChanges.of(doc.changes),
+        setReviewEffect(this.review),
       ],
     });
     // Cmd+F in Read mode switches modes first, so the editor arrives
@@ -1031,6 +1059,9 @@ export class Workspace {
     // with. An autosave says which it is, because the history keeps a
     // run of those as one version rather than one per pause in typing.
     void this.options.commands.snapshot(path, text, options.auto === true ? 'autosave' : 'user');
+    if (this.sidebar && this.panel === 'history' && this.activeDoc === doc) {
+      void this.refreshHistory();
+    }
     if (!wasWatched) {
       void this.options.commands.watch(path);
       // A document that has just been given a folder can show images
@@ -1254,6 +1285,9 @@ export class Workspace {
     // What arrived is kept whatever we do with it, so a hunk still under
     // discussion is in the history rather than gone (design 4.4).
     void this.options.commands.snapshot(change.path, change.content, 'external');
+    if (this.sidebar && this.panel === 'history' && this.activeDoc === doc) {
+      void this.refreshHistory();
+    }
     this.applyExternal(doc, merged);
     // Their version is the file now, so it is what the next merge and the
     // next save compare against.
@@ -1292,19 +1326,27 @@ export class Workspace {
     if (merged.conflicts.length > 0) {
       effects.push(addConflicts.of(merged.conflicts.map((hunk) => raise(changes, hunk))));
     }
+    this.applyTo(doc, { changes, effects, userEvent: 'external.change' });
+  }
+
+  /**
+   * Put a transaction into a document wherever it is being shown.
+   *
+   * Read mode has no editor to dispatch to, so the buffer is updated and
+   * the page is rendered again from it -- but only when the text moved.
+   * A write that is all conflict changes no text, and a reader in Read
+   * mode should not be scrolled for a widget they cannot see.
+   */
+  private applyTo(doc: Doc, spec: TransactionSpec): void {
     const mounted = this.mounted;
     if (mounted && mounted.tab.docId === doc.id) {
       // Through the view, which is what maps the cursor and the folds.
-      mounted.view.dispatch({ changes, effects, userEvent: 'external.change' });
+      mounted.view.dispatch(spec);
       return;
     }
-    // Read mode has no editor to dispatch to, so the buffer is updated
-    // and the page is rendered again from it -- but only when the text
-    // moved. A write that is all conflict changes no text, and a reader
-    // in Read mode should not be scrolled for a widget they cannot see.
-    const reading = this.reading?.tab.docId === doc.id && !changes.empty;
+    const transaction = doc.state.update(spec);
+    const reading = this.reading?.tab.docId === doc.id && transaction.docChanged;
     if (reading) this.unmountRead();
-    const transaction = doc.state.update({ changes, effects, userEvent: 'external.change' });
     doc.state = transaction.state;
     for (const tab of this.tabs) {
       if (tab.docId !== doc.id) continue;
@@ -1423,6 +1465,151 @@ export class Workspace {
   }
 
   /**
+   * Review mode (design 4.4): the changes told rather than marked, with
+   * a way to put each one back.
+   *
+   * Read mode has no editor to draw the panels over, so asking for
+   * Review there switches to Edit first — the same reasoning as find and
+   * as stepping (ADR 0016).
+   */
+  toggleReview(): void {
+    this.review = !this.review;
+    const tab = this.activeTab;
+    if (this.review && tab?.kind === 'document' && tab.mode === 'read') this.setMode('edit');
+    // A view that is about to be mounted picks this up from `mount`.
+    this.mounted?.view.dispatch({ effects: setReviewEffect(this.review) });
+    this.status = this.review ? 'Reviewing changes' : 'Review mode off';
+    this.touch();
+  }
+
+  /** Put back the change the cursor is standing in (design 4.4). */
+  revertHere(): boolean {
+    const view = this.mounted?.view;
+    if (!view) return false;
+    if (revertChangeAtCursor(view)) {
+      this.scheduleChangeScan();
+      return true;
+    }
+    this.status = 'The cursor is not in a change';
+    return false;
+  }
+
+  // --- the history panel ----------------------------------------------------
+
+  /** Show one of the sidebar's panels, opening the sidebar if it is shut. */
+  showPanel(panel: SidebarPanel): void {
+    this.panel = panel;
+    this.sidebar = true;
+    if (panel === 'outline') this.refreshOutline();
+    else void this.refreshHistory();
+    this.touch();
+  }
+
+  /**
+   * Every version of the active document the app has kept (design 4.4).
+   *
+   * A document with no file has no history: the history is keyed by
+   * path, and an untitled buffer has never been anywhere to be a version
+   * of.
+   */
+  async refreshHistory(): Promise<void> {
+    const path = this.activeDoc?.path ?? null;
+    if (path === null) {
+      this.snapshots = [];
+      return;
+    }
+    const result = await this.options.commands.listSnapshots(path);
+    // The reader has moved to another document while this was coming
+    // back, and these are somebody else's versions.
+    if (this.activeDoc?.path !== path) return;
+    this.snapshots = result.status === 'ok' ? result.data : [];
+  }
+
+  private async readVersion(info: SnapshotInfo): Promise<string | null> {
+    const result = await this.options.commands.readSnapshot(info.id);
+    if (result.status === 'ok') return result.data;
+    this.status = describeError(result.error);
+    return null;
+  }
+
+  /**
+   * Measure the marks against a version out of the history, or stop.
+   *
+   * This is what the panel is for: "what did the AI change since I
+   * looked" is the question the gutter answers by default, and this is
+   * the same question asked about any moment the app has kept.
+   */
+  async compareWith(info: SnapshotInfo | null): Promise<void> {
+    const doc = this.activeDoc;
+    if (!doc) return;
+    if (info === null || doc.againstId === info.id) {
+      doc.compareWith(null, null);
+      this.status = 'Marks show what changed since you last looked';
+    } else {
+      const text = await this.readVersion(info);
+      if (text === null) return;
+      doc.compareWith(Text.of(text.split('\n')), info.id);
+      this.status = `Marks show what changed since ${snapshotTime(info)}`;
+    }
+    await this.pushChanges(doc);
+  }
+
+  /**
+   * Put a version back in the buffer (design 4.4: "restore is itself a
+   * user snapshot, so nothing is ever lost").
+   *
+   * What is in the buffer becomes a version of its own first, because it
+   * may never have been one: an unsaved edit exists nowhere else, and a
+   * restore that dropped it would be the one way this app can lose text.
+   */
+  async restoreSnapshot(info: SnapshotInfo): Promise<void> {
+    const doc = this.activeDoc;
+    if (!doc) return;
+    const text = await this.readVersion(info);
+    if (text === null) return;
+    if (doc.path !== null) await this.options.commands.snapshot(doc.path, doc.text, 'user');
+    this.applyTo(doc, {
+      changes: { from: 0, to: doc.state.doc.length, insert: text },
+      userEvent: 'restore.snapshot',
+    });
+    this.status = `Restored the version from ${snapshotTime(info)}`;
+    void this.refreshHistory();
+    await this.pushChanges(doc);
+  }
+
+  /**
+   * Open a past version in a tab of its own, marked against another one
+   * (design 4.4: "diff any two").
+   *
+   * Against whichever version the panel is comparing with, when the
+   * reader has picked one, and otherwise against the version before this
+   * one — which is the question a row is usually being asked: what did
+   * this one change?
+   */
+  async openVersion(info: SnapshotInfo): Promise<void> {
+    const doc = this.activeDoc;
+    const text = await this.readVersion(info);
+    if (text === null) return;
+    const older = this.snapshots.find((other) => other.timestamp_ms < info.timestamp_ms) ?? null;
+    const picked =
+      doc && doc.againstId !== null && doc.againstId !== info.id
+        ? (this.snapshots.find((other) => other.id === doc.againstId) ?? older)
+        : older;
+    const against = picked === null ? null : await this.readVersion(picked);
+    const label = doc?.label ?? 'Document';
+    const view = this.newDoc(text, { untitledName: `${label} at ${snapshotTime(info)}` });
+    view.ephemeral = true;
+    if (against !== null && picked !== null)
+      view.compareWith(Text.of(against.split('\n')), picked.id);
+    this.addTab(view, 'source');
+    this.status =
+      picked === null
+        ? `${label} as it was at ${snapshotTime(info)}`
+        : `${label}: ${snapshotTime(picked)} to ${snapshotTime(info)}`;
+    await this.pushChanges(view);
+  }
+
+  /**
    * The blocks of a document as it stands, or null while the parse has
    * not reached the end of it.
    *
@@ -1444,7 +1631,8 @@ export class Workspace {
   }
 
   /**
-   * Work out the change runs and hand them to the gutter (plan WP 2.2).
+   * Work out the changes and hand them to the gutter and to Review
+   * (plan WP 2.2, WP 2.3).
    *
    * The alignment is Rust's, over the blocks both sides flatten to. What
    * crosses the bridge is the middle: the blocks the two versions
@@ -1454,7 +1642,7 @@ export class Workspace {
   private async pushChanges(doc: Doc): Promise<void> {
     // Nothing has happened since they last looked, which is the state a
     // document is opened in and the one a save leaves it in.
-    if (doc.reviewed === doc.state.doc) {
+    if (doc.baseline === doc.state.doc) {
       this.showChanges(doc, []);
       return;
     }
@@ -1463,9 +1651,10 @@ export class Workspace {
       this.scheduleChangeScan();
       return;
     }
-    const old = doc.reviewedBlocks();
+    const old = doc.baselineBlocks();
     const { head, tail } = commonBlocks(old, fresh);
     const of = doc.state.doc;
+    const baseline = doc.baseline;
     const aligned = await this.options.commands.blockDiff(
       old.slice(head, old.length - tail),
       fresh.slice(head, fresh.length - tail),
@@ -1482,15 +1671,18 @@ export class Workspace {
       if ('new' in at) at.new += head;
       return at;
     });
-    this.showChanges(doc, blockChanges(ops, fresh, of));
+    this.showChanges(
+      doc,
+      blockChanges(ops, { blocks: old, text: baseline }, { blocks: fresh, text: of }),
+    );
   }
 
-  /** What the gutter and the badge are told, in one place. */
-  private showChanges(doc: Doc, runs: LineChange[]): void {
-    doc.changes = runs;
+  /** What the gutter, the panels and the badge are told, in one place. */
+  private showChanges(doc: Doc, records: ChangeRecord[]): void {
+    doc.changes = records;
     const mounted = this.mounted;
     if (mounted && mounted.tab.docId === doc.id) {
-      mounted.view.dispatch({ effects: setChanges.of(runs) });
+      mounted.view.dispatch({ effects: setChanges.of(records) });
     }
   }
 
@@ -1973,7 +2165,8 @@ export class Workspace {
 
   toggleSidebar(): void {
     this.sidebar = !this.sidebar;
-    if (this.sidebar) this.refreshOutline();
+    if (this.sidebar && this.panel === 'outline') this.refreshOutline();
+    if (this.sidebar && this.panel === 'history') void this.refreshHistory();
     this.touch();
   }
 
@@ -2041,7 +2234,9 @@ export class Workspace {
     const at = new Map<string, number>();
     for (const tab of this.tabs) {
       const doc = this.docOf(tab);
-      if (!doc || at.has(doc.id)) continue;
+      // A view of a past version is not a document to come back to: what
+      // it holds is in the history it was opened out of (plan WP 2.3).
+      if (!doc || doc.ephemeral || at.has(doc.id)) continue;
       at.set(doc.id, documents.length);
       documents.push(
         doc.path === null
@@ -2053,17 +2248,20 @@ export class Workspace {
     }
     return {
       documents,
-      tabs: this.tabs.map((tab) => ({
-        kind: tab.kind,
-        document: at.get(tab.docId) ?? 0,
-        mode: tab.mode,
-        pinned: tab.pinned,
-        active: tab.id === this.activeId,
-        selection: { anchor: tab.selection.main.anchor, head: tab.selection.main.head },
-        anchor: tab.anchor?.offset ?? 0,
-        folded: [...tab.folded],
-      })),
+      tabs: this.tabs
+        .filter((tab) => this.docOf(tab)?.ephemeral !== true)
+        .map((tab) => ({
+          kind: tab.kind,
+          document: at.get(tab.docId) ?? 0,
+          mode: tab.mode,
+          pinned: tab.pinned,
+          active: tab.id === this.activeId,
+          selection: { anchor: tab.selection.main.anchor, head: tab.selection.main.head },
+          anchor: tab.anchor?.offset ?? 0,
+          folded: [...tab.folded],
+        })),
       sidebar: this.sidebar,
+      panel: this.panel,
       comments: this.comments,
     };
   }
@@ -2079,6 +2277,7 @@ export class Workspace {
   async restore(content: WindowContent, recents: readonly string[] = []): Promise<void> {
     this.recents = [...recents];
     this.sidebar = content.sidebar ?? false;
+    this.panel = content.panel === 'history' ? 'history' : 'outline';
     this.comments = content.comments ?? false;
     const docs: (Doc | null)[] = [];
     const gone: string[] = [];

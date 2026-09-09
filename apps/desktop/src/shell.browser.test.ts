@@ -307,6 +307,36 @@ describe('read mode', () => {
       [...target.querySelectorAll('.outline-entry')].map((el) => el.textContent?.trim()),
     ).toEqual(['Title', 'Second']);
   });
+
+  /** The second panel of the sidebar (design 4.4, plan WP 2.3). */
+  it('switches between the outline and the history', async () => {
+    await press('KeyB', { shift: true });
+    click('.sidebar-head button:last-child');
+    await settle();
+    expect(target.querySelector('.outline')).toBeNull();
+    const rows = [...target.querySelectorAll('.version .when')];
+    expect(rows).toHaveLength(1);
+    click('.sidebar-head button:first-child');
+    await settle();
+    expect(target.querySelector('.outline')).not.toBeNull();
+  });
+
+  it('marks what changed since a version the reader picks in the history', async () => {
+    await press('KeyB', { shift: true });
+    click('.sidebar-head button:last-child');
+    await settle();
+    // The file is written under us, which is a second version.
+    await shell.workspace.externalChange(ipc.externalWrite('/a.md', '# Title\n\nrewritten\n'));
+    await shell.workspace.refreshHistory();
+    await settle();
+    shell.workspace.markReviewed();
+    await settle();
+    expect(target.querySelector('.version.against')).toBeNull();
+    click('.version:last-child .pick');
+    await settle();
+    expect(target.querySelector('.version.against')).not.toBeNull();
+    expect(target.textContent).toContain('Comparing');
+  });
 });
 
 describe('the status bar', () => {

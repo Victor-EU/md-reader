@@ -1,11 +1,18 @@
 export {
+  type ChangeEdit,
   type ChangeKind,
+  type ChangePart,
+  type ChangeRecord,
+  changeAt,
   changeMarkers,
-  changeRuns,
+  changeStops,
+  changes,
   changesField,
-  type LineChange,
   nextChange,
   previousChange,
+  revertChange,
+  revertChangeAtCursor,
+  reviewPanels,
   setChanges,
 } from './changes/index.ts';
 export {
@@ -112,5 +119,6 @@ export {
   type StateOptions,
   setDarkEffect,
   setModeEffect,
+  setReviewEffect,
 } from './state.ts';
 export { createEditor, type Editor, type EditorOptions } from './view.ts';

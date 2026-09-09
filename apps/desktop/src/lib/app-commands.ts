@@ -196,6 +196,17 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.unreviewed > 0,
       run: () => workspace.markReviewed(),
     },
+    // The other half of the review walk: step to a change, put it back.
+    // Mod+Alt+Z because that is what it is — an undo of one change,
+    // reached from beside the undo of one edit.
+    {
+      id: 'edit.revertChange',
+      title: 'Revert This Change',
+      group: 'Edit',
+      key: 'Mod+Alt+Z',
+      enabled: () => workspace.unreviewed > 0,
+      run: () => workspace.revertHere(),
+    },
     // Settling a hunk both sides wrote (scenario S5). No shortcuts:
     // the choice is two buttons in the widget itself, and a reader who
     // has one open reaches it from the status bar or the palette. Three
@@ -268,12 +279,35 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: hasDoc,
       run: () => workspace.setMode('source'),
     },
+    // Review mode: the changes told rather than marked, with a way to
+    // put each one back (design 4.4). Cmd+Shift+R is the design's own
+    // shortcut for it.
+    {
+      id: 'view.review',
+      title: 'Review Changes',
+      group: 'View',
+      key: 'Mod+Shift+R',
+      enabled: hasDoc,
+      run: () => workspace.toggleReview(),
+    },
     {
       id: 'view.sidebar',
       title: 'Toggle Sidebar',
       group: 'View',
       key: 'Mod+Shift+B',
       run: () => workspace.toggleSidebar(),
+    },
+    {
+      id: 'view.outline',
+      title: 'Show Outline',
+      group: 'View',
+      run: () => workspace.showPanel('outline'),
+    },
+    {
+      id: 'view.history',
+      title: 'Show History',
+      group: 'View',
+      run: () => workspace.showPanel('history'),
     },
     {
       id: 'view.comments',

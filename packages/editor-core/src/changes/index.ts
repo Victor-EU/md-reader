@@ -1,8 +1,17 @@
+export { revertChange, revertChangeAtCursor } from './commands.ts';
 export {
-  type ChangeKind,
+  changeAt,
   changeMarkers,
+  changes,
   changesField,
-  type LineChange,
+  dropChange,
   setChanges,
 } from './markers.ts';
-export { changeRuns, nextChange, previousChange } from './step.ts';
+export type {
+  ChangeEdit,
+  ChangeKind,
+  ChangePart,
+  ChangeRecord,
+} from './records.ts';
+export { reviewPanels } from './review.ts';
+export { changeStops, nextChange, previousChange } from './step.ts';

@@ -1,8 +1,8 @@
 import { EditorState, type Extension, type Text } from '@codemirror/state';
 import {
+  type ChangeRecord,
   createEditorState,
   type EditorMode,
-  type LineChange,
   type PreviewOptions,
 } from '@mdreader/editor-core';
 import type { DocumentMeta } from '@mdreader/ipc';
@@ -49,12 +49,30 @@ export class Doc {
   base: Text = $state.raw(EMPTY.doc);
   /** What the reader has already seen; the Changes badge counts from here. */
   reviewed: Text = $state.raw(EMPTY.doc);
-  /** Where the buffer differs from `reviewed`, for the gutter and the badge. */
-  changes = $state<LineChange[]>([]);
+  /**
+   * A version out of the history the reader has asked to be shown
+   * against instead (design 4.4, plan WP 2.3).
+   *
+   * Separate from `reviewed` because they are different questions. What
+   * the reader has seen is advanced by saving and by marking reviewed;
+   * what they have asked to compare with is theirs until they say
+   * otherwise, and a save must not quietly answer it.
+   */
+  against: Text | null = $state.raw(null);
+  /** Which snapshot `against` came from, for the history panel to mark. */
+  againstId = $state<string | null>(null);
+  /** Where the buffer differs from the baseline, for the gutter and Review. */
+  changes = $state<ChangeRecord[]>([]);
   /** True while the file this document came from is not on disk (design 8). */
   missing = $state(false);
   /** `Untitled 1` until the first save gives the document a path. */
   readonly untitledName: string;
+  /**
+   * A view of a past version rather than a document (plan WP 2.3). It
+   * has no file, it is never saved, and the session does not carry it:
+   * what it holds is already in the history it came out of.
+   */
+  ephemeral = false;
   /**
    * Whether this document may load images from the network (design 8).
    * Off until the reader says otherwise, and never remembered: the choice
@@ -92,6 +110,14 @@ export class Doc {
   }
 
   /**
+   * The version the marks are measured against: a snapshot the reader
+   * picked out of the history, or what they last said they had seen.
+   */
+  get baseline(): Text {
+    return this.against ?? this.reviewed;
+  }
+
+  /**
    * A version of this document as blocks, flattening it if it is not one
    * of the two already in hand.
    */
@@ -111,8 +137,8 @@ export class Doc {
    * parser the editor uses, which is what makes the two lists
    * comparable.
    */
-  reviewedBlocks(): DocBlock[] {
-    return this.blocksFor(this.reviewed, (source) => flattenBlocks(parser.parse(source), source));
+  baselineBlocks(): DocBlock[] {
+    return this.blocksFor(this.baseline, (source) => flattenBlocks(parser.parse(source), source));
   }
 
   /** Read afresh on every widget, so a toggle needs no new state. */
@@ -151,7 +177,9 @@ export class Doc {
     this.base = written;
     if (seen) {
       this.reviewed = written;
-      this.changes = [];
+      // Unless the marks are answering another question, in which case
+      // the save has not answered it.
+      if (this.against === null) this.changes = [];
     }
     this.missing = false;
   }
@@ -162,7 +190,18 @@ export class Doc {
    */
   markReviewed(): void {
     this.reviewed = this.state.doc;
+    // The reader has seen the buffer, which answers whatever comparison
+    // they had set up; leaving it on would keep marking a document they
+    // have just said they are done with.
+    this.against = null;
+    this.againstId = null;
     this.changes = [];
+  }
+
+  /** Measure the marks against a version out of the history (design 4.4). */
+  compareWith(text: Text | null, id: string | null): void {
+    this.against = text;
+    this.againstId = text === null ? null : id;
   }
 
   /** Replace the buffer, as opening or converting a file does. Undo resets. */
@@ -174,6 +213,8 @@ export class Doc {
     });
     this.base = this.state.doc;
     this.reviewed = this.state.doc;
+    this.against = null;
+    this.againstId = null;
     this.changes = [];
   }
 }

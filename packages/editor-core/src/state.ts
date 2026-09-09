@@ -17,7 +17,7 @@ import {
   keymap,
 } from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
-import { changeMarkers } from './changes/index.ts';
+import { changeMarkers, reviewPanels } from './changes/index.ts';
 import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 import { insertNewlineMarkdown } from './commands/newline.ts';
 import { conflictWidgets } from './conflict/index.ts';
@@ -36,6 +36,7 @@ export type EditorMode = 'edit' | 'source';
 
 const modeCompartment = new Compartment();
 const darkCompartment = new Compartment();
+const reviewCompartment = new Compartment();
 
 function modeExtension(mode: EditorMode): Extension {
   return mode === 'edit' ? livePreview() : [];
@@ -44,6 +45,19 @@ function modeExtension(mode: EditorMode): Extension {
 /** The effect that switches an existing state between Edit and Source. */
 export function setModeEffect(mode: EditorMode): StateEffect<unknown> {
   return modeCompartment.reconfigure(modeExtension(mode));
+}
+
+/**
+ * Turn Review mode on or off (design 4.4).
+ *
+ * A compartment rather than a fourth mode: Review is not another
+ * projection of the buffer but a layer over whichever one is in front,
+ * and the marks, the stepping and the records underneath it are there
+ * either way. Turning it off takes the panels away and leaves everything
+ * that knows what changed exactly as it was.
+ */
+export function setReviewEffect(on: boolean): StateEffect<unknown> {
+  return reviewCompartment.reconfigure(on ? reviewPanels() : []);
 }
 
 /**
@@ -126,7 +140,7 @@ export function editorKeys(): readonly KeyBinding[] {
 export function baseExtensions(
   mode: EditorMode = 'edit',
   preview: PreviewOptions = {},
-  options: { dark?: boolean } = {},
+  options: { dark?: boolean; review?: boolean } = {},
 ): Extension[] {
   return [
     // Outside the compartment: what the widgets render with does not
@@ -163,6 +177,11 @@ export function baseExtensions(
     // projection, it is the state of the document, and the shell reads
     // this field to hold the save whichever view is in front.
     conflictWidgets(),
+    // The same changes again, told rather than marked, when the reader
+    // asks for them (design 4.4). Off until then: a panel above every
+    // changed paragraph is the right way to read a set of changes and
+    // the wrong way to read a document.
+    reviewCompartment.of(options.review === true ? reviewPanels() : []),
     // Find and replace, drawn whenever the bar is open (design 4.5).
     findExtensions(),
     modeCompartment.of(modeExtension(mode)),
@@ -177,6 +196,8 @@ export interface StateOptions {
   preview?: PreviewOptions;
   /** Whether the page this editor is on is a dark one (plan WP 1.9). */
   dark?: boolean;
+  /** Whether the change panels are showing (design 4.4). */
+  review?: boolean;
 }
 
 export function createEditorState(doc: string, options: StateOptions = {}): EditorState {
@@ -184,7 +205,10 @@ export function createEditorState(doc: string, options: StateOptions = {}): Edit
     doc,
     selection: options.selection ?? EditorSelection.single(0),
     extensions: [
-      baseExtensions(options.mode ?? 'edit', options.preview, { dark: options.dark }),
+      baseExtensions(options.mode ?? 'edit', options.preview, {
+        dark: options.dark,
+        review: options.review,
+      }),
       options.extra ?? [],
     ],
   });

@@ -180,6 +180,16 @@ pub enum TabKind {
     Settings,
 }
 
+/// Which of the sidebar's panels was showing (design 4.1, 4.4). The
+/// folder tree joins these in WP 2.4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarPanel {
+    #[default]
+    Outline,
+    History,
+}
+
 /// One tab: a view onto a document, with the state that is per view
 /// (design 6.5).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
@@ -209,6 +219,8 @@ pub struct WindowContent {
     pub documents: Vec<DocumentState>,
     pub tabs: Vec<TabState>,
     pub sidebar: bool,
+    /// Which panel the sidebar was showing (design 4.4).
+    pub panel: SidebarPanel,
     /// Whether Read mode was showing the comments it folds away (4.3).
     pub comments: bool,
 }

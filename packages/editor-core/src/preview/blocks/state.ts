@@ -259,3 +259,27 @@ export const blockWidgetsField = StateField.define<BlockState>({
 function point(pos: number): { from: number; to: number } {
   return { from: pos, to: pos };
 }
+
+/**
+ * Where the widget covering `pos` begins, or null when the source at
+ * `pos` is drawn as itself.
+ *
+ * Anything anchored to a position inside a replaced block is not drawn:
+ * CodeMirror renders the widget instead of the lines under it. So
+ * anything that has to appear *beside* a block — a Review panel, in
+ * practice — asks here first and anchors to the widget's own start,
+ * which is a boundary the view still draws at.
+ */
+export function widgetBlockStart(state: EditorState, pos: number): number | null {
+  const blocks = state.field(blockWidgetsField, false);
+  if (!blocks) return null;
+  let start: number | null = null;
+  blocks.deco.between(pos, pos, (from, to) => {
+    if (from < pos && pos < to) {
+      start = from;
+      return false;
+    }
+    return undefined;
+  });
+  return start;
+}

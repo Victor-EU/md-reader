@@ -7,7 +7,7 @@ import { previewTheme } from './theme.ts';
 
 export { type PreviewOptions, previewOptions } from './blocks/options.ts';
 export { addProperty, PropertiesWidget, setProperty } from './blocks/properties.ts';
-export { blockWidgetsField, changedRegion } from './blocks/state.ts';
+export { blockWidgetsField, changedRegion, widgetBlockStart } from './blocks/state.ts';
 export { DiagramWidget, ImageWidget, MathWidget } from './blocks/widgets.ts';
 export { buildDecorations, type PreviewDecorations, type VisibleRange } from './build.ts';
 export {

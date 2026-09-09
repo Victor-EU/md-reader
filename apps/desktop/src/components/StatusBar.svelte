@@ -61,6 +61,16 @@ const conflicts = $derived(workspace.unsettled === 0 ? '' : count(workspace.unse
         {conflicts}
       </button>
     {/if}
+    <!--
+      The marks are measured against a version out of the history rather
+      than against what the reader last saw, and the sidebar that says so
+      can be shut (design 4.4).
+    -->
+    {#if workspace.comparing}
+      <button type="button" class="cell act" onclick={() => void workspace.compareWith(null)}>
+        Comparing
+      </button>
+    {/if}
     {#if !workspace.settings.autosave}<span class="cell">Autosave off</span>{/if}
   {/if}
   <span class="message">{workspace.status}</span>

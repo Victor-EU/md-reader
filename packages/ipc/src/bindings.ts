@@ -377,6 +377,12 @@ export type Settings = {
 };
 
 /**
+ *  Which of the sidebar's panels was showing (design 4.1, 4.4). The
+ *  folder tree joins these in WP 2.4.
+ */
+export type SidebarPanel = "outline" | "history";
+
+/**
  *  Who wrote a snapshot.
  * 
  *  `Autosave` is separate from `User` because it is the one author that
@@ -443,6 +449,8 @@ export type WindowContent = {
 	documents?: DocumentState[],
 	tabs?: TabState[],
 	sidebar?: boolean,
+	/**  Which panel the sidebar was showing (design 4.4). */
+	panel?: SidebarPanel,
 	/**  Whether Read mode was showing the comments it folds away (4.3). */
 	comments?: boolean,
 };
