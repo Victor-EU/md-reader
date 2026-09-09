@@ -66,11 +66,13 @@ describe('enhancers', () => {
     enhancer.run([host]);
     await until(() => code.querySelector('span') !== null);
 
-    const token = code.querySelector('span span') as HTMLElement;
+    const token = code.querySelector('span.tok-keyword') as HTMLElement;
     expect(token).not.toBeNull();
     expect(code.textContent).toBe(before);
-    // The tokens are coloured, not merely wrapped.
-    expect(token.style.getPropertyValue('--shiki-light')).toMatch(/^#/);
+    // A token is named rather than coloured (plan WP 2.6), and the name
+    // is what the stylesheet paints: no inline colour anywhere in the
+    // fence, or a change of theme would leave the old one behind.
+    expect(token.getAttribute('style')).toBeNull();
     expect(getComputedStyle(token).color).not.toBe(getComputedStyle(code).color);
     // Click-to-edit still lands on the character under the pointer, because
     // the highlighted subtree still holds the source verbatim.

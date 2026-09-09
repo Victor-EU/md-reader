@@ -60,6 +60,19 @@ pub enum Paper {
     Black,
 }
 
+/// Which of the four curated themes of design 11 the window is dressed
+/// in. The colours themselves are a JSON file per theme in the theme
+/// package; this is only which of them the reader picked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeId {
+    #[default]
+    One,
+    Slate,
+    Ink,
+    Grove,
+}
+
 /// Which of the three bundled families the page is set in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
@@ -88,6 +101,7 @@ pub struct Settings {
     /// Design 6.6: on, because the file on disk is the channel to the AI
     /// and an unsaved buffer is a state the AI cannot see.
     pub autosave: bool,
+    pub theme: ThemeId,
     pub appearance: Appearance,
     pub paper: Paper,
     pub family: Family,
@@ -101,6 +115,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             autosave: true,
+            theme: ThemeId::default(),
             appearance: Appearance::default(),
             paper: Paper::default(),
             family: Family::default(),
@@ -129,6 +144,103 @@ impl Settings {
             measure: self.measure.clamp(MEASURE_RANGE.0, MEASURE_RANGE.1),
             ..self
         }
+    }
+}
+
+/// How many documents may have reading settings of their own. Each entry
+/// is a path and four small fields; the cap is here so a store nobody
+/// ever prunes cannot grow without an end.
+const OVERRIDES: usize = 200;
+
+/// What one document was given to be read in, instead of what the app
+/// was told (design 11).
+///
+/// Every field is optional, and an override says only what it changes:
+/// a reader who gave one report a serif has not also frozen its size at
+/// today's. Theme and appearance are not here on purpose — they dress
+/// the window, and a window whose toolbar changed colour as the reader
+/// moved between tabs would be answering a question nobody asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
+#[serde(default)]
+pub struct Override {
+    pub paper: Option<Paper>,
+    pub family: Option<Family>,
+    pub size: Option<u32>,
+    pub measure: Option<u32>,
+}
+
+impl Override {
+    /// Whether this says nothing, which is how the reader clears one.
+    #[must_use]
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
+
+    /// The same override with the two numbers made possible again, on
+    /// the same scale [`Settings::clamped`] uses.
+    #[must_use]
+    pub fn clamped(self) -> Self {
+        let whole = Settings {
+            size: self.size.unwrap_or(DEFAULT_SIZE),
+            measure: self.measure.unwrap_or(DEFAULT_MEASURE),
+            ..Settings::default()
+        }
+        .clamped();
+        Self {
+            size: self.size.map(|_| whole.size),
+            measure: self.measure.map(|_| whole.measure),
+            ..self
+        }
+    }
+}
+
+/// One document's own reading settings, and the path they belong to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct DocumentOverride {
+    pub path: PathBuf,
+    pub reading: Override,
+}
+
+/// The overrides, newest first (design 11).
+///
+/// A list rather than a map, because the order is what the cap needs:
+/// the document a reader last set something for is the one worth
+/// keeping. Lookup is a scan of at most [`OVERRIDES`] entries, on a path
+/// that is already being opened from disk.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(default)]
+pub struct Overrides {
+    pub documents: Vec<DocumentOverride>,
+}
+
+impl Overrides {
+    /// What this document is read in, or nothing said at all.
+    #[must_use]
+    pub fn get(&self, path: &Path) -> Override {
+        self.documents
+            .iter()
+            .find(|entry| entry.path == path)
+            .map(|entry| entry.reading)
+            .unwrap_or_default()
+    }
+
+    /// Give this document its own settings, or take them away.
+    ///
+    /// An override that says nothing is removed rather than stored: the
+    /// reader who put everything back is not asking to be remembered.
+    pub fn set(&mut self, path: PathBuf, reading: Override) {
+        self.documents.retain(|entry| entry.path != path);
+        if reading.is_empty() {
+            return;
+        }
+        self.documents.insert(
+            0,
+            DocumentOverride {
+                path,
+                reading: reading.clamped(),
+            },
+        );
+        self.documents.truncate(OVERRIDES);
     }
 }
 
@@ -787,11 +899,92 @@ mod tests {
     #[test]
     fn settings_start_on_white_paper_at_a_readable_size() {
         let settings = Settings::default();
+        assert_eq!(settings.theme, ThemeId::One);
         assert_eq!(settings.appearance, Appearance::System);
         assert_eq!(settings.paper, Paper::White);
         assert_eq!(settings.family, Family::Sans);
         assert_eq!(settings.size, DEFAULT_SIZE);
         assert_eq!(settings.measure, DEFAULT_MEASURE);
+    }
+
+    /// Design 11: one report in a serif and a wider measure, without the
+    /// file knowing and without every other document following it.
+    #[test]
+    fn an_override_is_kept_for_the_path_it_was_given_to() {
+        let mut overrides = Overrides::default();
+        let report = PathBuf::from("/w/report.md");
+        assert_eq!(overrides.get(&report), Override::default());
+        overrides.set(
+            report.clone(),
+            Override {
+                family: Some(Family::Serif),
+                measure: Some(84),
+                ..Override::default()
+            },
+        );
+        let mine = overrides.get(&report);
+        assert_eq!(mine.family, Some(Family::Serif));
+        assert_eq!(mine.measure, Some(84));
+        // What it does not say, it does not answer for: the app's own
+        // size still reaches a document that was only given a family.
+        assert_eq!(mine.size, None);
+        assert_eq!(overrides.get(Path::new("/w/other.md")), Override::default());
+    }
+
+    /// The reader who put everything back is not asking to be remembered.
+    #[test]
+    fn an_override_that_says_nothing_is_forgotten() {
+        let mut overrides = Overrides::default();
+        let path = PathBuf::from("/w/one.md");
+        overrides.set(
+            path.clone(),
+            Override {
+                paper: Some(Paper::Cream),
+                ..Override::default()
+            },
+        );
+        assert_eq!(overrides.documents.len(), 1);
+        overrides.set(path.clone(), Override::default());
+        assert!(overrides.documents.is_empty());
+        assert_eq!(overrides.get(&path), Override::default());
+    }
+
+    #[test]
+    fn the_newest_override_is_first_and_the_oldest_falls_off_the_end() {
+        let mut overrides = Overrides::default();
+        for n in 0..OVERRIDES + 10 {
+            overrides.set(
+                PathBuf::from(format!("/w/{n}.md")),
+                Override {
+                    size: Some(18),
+                    ..Override::default()
+                },
+            );
+        }
+        assert_eq!(overrides.documents.len(), OVERRIDES);
+        assert_eq!(
+            overrides.documents[0].path,
+            PathBuf::from(format!("/w/{}.md", OVERRIDES + 9))
+        );
+        assert_eq!(overrides.get(Path::new("/w/0.md")), Override::default());
+    }
+
+    /// The same hand-edited file, and the same answer as the settings.
+    #[test]
+    fn an_override_puts_a_size_that_is_not_on_the_scale_back_on_it() {
+        let mut overrides = Overrides::default();
+        let path = PathBuf::from("/w/odd.md");
+        overrides.set(
+            path.clone(),
+            Override {
+                size: Some(19),
+                measure: Some(4000),
+                ..Override::default()
+            },
+        );
+        let mine = overrides.get(&path);
+        assert_eq!(mine.size, Some(18));
+        assert_eq!(mine.measure, Some(MEASURE_RANGE.1));
     }
 
     /// A file that has been edited by hand, or written by a build that

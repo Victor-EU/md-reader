@@ -18,12 +18,14 @@ const registry = $derived(shell.registry);
 const settings = $derived(workspace.activeTab?.kind === 'settings');
 
 /**
- * Dress the window (design 11). Two attributes and three custom
- * properties on the root element; theme one's own stylesheet holds every
- * colour, so nothing here computes one.
+ * Dress the window (design 11). Three attributes and three custom
+ * properties on the root element; the generated stylesheet holds every
+ * colour of every theme, so nothing here computes one. What is applied
+ * is the app's settings under the ones the document in front was given
+ * (plan WP 2.6), which is why moving between tabs can change it.
  */
 $effect(() => {
-  applyAppearance(document.documentElement, workspace.settings, workspace.systemDark);
+  applyAppearance(document.documentElement, workspace.applied, workspace.systemDark);
 });
 
 /**

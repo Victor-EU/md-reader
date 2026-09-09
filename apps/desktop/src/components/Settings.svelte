@@ -1,5 +1,6 @@
 <script lang="ts">
-import { MEASURE_RANGE, SIZES } from '../lib/appearance.ts';
+import { paletteFor } from '@mdreader/theme';
+import { MEASURE_RANGE, resolveAppearance, SIZES, THEMES } from '../lib/appearance.ts';
 import { focusScroller } from '../lib/scroller.ts';
 import { describeUpdate } from '../lib/update.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
@@ -16,6 +17,35 @@ const settings = $derived(workspace.settings);
 const SPECIMEN =
   'Read mode is where most time is spent, so its defaults matter more than any setting. ' +
   'The measure is the number of characters a line holds before it wraps.';
+
+/**
+ * The four curated themes (design 11, plan WP 2.6), each shown in the
+ * colours it would actually dress the window in.
+ *
+ * The bands are literal hexes out of the theme's own file rather than
+ * the variables the page is using, because the point of a swatch is to
+ * show the theme that is not on: the variables only ever hold the one
+ * that is.
+ */
+const appearance = $derived(resolveAppearance(settings.appearance, workspace.systemDark));
+const swatches = $derived(
+  THEMES.map(({ id, theme }) => {
+    const palette = paletteFor(theme, appearance);
+    return {
+      id,
+      name: theme.name,
+      description: theme.description,
+      bands: [
+        palette.papers[settings.paper].bg,
+        palette.ui.bg,
+        palette.ui.accent,
+        palette.code.keyword,
+        palette.code.string,
+        palette.code.number,
+      ],
+    };
+  }),
+);
 
 const APPEARANCES = [
   { value: 'system', label: 'System' },
@@ -61,6 +91,27 @@ $effect(() => {
     <h1>Settings</h1>
 
     <section>
+      <h2 id="theme-heading">Theme</h2>
+      <div class="themes" role="radiogroup" aria-labelledby="theme-heading">
+        {#each swatches as choice (choice.id)}
+          <button
+            type="button"
+            class="theme"
+            role="radio"
+            aria-checked={settings.theme === choice.id}
+            title={choice.description}
+            onclick={() => workspace.updateSettings({ theme: choice.id })}
+          >
+            <span class="strip" aria-hidden="true">
+              {#each choice.bands as band, i (i)}
+                <span class="band" style="background: {band}"></span>
+              {/each}
+            </span>
+            <span class="theme-name">{choice.name}</span>
+          </button>
+        {/each}
+      </div>
+
       <h2 id="appearance-heading">Appearance</h2>
       <div class="row" role="radiogroup" aria-labelledby="appearance-heading">
         {#each APPEARANCES as choice (choice.value)}

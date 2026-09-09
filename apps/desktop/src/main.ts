@@ -7,7 +7,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { mount } from 'svelte';
 import App from './App.svelte';
-// Which pulls in theme one's colours and the bundled faces.
+// Which pulls in every theme's colours and the bundled faces.
 import './app.css';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
@@ -56,13 +56,15 @@ if (typeof matchMedia === 'function') {
 // What the watcher has to say about the open files (design 7.2). The
 // window listens for as long as it exists, so nothing unsubscribes.
 //
-// Every listener is registered as this window rather than as anybody,
-// which is what makes an event Rust addresses to one window arrive at
-// one window (plan WP 2.5). A listener that asks for nothing in
-// particular is matched by every emit, addressed or not, so with a
-// second window open the untargeted form would have this one closing
-// because that one was asked to, and opening a copy of every tab torn
-// off over there. Events sent to everybody still arrive here.
+// Every listener for an addressed event is registered as this window
+// rather than as anybody, which is what makes an event Rust addresses to
+// one window arrive at one window (plan WP 2.5). A listener that asks
+// for nothing in particular is matched by every emit, addressed or not,
+// so with a second window open the untargeted form would have this one
+// closing because that one was asked to, and opening a copy of every tab
+// torn off over there. The one event below that is deliberately
+// untargeted is the settings, which are the app's rather than a
+// window's and are sent to all of them.
 if (isTauri()) {
   const self = getCurrentWindow();
   void events.externalChangeEvent(self).listen((event) => {
@@ -88,6 +90,10 @@ if (isTauri()) {
   // A tab another window has given up (plan WP 2.5). Rust has already
   // decided this window is the one to take it in.
   void events.tabArrivedEvent(self).listen((event) => shell.workspace.adoptTab(event.payload));
+  // The preferences, changed here or in another window (plan WP 2.6).
+  // Not addressed to a window, because they are not a window's: every
+  // window applies them, and applies them without writing back.
+  void events.settingsChangedEvent.listen((event) => shell.workspace.applySettings(event.payload));
   // The window is closing and Rust is holding the close open for us.
   // Answering is in a `finally` because a window that cannot write its
   // session should still close now rather than wait out Rust's grace.

@@ -3,6 +3,7 @@ import { palette } from '@mdreader/markdown';
 import type { CommandRegistry } from '../lib/commands.ts';
 import { segments } from '../lib/paths.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
+import Reading from './Reading.svelte';
 
 let { workspace, registry }: { workspace: Workspace; registry: CommandRegistry } = $props();
 
@@ -125,6 +126,8 @@ function tip(id: string): string {
       ✎
     </button>
   </div>
+
+  <Reading {workspace} />
 
   {#if unreviewed > 0}
     <button

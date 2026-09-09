@@ -64,6 +64,7 @@ import type {
   FileRenamed,
   FolderChange,
   MergeResult,
+  Override,
   SearchDone,
   SearchHit,
   SearchProgress,
@@ -94,9 +95,11 @@ import {
 import {
   DEFAULT_SETTINGS,
   DEFAULT_SIZE,
+  overrideOf,
   pageIsDark,
   type Reading,
   readingSettings,
+  withOverride,
   zoomed,
 } from './appearance.ts';
 import { blockChanges } from './changes.ts';
@@ -467,11 +470,23 @@ export class Workspace {
   /** The settings tab, when this window has one open (plan WP 1.9). */
   settingsTab: Tab | null = $derived(this.tabs.find((tab) => tab.kind === 'settings') ?? null);
   /**
+   * What the window is actually dressed in: the app's settings, with the
+   * settings of the document in front on top of them (design 11, plan
+   * WP 2.6).
+   *
+   * A tab that is not a document has no say, so the settings tab shows
+   * the app in the app's own settings, which is the only honest thing
+   * for the page that edits them to do.
+   */
+  applied: Reading = $derived(withOverride(this.settings, this.activeDoc?.reading));
+  /** Whether the document in front was given reading settings of its own. */
+  overridden: boolean = $derived(this.activeDoc?.reading != null);
+  /**
    * Whether the page is a dark one — not the same question as whether the
    * window is. The high-contrast paper is dark inside a light window, and
    * what the reader is reading on decides how the code on it is coloured.
    */
-  darkPage: boolean = $derived(pageIsDark(this.settings, this.systemDark));
+  darkPage: boolean = $derived(pageIsDark(this.applied, this.systemDark));
 
   /** The document a tab shows, or null for a tab that is not one. */
   docOf(tab: Tab): Doc | null {
@@ -574,7 +589,22 @@ export class Workspace {
       }),
     });
     this.docs.set(doc.id, doc);
+    if (options.path !== undefined) void this.loadOverride(doc, options.path);
     return doc;
+  }
+
+  /**
+   * What this document is read in, if the reader gave it settings of its
+   * own (design 11). Asked of Rust rather than kept in a table here: the
+   * overrides are the app's, and a window holds only the documents it
+   * has open.
+   */
+  private async loadOverride(doc: Doc, path: string): Promise<void> {
+    const reading = await this.options.commands.documentOverride(path);
+    // The document may have been closed, or saved somewhere else, while
+    // this was in flight.
+    if (doc.path !== path) return;
+    doc.reading = overrideOf(reading);
   }
 
   /** Design 8's rules for one document, read afresh on every image. */
@@ -1236,7 +1266,11 @@ export class Workspace {
       this.status = describeError(result.error);
       return false;
     }
+    const named = doc.path !== path;
     doc.path = path;
+    // An untitled document that has just been given a file takes on
+    // whatever that path was already being read in.
+    if (named) void this.loadOverride(doc, path);
     doc.meta = {
       path,
       byte_len: result.data.byte_len,
@@ -1616,6 +1650,12 @@ export class Workspace {
   fileRenamed(event: FileRenamed): void {
     const doc = this.docFor(event.from);
     if (!doc) return;
+    // The override is keyed by path, and this is the same document under
+    // another one: move it rather than leave it on a name nothing has.
+    if (doc.reading !== null) {
+      void this.options.commands.setDocumentOverride(event.from, {});
+      void this.options.commands.setDocumentOverride(event.to, doc.reading);
+    }
     doc.path = event.to;
     if (doc.meta) doc.meta = { ...doc.meta, path: event.to };
     this.remember(event.to);
@@ -2719,12 +2759,64 @@ export class Workspace {
   }
 
   /**
-   * The preferences as a launch found them. Nothing is written back:
-   * this is the file being read, not the reader changing anything.
+   * The preferences as a launch found them, or as another window has
+   * just changed them (plan WP 2.6). Nothing is written back: this is
+   * the file being read, not the reader changing anything.
    */
   applySettings(settings: Settings | null | undefined): void {
     this.settings = readingSettings(settings);
     this.repaint();
+  }
+
+  /**
+   * Give the document in front reading settings of its own, or change
+   * the ones it has (design 11).
+   *
+   * Applied here and then written, rather than the other way round: the
+   * page is the preview, and a reader dragging the measure should see it
+   * move rather than watch it arrive. What comes back is what Rust made
+   * of it, which is the same value with the numbers put back on the
+   * scale.
+   */
+  async setOverride(change: Override): Promise<void> {
+    const doc = this.activeDoc;
+    const path = doc?.path ?? null;
+    if (!doc || path === null) {
+      // Overrides are kept by path, so there is nowhere to put one for
+      // a document that has never been anywhere.
+      this.status = 'Save this document before giving it its own type';
+      return;
+    }
+    const merged = { ...(doc.reading ?? {}), ...change };
+    doc.reading = overrideOf(merged);
+    // A paper of its own can make this a dark page inside a light
+    // window, and the live editor is the one thing that has to be told.
+    this.repaint();
+    const saved = await this.options.commands.setDocumentOverride(path, merged);
+    if (doc.path !== path) return;
+    doc.reading = overrideOf(saved);
+    this.repaint();
+  }
+
+  /** Put the document in front back on the app's own settings. */
+  async clearOverride(): Promise<void> {
+    const doc = this.activeDoc;
+    if (!doc || doc.reading === null) return;
+    await this.setOverride({ paper: null, family: null, size: null, measure: null });
+    this.status = 'Reading in the app’s own settings again';
+  }
+
+  /**
+   * Whether the reading panel is open (plan WP 2.6).
+   *
+   * It lives here rather than in the component so a command can open it
+   * and so it closes when the window does; it is not in the session,
+   * because a panel is a gesture rather than a place.
+   */
+  readingPanel = $state(false);
+
+  toggleReading(): void {
+    this.readingPanel = !this.readingPanel;
   }
 
   /** The preferences, changed and written down (design 11, design 6.6). */
@@ -2749,18 +2841,31 @@ export class Workspace {
    * and the type scale is drawn for the sizes it steps through.
    */
   zoom(steps: number): void {
-    const size = zoomed(this.settings.size, steps);
-    if (size === this.settings.size) {
+    const size = zoomed(this.applied.size, steps);
+    if (size === this.applied.size) {
       this.status = `Text size ${size}px · that is as ${steps > 0 ? 'large' : 'small'} as it goes`;
       return;
     }
-    this.updateSettings({ size });
+    this.setSize(size);
     this.status = `Text size ${size}px`;
   }
 
   resetZoom(): void {
-    if (this.settings.size !== DEFAULT_SIZE) this.updateSettings({ size: DEFAULT_SIZE });
+    if (this.applied.size !== DEFAULT_SIZE) this.setSize(DEFAULT_SIZE);
     this.status = `Text size ${DEFAULT_SIZE}px`;
+  }
+
+  /**
+   * Whichever size the reader is actually changing (plan WP 2.6).
+   *
+   * A document that was given a size of its own is the one that moves,
+   * because that is the size on the screen and the one the key just
+   * changed. Every other document is following the app, so the app is
+   * what moves for them.
+   */
+  private setSize(size: number): void {
+    if (this.activeDoc?.reading?.size != null) void this.setOverride({ size });
+    else this.updateSettings({ size });
   }
 
   /**

@@ -22,8 +22,7 @@ import { deleteMarkerBackward, indentListItem, outdentListItem } from './command
 import { insertNewlineMarkdown } from './commands/newline.ts';
 import { conflictWidgets } from './conflict/index.ts';
 import {
-  codeHighlightDark,
-  codeHighlightLight,
+  codeHighlightStyle,
   livePreview,
   markdownHighlightStyle,
   type PreviewOptions,
@@ -61,11 +60,14 @@ export function setReviewEffect(on: boolean): StateEffect<unknown> {
 }
 
 /**
- * Tell an editor which of theme one's two code palettes it is on.
+ * Tell an editor whether the page under it is a dark one.
  *
- * The question is the paper's, not the system's: the high-contrast black
- * paper is dark inside a light window, and the code on it has to be
- * highlighted for what it is written on (plan WP 1.9).
+ * The code palette no longer needs this — a token names itself and the
+ * page's variables colour it (plan WP 2.6) — but CodeMirror's own base
+ * theme does: the cursor, the selection and the panels have a light and
+ * a dark form. The question is the paper's, not the system's: the
+ * high-contrast black paper is dark inside a light window, and what is
+ * drawn on it has to be drawn for what it is written on (plan WP 1.9).
  */
 export function setDarkEffect(dark: boolean): StateEffect<unknown> {
   return darkCompartment.reconfigure(EditorView.darkTheme.of(dark));
@@ -162,11 +164,10 @@ export function baseExtensions(
     }),
     keymap.of([...markdownKeymap, ...editorKeymap, ...historyKeymap]),
     markdownSupport(),
-    // Shapes from the first, colours from whichever of the other two
-    // matches the page. `themeType` is what keeps the wrong one quiet.
+    // Shapes from the first, colours from the second — and the second
+    // holds variable names, so the page's own palette is what paints it.
     syntaxHighlighting(markdownHighlightStyle),
-    syntaxHighlighting(codeHighlightLight),
-    syntaxHighlighting(codeHighlightDark),
+    syntaxHighlighting(codeHighlightStyle),
     darkCompartment.of(EditorView.darkTheme.of(options.dark ?? false)),
     // What has changed since the reader last looked, in both Edit and
     // Source: a change is a change whichever projection is in front.

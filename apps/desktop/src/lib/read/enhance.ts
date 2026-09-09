@@ -8,12 +8,9 @@
  * second pass over the same chunk is free.
  */
 
-import { shikiTheme, shikiThemeName, themeOne } from '@mdreader/theme';
+import { tokenClass, tokenOfColor, tokenTheme, tokenThemeName } from '@mdreader/theme';
 
 const DONE = 'data-enhanced';
-
-const LIGHT = shikiThemeName(themeOne, 'light');
-const DARK = shikiThemeName(themeOne, 'dark');
 
 type Highlighter = Awaited<ReturnType<typeof loadShiki>>;
 
@@ -109,10 +106,10 @@ async function loadShiki() {
     import('shiki/engine/javascript'),
   ]);
   const highlighter = await core.createHighlighterCore({
-    // Theme one, not one of Shiki's own: the same JSON the CodeMirror
-    // highlighter reads, so a fence looks the same in Read mode as its
-    // source does in Source mode (plan WP 1.9).
-    themes: [shikiTheme(themeOne, 'light'), shikiTheme(themeOne, 'dark')],
+    // Not one of Shiki's own themes, and not a palette either: the one
+    // theme registered here says which token a run of characters is,
+    // and the render writes that name onto the span (plan WP 2.6).
+    themes: [tokenTheme()],
     langs: [],
     // The JavaScript engine, not the WebAssembly one: a webview under a
     // `default-src 'self'` policy cannot compile WebAssembly, and the
@@ -141,16 +138,32 @@ async function loadMermaid(dark: boolean) {
   return module.default;
 }
 
-/** Move a rendered `<code>`'s children into the element that held the source. */
-function swapCode(code: HTMLElement, html: string): void {
-  const template = document.createElement('template');
-  template.innerHTML = html;
-  const rendered = template.content.querySelector('code');
-  if (!rendered) return;
-  code.replaceChildren(...Array.from(rendered.childNodes));
-  const pre = code.closest('pre');
-  const from = template.content.querySelector('pre');
-  if (pre && from) pre.style.cssText = from.style.cssText;
+/**
+ * Shiki's tokens as spans that name what they are (plan WP 2.6).
+ *
+ * Built as nodes rather than as markup: there is no HTML to parse, so
+ * nothing from the document can be markup either, and the fence carries
+ * class names instead of colours. Changing the theme, the appearance or
+ * the paper then costs nothing at all — the same spans resolve to the
+ * new palette's variables.
+ */
+function paint(code: HTMLElement, lines: { content: string; color?: string }[][]): void {
+  const out = document.createDocumentFragment();
+  for (const [at, line] of lines.entries()) {
+    if (at > 0) out.append('\n');
+    for (const token of line) {
+      const name = tokenOfColor(token.color);
+      if (name === null) {
+        out.append(token.content);
+        continue;
+      }
+      const span = document.createElement('span');
+      span.className = tokenClass(name);
+      span.textContent = token.content;
+      out.append(span);
+    }
+  }
+  code.replaceChildren(out);
 }
 
 export interface Enhancer {
@@ -197,14 +210,7 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
       }
       if (!alive || !block.isConnected) continue;
       const source = block.textContent ?? '';
-      // Both palettes at once as custom properties, so one pass serves a
-      // light page and a dark one; the stylesheet picks between them.
-      const render = () =>
-        highlighter.codeToHtml(source, {
-          lang: id,
-          themes: { light: LIGHT, dark: DARK },
-          defaultColor: false,
-        });
+      const render = () => highlighter.codeToTokens(source, { lang: id, theme: tokenThemeName });
       try {
         // The first tokenization after a grammar is loaded sometimes
         // carries the first line's end state into the second, which
@@ -215,7 +221,7 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
         // grammar is tokenized once and thrown away. That is one extra
         // block per language per session.
         if (fresh) render();
-        swapCode(block, render());
+        paint(block, render().tokens);
       } catch {
         // A grammar the JavaScript engine cannot run leaves plain code,
         // which is what the block already shows.

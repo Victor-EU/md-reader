@@ -1,0 +1,131 @@
+{
+  "id": "grove",
+  "name": "Grove",
+  "description": "Warm sage chrome with greens, golds and terracotta in the code, and as little blue as a legible palette can get away with: the one to read by at night.",
+  "light": {
+    "ui": {
+      "bg": "#ecefe6",
+      "fg": "#212620",
+      "muted": "#576251",
+      "border": "#d3dac9",
+      "hover": "#e1e6d9",
+      "active": "#ffffff",
+      "accent": "#2b6339",
+      "dirty": "#9a5600",
+      "shadow": "rgb(0 0 0 / 20%)",
+      "highlight": "#d3ec96"
+    },
+    "papers": {
+      "white": { "bg": "#ffffff", "fg": "#1b1f1a", "code": "#f2f5ef" },
+      "cream": { "bg": "#f9f5ea", "fg": "#24231b", "code": "#f0ecdc" },
+      "pad": { "bg": "#fbf7d0", "fg": "#252418", "code": "#f5f0c0" },
+      "black": { "bg": "#0e100d", "fg": "#e4e8de", "code": "#171a15" }
+    },
+    "code": {
+      "foreground": "#1b1f1a",
+      "comment": "#6f7867",
+      "keyword": "#8a4318",
+      "operator": "#55604e",
+      "punctuation": "#55604e",
+      "string": "#2b6339",
+      "escape": "#8f4d0c",
+      "number": "#79520a",
+      "constant": "#79520a",
+      "variable": "#1b1f1a",
+      "property": "#96354b",
+      "function": "#2a5880",
+      "type": "#0f6660",
+      "invalid": "#a92a20",
+      "inserted": "#2b6339",
+      "deleted": "#a13425"
+    },
+    "notes": {
+      "note": "#55604e",
+      "attention": "#d97706",
+      "question": "#8b5cf6",
+      "remove": "#dc2626",
+      "keep": "#16a34a",
+      "rewrite": "#0ea5e9"
+    },
+    "callouts": {
+      "note": "#2a5880",
+      "info": "#2a5880",
+      "abstract": "#0f6660",
+      "todo": "#4a6132",
+      "tip": "#2b6339",
+      "success": "#2b6339",
+      "question": "#8f4d0c",
+      "warning": "#8f4d0c",
+      "caution": "#a92a20",
+      "danger": "#a92a20",
+      "failure": "#a92a20",
+      "bug": "#a92a20",
+      "important": "#71449c",
+      "example": "#71449c",
+      "quote": "#55604e"
+    }
+  },
+  "dark": {
+    "ui": {
+      "bg": "#171a14",
+      "fg": "#dcdfd2",
+      "muted": "#939a88",
+      "border": "#2c3126",
+      "hover": "#21261c",
+      "active": "#1d2118",
+      "accent": "#96c996",
+      "dirty": "#e0a44c",
+      "shadow": "rgb(0 0 0 / 55%)",
+      "highlight": "#4d5c1f"
+    },
+    "papers": {
+      "white": { "bg": "#181b15", "fg": "#dcdfd2", "code": "#20241c" },
+      "cream": { "bg": "#1e1c14", "fg": "#e2ddcd", "code": "#262318" },
+      "pad": { "bg": "#232010", "fg": "#e6e1c6", "code": "#2b2717" },
+      "black": { "bg": "#000000", "fg": "#e9ece2", "code": "#111309" }
+    },
+    "code": {
+      "foreground": "#dcdfd2",
+      "comment": "#8b9280",
+      "keyword": "#e0a074",
+      "operator": "#a2a996",
+      "punctuation": "#a2a996",
+      "string": "#90cf94",
+      "escape": "#e5b06a",
+      "number": "#d9bb6a",
+      "constant": "#d9bb6a",
+      "variable": "#dcdfd2",
+      "property": "#eb9aab",
+      "function": "#8fbde0",
+      "type": "#6ec7bd",
+      "invalid": "#f08a7e",
+      "inserted": "#90cf94",
+      "deleted": "#f0958a"
+    },
+    "notes": {
+      "note": "#9aa28d",
+      "attention": "#e8b25c",
+      "question": "#c0a4ec",
+      "remove": "#f0958a",
+      "keep": "#90cf94",
+      "rewrite": "#8fbde0"
+    },
+    "callouts": {
+      "note": "#8fbde0",
+      "info": "#8fbde0",
+      "abstract": "#6ec7bd",
+      "todo": "#a8c48a",
+      "tip": "#90cf94",
+      "success": "#90cf94",
+      "question": "#e8b25c",
+      "warning": "#e8b25c",
+      "caution": "#f0958a",
+      "danger": "#f0958a",
+      "failure": "#f0958a",
+      "bug": "#f0958a",
+      "important": "#c0a4ec",
+      "example": "#c0a4ec",
+      "quote": "#9aa28d"
+    }
+  }
+}

@@ -6,7 +6,7 @@ import {
   editorStateFromJSON,
   type PreviewOptions,
 } from '@mdreader/editor-core';
-import type { DocumentMeta } from '@mdreader/ipc';
+import type { DocumentMeta, Override } from '@mdreader/ipc';
 import { type DocBlock, flattenBlocks, parser } from '@mdreader/markdown';
 import { basename } from './paths.ts';
 
@@ -73,6 +73,15 @@ export class Doc {
   changes = $state<ChangeRecord[]>([]);
   /** True while the file this document came from is not on disk (design 8). */
   missing = $state(false);
+  /**
+   * The reading settings this document was given instead of the app's
+   * (design 11, plan WP 2.6), or null while it follows the app.
+   *
+   * Kept on the document rather than the tab: it is a property of the
+   * file, which is why it is stored by path and why two views of one
+   * document are read in the same type.
+   */
+  reading = $state<Override | null>(null);
   /** `Untitled 1` until the first save gives the document a path. */
   readonly untitledName: string;
   /**

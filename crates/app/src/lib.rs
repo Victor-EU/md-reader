@@ -17,10 +17,10 @@ use std::time::{Duration, Instant};
 use base64::Engine as _;
 use mdreader_core::{
     AssetWrite, Block, BlockOp, Bounds, DirEntry, Document, Error, ExternalChange, FileFormat,
-    FileMatches, FileRemoved, FileRenamed, Folder, FolderChange, History, MergeResult, Restore,
-    SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session, Settings,
-    SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher, WindowContent,
-    WindowState,
+    FileMatches, FileRemoved, FileRenamed, Folder, FolderChange, History, MergeResult, Override,
+    Overrides, Restore, SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session,
+    Settings, SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher,
+    WindowContent, WindowState,
 };
 use specta_typescript::Typescript;
 use tauri::Manager;
@@ -50,6 +50,8 @@ struct Services {
     /// The content search each window has running, if it has one.
     searches: Mutex<HashMap<String, Searches>>,
     settings: Store<Settings>,
+    /// What single documents are read in, keyed by path (design 11).
+    overrides: Store<Overrides>,
     session: Store<Session>,
     launch: Mutex<HashMap<String, Waiting<PathBuf>>>,
     /// Tabs on their way from one window to another (plan WP 2.5).
@@ -353,10 +355,46 @@ fn save_window(
 }
 
 /// Change the preferences.
+///
+/// The preferences are the app's, not a window's, so every window is
+/// told: the reader who picks a theme in one of them has picked it for
+/// all of them, and a second window still wearing the old one would be
+/// the app disagreeing with itself (plan WP 2.6). The window that asked
+/// hears it too, and applying what it already applied costs nothing.
 #[tauri::command]
 #[specta::specta]
-fn save_settings(services: tauri::State<'_, Services>, settings: Settings) {
-    services.settings.set(settings.clamped());
+fn save_settings(app: tauri::AppHandle, services: tauri::State<'_, Services>, settings: Settings) {
+    let settings = settings.clamped();
+    services.settings.set(settings);
+    if let Err(error) = SettingsChangedEvent(settings).emit(&app) {
+        eprintln!("could not pass the settings on: {error}");
+    }
+}
+
+/// What this document is read in, if the reader gave it settings of its
+/// own (design 11). An answer of nothing means it follows the app.
+#[tauri::command]
+#[specta::specta]
+fn document_override(services: tauri::State<'_, Services>, path: PathBuf) -> Override {
+    services.overrides.get().get(&path)
+}
+
+/// Give this document its own reading settings, or take them away.
+///
+/// Keyed by path in app data rather than written into the file: design
+/// 11's point is that the reader can set one report in a serif without
+/// the file, or whoever reads it next, knowing anything about it.
+#[tauri::command]
+#[specta::specta]
+fn set_document_override(
+    services: tauri::State<'_, Services>,
+    path: PathBuf,
+    reading: Override,
+) -> Override {
+    services
+        .overrides
+        .update(|overrides| overrides.set(path.clone(), reading));
+    services.overrides.get().get(&path)
 }
 
 /// Write the settings and the session now, rather than at the next
@@ -365,6 +403,7 @@ fn save_settings(services: tauri::State<'_, Services>, settings: Settings) {
 #[specta::specta]
 fn flush_state(services: tauri::State<'_, Services>) -> Result<(), Error> {
     services.settings.flush()?;
+    services.overrides.flush()?;
     services.session.flush()
 }
 
@@ -762,6 +801,11 @@ pub struct OpenPathsEvent(pub Vec<PathBuf>);
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
 pub struct TabArrivedEvent(pub TabMove);
 
+/// The preferences have changed, in this window or in another one
+/// (plan WP 2.6). They belong to the app, so they reach every window.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
+pub struct SettingsChangedEvent(pub Settings);
+
 /// The window is about to close. Write down whatever is not on disk yet,
 /// then call `confirm_close`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
@@ -998,7 +1042,11 @@ fn persist(app: &tauri::AppHandle) {
     let Some(services) = app.try_state::<Services>() else {
         return;
     };
-    for written in [services.settings.flush(), services.session.flush()] {
+    for written in [
+        services.settings.flush(),
+        services.overrides.flush(),
+        services.session.flush(),
+    ] {
         if let Err(error) = written {
             eprintln!("could not write the app state: {error}");
         }
@@ -1205,14 +1253,15 @@ fn services(app: &tauri::AppHandle) -> Services {
             None
         }
     };
-    let (settings, session) = if let Ok(dir) = app.path().app_config_dir() {
+    let (settings, overrides, session) = if let Ok(dir) = app.path().app_config_dir() {
         (
             Store::open(dir.join("settings.json")),
+            Store::open(dir.join("overrides.json")),
             Store::open(dir.join("session.json")),
         )
     } else {
         eprintln!("no config directory: this session will not be remembered");
-        (Store::memory(), Store::memory())
+        (Store::memory(), Store::memory(), Store::memory())
     };
     Services {
         watcher,
@@ -1220,6 +1269,7 @@ fn services(app: &tauri::AppHandle) -> Services {
         folders: Mutex::new(HashMap::new()),
         searches: Mutex::new(HashMap::new()),
         settings,
+        overrides,
         session,
         launch: Mutex::new(HashMap::new()),
         handoff: Mutex::new(HashMap::new()),
@@ -1264,6 +1314,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             cancel_search,
             create_file,
             rename_path,
+            document_override,
+            set_document_override,
         ])
         .events(collect_events![
             ExternalChangeEvent,
@@ -1274,6 +1326,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             SearchDoneEvent,
             OpenPathsEvent,
             TabArrivedEvent,
+            SettingsChangedEvent,
             BeforeCloseEvent
         ])
 }

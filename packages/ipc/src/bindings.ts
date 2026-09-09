@@ -71,7 +71,15 @@ export const commands = {
 	 *  write to disk waits for the store's interval.
 	 */
 	saveWindow: (content: WindowContent, recents: string[]) => __TAURI_INVOKE<void>("save_window", { content, recents }),
-	/**  Change the preferences. */
+	/**
+	 *  Change the preferences.
+	 * 
+	 *  The preferences are the app's, not a window's, so every window is
+	 *  told: the reader who picks a theme in one of them has picked it for
+	 *  all of them, and a second window still wearing the old one would be
+	 *  the app disagreeing with itself (plan WP 2.6). The window that asked
+	 *  hears it too, and applying what it already applied costs nothing.
+	 */
 	saveSettings: (settings: Settings) => __TAURI_INVOKE<void>("save_settings", { settings }),
 	/**
 	 *  Write the settings and the session now, rather than at the next
@@ -197,6 +205,19 @@ export const commands = {
 	createFile: (dir: string, name: string) => typedError<string, Error>(__TAURI_INVOKE("create_file", { dir, name })),
 	/**  Rename a file within its folder, from the sidebar's inline rename. */
 	renamePath: (path: string, name: string) => typedError<string, Error>(__TAURI_INVOKE("rename_path", { path, name })),
+	/**
+	 *  What this document is read in, if the reader gave it settings of its
+	 *  own (design 11). An answer of nothing means it follows the app.
+	 */
+	documentOverride: (path: string) => __TAURI_INVOKE<Override>("document_override", { path }),
+	/**
+	 *  Give this document its own reading settings, or take them away.
+	 * 
+	 *  Keyed by path in app data rather than written into the file: design
+	 *  11's point is that the reader can set one report in a serif without
+	 *  the file, or whoever reads it next, knowing anything about it.
+	 */
+	setDocumentOverride: (path: string, reading: Override) => __TAURI_INVOKE<Override>("set_document_override", { path, reading }),
 };
 
 /** Events */
@@ -209,6 +230,7 @@ export const events = {
 	openPathsEvent: makeEvent<OpenPathsEvent>("open-paths-event"),
 	searchDoneEvent: makeEvent<SearchDoneEvent>("search-done-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent>("search-progress-event"),
+	settingsChangedEvent: makeEvent<SettingsChangedEvent>("settings-changed-event"),
 	tabArrivedEvent: makeEvent<TabArrivedEvent>("tab-arrived-event"),
 };
 
@@ -440,6 +462,23 @@ export type MergeResult = {
 export type OpenPathsEvent = string[];
 
 /**
+ *  What one document was given to be read in, instead of what the app
+ *  was told (design 11).
+ * 
+ *  Every field is optional, and an override says only what it changes:
+ *  a reader who gave one report a serif has not also frozen its size at
+ *  today's. Theme and appearance are not here on purpose — they dress
+ *  the window, and a window whose toolbar changed colour as the reader
+ *  moved between tabs would be answering a question nobody asked.
+ */
+export type Override = {
+	paper?: Paper | null,
+	family?: Family | null,
+	size?: number | null,
+	measure?: number | null,
+};
+
+/**
  *  The page's own background (design 11), which is a setting of its own
  *  rather than a consequence of light or dark: paper colour changes
  *  reading comfort more than most people expect.
@@ -546,6 +585,7 @@ export type Settings = {
 	 *  and an unsaved buffer is a state the AI cannot see.
 	 */
 	autosave?: boolean,
+	theme?: ThemeId,
 	appearance?: Appearance,
 	paper?: Paper,
 	family?: Family,
@@ -554,6 +594,12 @@ export type Settings = {
 	/**  Line length in characters, within [`MEASURE_RANGE`]. */
 	measure?: number,
 };
+
+/**
+ *  The preferences have changed, in this window or in another one
+ *  (plan WP 2.6). They belong to the app, so they reach every window.
+ */
+export type SettingsChangedEvent = Settings;
 
 /**
  *  Which of the sidebar's panels was showing (design 4.1, 4.4).
@@ -683,6 +729,13 @@ export type TabState = {
 	/**  Heading ids folded in Read mode. */
 	folded?: string[],
 };
+
+/**
+ *  Which of the four curated themes of design 11 the window is dressed
+ *  in. The colours themselves are a JSON file per theme in the theme
+ *  package; this is only which of them the reader picked.
+ */
+export type ThemeId = "one" | "slate" | "ink" | "grove";
 
 /**  An untitled document: a buffer with nowhere else to be kept. */
 export type Untitled = {

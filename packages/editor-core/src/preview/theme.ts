@@ -2,7 +2,7 @@ import { HighlightStyle } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { calloutTypeTag, highlightTag, mathTag } from '@mdreader/markdown';
-import { codeHighlight, themeOne } from '@mdreader/theme';
+import { codeHighlight } from '@mdreader/theme';
 
 /**
  * The bundled monospace, with the system stacks behind it. The window
@@ -20,7 +20,7 @@ const mono =
  * the editor's own.
  *
  * What a comment meaning or a callout type is coloured is not here
- * either: theme one puts those on the same `data-kind` and
+ * either: the themes put those on the same `data-kind` and
  * `data-callout` attributes the rendered page carries, so a note is the
  * same colour whichever projection of the document it is seen in.
  */
@@ -233,19 +233,14 @@ export const markdownHighlightStyle = HighlightStyle.define([
 ]);
 
 /**
- * The code token colours, from theme one (plan WP 1.9).
+ * The code token colours, as the variables the page defines them in
+ * (plan WP 1.9, plan WP 2.6).
  *
- * Two styles rather than CSS variables, because `HighlightStyle` writes
- * generated classes and a variable would have to be resolved for every
- * token; `themeType` lets CodeMirror keep the one that matches the page
- * and ignore the other. Shiki is given the same palette from the same
- * file, which is what makes a fence look the same in Read mode as the
- * source of it does in Source mode.
+ * One style rather than one per appearance: a token's colour is
+ * `var(--tok-keyword)`, and which palette that resolves to is the
+ * stylesheet's business. So an editor never has to be reconfigured
+ * because the reader changed theme, appearance or paper — and the fences
+ * Read mode highlights name the same tokens, which is what makes a
+ * fence look the same there as its source does in Source mode.
  */
-export const codeHighlightLight = HighlightStyle.define(codeHighlight(themeOne, 'light'), {
-  themeType: 'light',
-});
-
-export const codeHighlightDark = HighlightStyle.define(codeHighlight(themeOne, 'dark'), {
-  themeType: 'dark',
-});
+export const codeHighlightStyle = HighlightStyle.define(codeHighlight());

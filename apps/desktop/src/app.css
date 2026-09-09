@@ -1,12 +1,12 @@
-/* Theme one's colours and the bundled faces, before any rule uses them. */
+/* Every theme's colours and the bundled faces, before any rule uses them. */
 @import "@mdreader/theme/css";
 @import "./fonts.css";
 
 /*
  * The shell's own styling: the shapes, the spacing and the type scale.
- * Every colour comes from theme one, which is generated into its own
- * stylesheet from JSON and loaded before this file (plan WP 1.9); this
- * one only ever names a variable.
+ * Every colour comes from the four themes, generated into one stylesheet
+ * from their JSON and loaded before this file (plan WP 1.9, plan WP
+ * 2.6); this one only ever names a variable.
  */
 
 /*
@@ -778,7 +778,7 @@ body,
  * article: the notes are already in the page, folded away, so the switch
  * costs nothing and works on a document still rendering in chunks.
  *
- * What each meaning is coloured comes from theme one, on the `data-kind`
+ * What each meaning is coloured comes from the theme, on the `data-kind`
  * attribute the editor's own note widgets carry too.
  */
 .read.mdr-show-comments .mdr-comment[data-kind] {
@@ -976,7 +976,7 @@ body,
 }
 
 /*
- * One colour per canonical callout type (design 5.1), from theme one, on
+ * One colour per canonical callout type (design 5.1), from the theme, on
  * the `data-callout` attribute — the same attribute and the same colour
  * the editor's live preview uses, so the two modes agree.
  */
@@ -1293,6 +1293,145 @@ body,
 
 /* --- status bar --------------------------------------------------------- */
 
+/*
+ * A dab of the paper itself, wherever one of the four is offered: the
+ * settings tab and the reading panel both. The colours are the current
+ * theme's, read from the same variables the page uses, so a swatch
+ * cannot claim a colour the paper does not have.
+ */
+.paper[data-swatch="white"] .dab {
+  background: var(--paper-white);
+}
+
+.paper[data-swatch="cream"] .dab {
+  background: var(--paper-cream);
+}
+
+.paper[data-swatch="pad"] .dab {
+  background: var(--paper-pad);
+}
+
+.paper[data-swatch="black"] .dab {
+  background: var(--paper-black);
+}
+
+/* --- the reading panel (plan WP 2.6) ------------------------------------ */
+
+/*
+ * The reading settings where the document is, rather than in the tab
+ * that edits the app's: a change here previews itself on the page it is
+ * about, which is the whole reason for a second place to make one.
+ */
+.reading-anchor {
+  position: relative;
+}
+
+.reading-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 280px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bar-bg);
+  box-shadow: 0 8px 24px var(--shadow);
+  font-family: var(--family-sans);
+}
+
+.reading-panel:focus {
+  outline: none;
+}
+
+.reading-panel .scope {
+  display: flex;
+  gap: 6px;
+}
+
+.reading-panel .scope > * {
+  flex: 1;
+  justify-content: center;
+}
+
+.reading-panel .hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.reading-panel .field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.reading-panel .field .label {
+  flex: 0 0 54px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.reading-panel .row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.reading-panel .choice {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--active-bg);
+  color: var(--bar-fg);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: default;
+}
+
+.reading-panel .choice:hover:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.reading-panel .choice[aria-checked="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--active-bg));
+}
+
+.reading-panel .choice:disabled {
+  opacity: 0.4;
+}
+
+.reading-panel .paper {
+  padding: 3px;
+}
+
+.reading-panel .paper .dab {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+
+.reading-panel .value {
+  min-width: 34px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.reading-panel input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
 .bar.status {
   border-top: 1px solid var(--border);
   border-bottom: none;
@@ -1527,32 +1666,70 @@ body,
 }
 
 /*
- * A dab of the paper itself on each swatch. The colours are theme one's,
- * read from the same variables the page uses, so a swatch cannot claim a
- * colour the paper does not have.
+ * The four themes, each wearing itself (plan WP 2.6): the paper it would
+ * give this page, its chrome, its accent, and three of its code colours.
+ * A theme that is not on has no variables to be read from, so these are
+ * written inline from its own file.
  */
+.settings .themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.settings .theme {
+  display: flex;
+  flex-direction: column;
+  /*
+   * Both spelt out because a `button` is not an ordinary flex container:
+   * WebKit centres what is inside one, so a strip left to stretch comes
+   * out as a hairline.
+   */
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bar-bg);
+  color: var(--bar-fg);
+  font-family: var(--family-sans);
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+
+.settings .theme:hover {
+  background: var(--hover-bg);
+}
+
+.settings .theme[aria-checked="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bar-bg));
+}
+
+.settings .theme .strip {
+  display: flex;
+  width: 100%;
+  overflow: hidden;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.settings .theme .strip .band {
+  flex: 1;
+}
+
+.settings .theme-name {
+  font-weight: 600;
+}
+
 .settings .paper .dab {
   width: 12px;
   height: 12px;
   border: 1px solid var(--border);
   border-radius: 3px;
   align-self: center;
-}
-
-.settings .paper[data-swatch="white"] .dab {
-  background: var(--paper-white);
-}
-
-.settings .paper[data-swatch="cream"] .dab {
-  background: var(--paper-cream);
-}
-
-.settings .paper[data-swatch="pad"] .dab {
-  background: var(--paper-pad);
-}
-
-.settings .paper[data-swatch="black"] .dab {
-  background: var(--paper-black);
 }
 
 .settings .field {

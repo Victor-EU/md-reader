@@ -14,6 +14,7 @@ import type {
   FolderChange,
   Error as IpcError,
   MergeResult,
+  Override,
   PositionEdit,
   Restore,
   Result,
@@ -50,6 +51,11 @@ export interface FakeIpc {
   /** The session as the shell last pushed it, and what a launch reads. */
   session: { content: WindowContent | null; recents: string[] };
   settings: Settings;
+  /** What single documents have been given to be read in, by path (plan WP 2.6). */
+  overrides: Map<string, Override>;
+  /** Tell the shell the preferences changed, the way Rust's event does. */
+  changeSettings(settings: Settings): void;
+  onSettingsChanged(cb: (settings: Settings) => void): () => void;
   /** Files a launch is holding for the window; drained by `takeLaunchPaths`. */
   launch: string[];
   /**
@@ -260,6 +266,8 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
   const progressListeners = new Set<(progress: SearchProgress) => void>();
   const doneListeners = new Set<(done: SearchDone) => void>();
   const tabListeners = new Set<(move: TabMove) => void>();
+  const settingsListeners = new Set<(settings: Settings) => void>();
+  const overrides = new Map<string, Override>();
   const elsewhere = new Set<string>();
   const calls: FakeIpc['calls'] = [];
   const watching = new Set<string>();
@@ -468,7 +476,21 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     },
     saveSettings: (settings) => {
       state.settings = { ...settings };
+      // Rust tells every window, this one included (plan WP 2.6).
+      for (const cb of settingsListeners) cb({ ...settings });
       return record<void>('save_settings', [settings], undefined);
+    },
+    documentOverride: (path) =>
+      record<Override>('document_override', [path], { ...(overrides.get(path) ?? {}) }),
+    setDocumentOverride: (path, reading) => {
+      const kept = Object.fromEntries(
+        Object.entries(reading).filter(([, value]) => value !== null && value !== undefined),
+      ) as Override;
+      if (Object.keys(kept).length === 0) overrides.delete(path);
+      else overrides.set(path, kept);
+      return record<Override>('set_document_override', [path, reading], {
+        ...(overrides.get(path) ?? {}),
+      });
     },
     flushState: () => {
       state.flushes += 1;
@@ -703,6 +725,15 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     },
     get settings() {
       return state.settings;
+    },
+    overrides,
+    changeSettings(settings) {
+      state.settings = { ...settings };
+      for (const cb of settingsListeners) cb({ ...settings });
+    },
+    onSettingsChanged(cb) {
+      settingsListeners.add(cb);
+      return () => settingsListeners.delete(cb);
     },
     get launch() {
       return state.launch;

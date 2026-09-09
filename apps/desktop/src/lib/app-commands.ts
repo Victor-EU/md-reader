@@ -402,6 +402,24 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       key: 'Mod+0',
       run: () => workspace.resetZoom(),
     },
+    // The reading settings where the document is, rather than in the tab
+    // that edits the app's (plan WP 2.6): every change previews itself on
+    // the page it is about, and the panel says which of the two it is
+    // writing to.
+    {
+      id: 'view.reading',
+      title: 'Reading…',
+      group: 'View',
+      key: 'Mod+Shift+,',
+      run: () => workspace.toggleReading(),
+    },
+    {
+      id: 'view.ownSettings',
+      title: 'Read This Document in the App’s Settings',
+      group: 'View',
+      enabled: () => workspace.overridden,
+      run: () => void workspace.clearOverride(),
+    },
     {
       id: 'view.duplicate',
       title: 'Open a Second View',

@@ -34,8 +34,7 @@ export {
   tableModelAt,
 } from './table/index.ts';
 export {
-  codeHighlightDark,
-  codeHighlightLight,
+  codeHighlightStyle,
   markdownHighlightStyle,
   previewTheme,
 } from './theme.ts';

@@ -1,14 +1,23 @@
-import type { Settings } from '@mdreader/ipc';
-import { type Appearance, type Family, type Paper, paperIsDark } from '@mdreader/theme';
+import type { Override, Settings } from '@mdreader/ipc';
+import {
+  type Appearance,
+  DEFAULT_THEME,
+  type Family,
+  type Paper,
+  paperIsDark,
+  type Theme,
+  themes,
+} from '@mdreader/theme';
 
 /**
- * The reading preferences, applied (design 11, plan WP 1.9).
+ * The reading preferences, applied (design 11, plan WP 1.9, plan WP 2.6).
  *
- * The palette itself is a stylesheet generated from theme one, so
- * everything here is choosing between blocks that already exist: two
- * attributes on the root element for the appearance and the paper, and
- * three custom properties for the family, the size and the measure.
- * Nothing recomputes a colour at runtime.
+ * The palette itself is a stylesheet with all four themes generated into
+ * it, so everything here is choosing between blocks that already exist:
+ * three attributes on the root element for the theme, the appearance and
+ * the paper, and three custom properties for the family, the size and
+ * the measure. Nothing recomputes a colour at runtime, and nothing is
+ * re-rendered when one of them changes.
  */
 
 /**
@@ -26,12 +35,25 @@ export type Reading = Required<Settings>;
 
 export const DEFAULT_SETTINGS: Reading = {
   autosave: true,
+  theme: DEFAULT_THEME,
   appearance: 'system',
   paper: 'white',
   family: 'sans',
   size: DEFAULT_SIZE,
   measure: DEFAULT_MEASURE,
 };
+
+/**
+ * The themes, with their ids narrowed to what a settings file may hold.
+ *
+ * The colours are the theme package's and the value space is Rust's, and
+ * this is the one place the two are said to be the same list;
+ * `appearance.test.ts` is what checks that they are.
+ */
+export const THEMES: readonly { id: Reading['theme']; theme: Theme }[] = themes.map((theme) => ({
+  id: theme.id as Reading['theme'],
+  theme,
+}));
 
 function clampSize(size: number): number {
   return SIZES.reduce(
@@ -74,6 +96,38 @@ export function canZoom(size: number, steps: number): boolean {
   return zoomed(size, steps) !== clampSize(size);
 }
 
+/**
+ * An override, or null when it says nothing at all.
+ *
+ * Rust answers for a path it has never been told about with every field
+ * empty, which is the same thing as no override; this is the one place
+ * that distinction is made, so nothing else has to make it.
+ */
+export function overrideOf(over: Override | null | undefined): Override | null {
+  if (!over) return null;
+  const said =
+    over.paper != null || over.family != null || over.size != null || over.measure != null;
+  return said ? over : null;
+}
+
+/**
+ * The app's settings with one document's own on top of them (design 11).
+ *
+ * An override says only what it changes, so a null or a missing field is
+ * not a value: it is the document following the app, which is what makes
+ * changing the app's size move every document that was never given one.
+ */
+export function withOverride(settings: Reading, over: Override | null | undefined): Reading {
+  if (!over) return settings;
+  return readingSettings({
+    ...settings,
+    ...(over.paper == null ? {} : { paper: over.paper }),
+    ...(over.family == null ? {} : { family: over.family }),
+    ...(over.size == null ? {} : { size: over.size }),
+    ...(over.measure == null ? {} : { measure: over.measure }),
+  });
+}
+
 /** Whether the page the reader is looking at is a dark one. */
 export function pageIsDark(settings: Reading, systemDark: boolean): boolean {
   return paperIsDark(resolveAppearance(settings.appearance, systemDark), settings.paper as Paper);
@@ -86,11 +140,12 @@ const FAMILIES: Record<Family, string> = {
 };
 
 /**
- * Dress the window. `data-appearance` picks the chrome and `data-paper`
- * the page; between them the generated stylesheet already knows every
- * colour, so this only ever writes five values.
+ * Dress the window. `data-theme` picks the palette, `data-appearance` the
+ * chrome and `data-paper` the page; between them the generated stylesheet
+ * already knows every colour, so this only ever writes six values.
  */
 export function applyAppearance(root: HTMLElement, settings: Reading, systemDark: boolean): void {
+  root.dataset.theme = settings.theme;
   root.dataset.appearance = resolveAppearance(settings.appearance, systemDark);
   root.dataset.paper = settings.paper as Paper;
   root.style.setProperty('--read-family', FAMILIES[settings.family as Family]);

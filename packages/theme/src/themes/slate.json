@@ -1,0 +1,131 @@
+{
+  "id": "slate",
+  "name": "Slate",
+  "description": "Cool grey chrome and a saturated code palette: the familiar editor colours, at the contrast a page of prose asks for.",
+  "light": {
+    "ui": {
+      "bg": "#edf0f3",
+      "fg": "#1f262d",
+      "muted": "#59636e",
+      "border": "#d3dae1",
+      "hover": "#e1e6eb",
+      "active": "#ffffff",
+      "accent": "#1259b8",
+      "dirty": "#9a5b00",
+      "shadow": "rgb(0 0 0 / 20%)",
+      "highlight": "#bfdcff"
+    },
+    "papers": {
+      "white": { "bg": "#ffffff", "fg": "#1a1f26", "code": "#f3f5f8" },
+      "cream": { "bg": "#f8f5ee", "fg": "#232821", "code": "#efeade" },
+      "pad": { "bg": "#fbf6d3", "fg": "#26241a", "code": "#f5efc2" },
+      "black": { "bg": "#0f1114", "fg": "#e3e7ec", "code": "#191c21" }
+    },
+    "code": {
+      "foreground": "#1a1f26",
+      "comment": "#6e7a87",
+      "keyword": "#7b46b5",
+      "operator": "#535e6a",
+      "punctuation": "#535e6a",
+      "string": "#1d6446",
+      "escape": "#95491f",
+      "number": "#7f4810",
+      "constant": "#7f4810",
+      "variable": "#1a1f26",
+      "property": "#973b5f",
+      "function": "#1259b8",
+      "type": "#0d6067",
+      "invalid": "#ad2119",
+      "inserted": "#1c6f38",
+      "deleted": "#a82c2c"
+    },
+    "notes": {
+      "note": "#5f6a75",
+      "attention": "#d97706",
+      "question": "#8b5cf6",
+      "remove": "#dc2626",
+      "keep": "#16a34a",
+      "rewrite": "#0ea5e9"
+    },
+    "callouts": {
+      "note": "#1259b8",
+      "info": "#1259b8",
+      "abstract": "#0d6067",
+      "todo": "#3b5bb5",
+      "tip": "#1c6f38",
+      "success": "#1c6f38",
+      "question": "#8a5000",
+      "warning": "#8a5000",
+      "caution": "#ad2119",
+      "danger": "#ad2119",
+      "failure": "#ad2119",
+      "bug": "#ad2119",
+      "important": "#7b46b5",
+      "example": "#7b46b5",
+      "quote": "#5f6a75"
+    }
+  },
+  "dark": {
+    "ui": {
+      "bg": "#161a1f",
+      "fg": "#d7dde4",
+      "muted": "#8d97a3",
+      "border": "#2a3038",
+      "hover": "#212730",
+      "active": "#1d222a",
+      "accent": "#79b8ff",
+      "dirty": "#e0a44c",
+      "shadow": "rgb(0 0 0 / 55%)",
+      "highlight": "#2b4c72"
+    },
+    "papers": {
+      "white": { "bg": "#171b21", "fg": "#d7dde4", "code": "#1f242b" },
+      "cream": { "bg": "#1d1b17", "fg": "#e0dad0", "code": "#252219" },
+      "pad": { "bg": "#23200f", "fg": "#e4dfc6", "code": "#2b2716" },
+      "black": { "bg": "#000000", "fg": "#e9edf2", "code": "#101317" }
+    },
+    "code": {
+      "foreground": "#d7dde4",
+      "comment": "#8b95a1",
+      "keyword": "#d3a0f0",
+      "operator": "#a3aeba",
+      "punctuation": "#a3aeba",
+      "string": "#8fd3a8",
+      "escape": "#eaa06e",
+      "number": "#e0b06a",
+      "constant": "#e0b06a",
+      "variable": "#d7dde4",
+      "property": "#ef9aa8",
+      "function": "#79b8ff",
+      "type": "#62c4c9",
+      "invalid": "#ff9086",
+      "inserted": "#7fd18f",
+      "deleted": "#f0938c"
+    },
+    "notes": {
+      "note": "#97a2ae",
+      "attention": "#f0a23c",
+      "question": "#c4a5fb",
+      "remove": "#ff8f85",
+      "keep": "#62cd88",
+      "rewrite": "#6ec6f5"
+    },
+    "callouts": {
+      "note": "#79b8ff",
+      "info": "#79b8ff",
+      "abstract": "#4fc6dd",
+      "todo": "#8aa8f0",
+      "tip": "#62cd88",
+      "success": "#62cd88",
+      "question": "#e6ab54",
+      "warning": "#e6ab54",
+      "caution": "#f0938c",
+      "danger": "#f0938c",
+      "failure": "#f0938c",
+      "bug": "#f0938c",
+      "important": "#c4a5fb",
+      "example": "#c4a5fb",
+      "quote": "#97a2ae"
+    }
+  }
+}
