@@ -22,6 +22,10 @@ const shell = createShell({
     return Array.isArray(picked) ? picked : [picked];
   },
   pickSaveTarget: (suggested) => save({ defaultPath: suggested, filters: FILTERS }),
+  pickFolder: async () => {
+    const picked = await open({ multiple: false, directory: true });
+    return Array.isArray(picked) ? (picked[0] ?? null) : picked;
+  },
   // A link opens in the system browser; the webview itself never navigates
   // away from the app (design 6.2).
   openExternal: (url) => {
@@ -61,6 +65,11 @@ if (isTauri()) {
   void events.openPathsEvent.listen((event) => {
     void shell.workspace.openPaths(event.payload);
   });
+  // The folder workspace (plan WP 2.4): the watch on the open folder,
+  // and the results of a content search as they are found.
+  void events.folderChangedEvent.listen((event) => shell.workspace.folderChanged(event.payload));
+  void events.searchProgressEvent.listen((event) => shell.workspace.searchProgress(event.payload));
+  void events.searchDoneEvent.listen((event) => shell.workspace.searchDone(event.payload));
   // The window is closing and Rust is holding the close open for us.
   // Answering is in a `finally` because a window that cannot write its
   // session should still close now rather than wait out Rust's grace.

@@ -7,7 +7,9 @@ pub mod blocks;
 pub mod diff;
 pub mod document;
 pub mod eol;
+pub mod folder;
 pub mod history;
+pub mod search;
 pub mod state;
 pub mod types;
 pub mod watch;
@@ -20,13 +22,16 @@ pub use document::{
     read_document, save_document,
 };
 pub use eol::Eol;
+pub use folder::{Folder, Index, create_file, list_dir, rename};
 pub use history::History;
+pub use search::{Found, check as check_search, search};
 pub use state::{
     Appearance, Bounds, Cursor, DocumentState, Family, Paper, Restore, Session, Settings,
     SidebarPanel, Store, TabKind, TabMode, TabState, Untitled, WindowContent, WindowState,
 };
 pub use types::{
-    Block, BlockOp, Conflict, DirEntry, ExternalChange, FileRemoved, FileRenamed, MergeResult,
-    PositionEdit, SearchHit, SearchOptions, SnapshotAuthor, SnapshotInfo, WordRun,
+    Block, BlockOp, Conflict, DirEntry, ExternalChange, FileHit, FileMatches, FileRemoved,
+    FileRenamed, FolderChange, MergeResult, PositionEdit, SearchDone, SearchHit, SearchOptions,
+    SearchProgress, SnapshotAuthor, SnapshotInfo, WordRun,
 };
 pub use watch::{WatchEvent, Watcher};

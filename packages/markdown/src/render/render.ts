@@ -869,8 +869,9 @@ export class Renderer {
     if (href === null) return children;
     const attrs: Record<string, string> = { href };
     if (target.title !== null && target.title !== '') attrs.title = target.title;
-    // Only an absolute URL leaves the app. A `#` link scrolls the document,
-    // and a relative one waits for the folder workspace of WP 2.4.
+    // Only an absolute URL leaves the app. A `#` link scrolls the
+    // document, and a relative one opens the file it names, resolved
+    // against this document's own folder (plan WP 2.4).
     if (EXTERNAL.test(href)) attrs['data-external'] = '';
     return [element('a', attrs, node.from, node.to, children)];
   }

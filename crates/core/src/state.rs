@@ -180,11 +180,16 @@ pub enum TabKind {
     Settings,
 }
 
-/// Which of the sidebar's panels was showing (design 4.1, 4.4). The
-/// folder tree joins these in WP 2.4.
+/// Which of the sidebar's panels was showing (design 4.1, 4.4).
+///
+/// `Files` is the folder tree, and the recent files when no folder is
+/// open; it is where a window with a folder starts. `Outline` is the
+/// default without one, because a window with one document open has
+/// nothing to put in a tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum SidebarPanel {
+    Files,
     #[default]
     Outline,
     History,
@@ -218,6 +223,11 @@ pub struct TabState {
 pub struct WindowContent {
     pub documents: Vec<DocumentState>,
     pub tabs: Vec<TabState>,
+    /// The folder this window had open (plan WP 2.4), which it opens
+    /// again on the next launch. A folder that has since been moved or
+    /// deleted is simply not there any more; the window opens without
+    /// one, and its tabs are unaffected.
+    pub folder: Option<PathBuf>,
     pub sidebar: bool,
     /// Which panel the sidebar was showing (design 4.4).
     pub panel: SidebarPanel,

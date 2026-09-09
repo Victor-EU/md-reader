@@ -94,12 +94,18 @@ function drop(event: DragEvent) {
           <h1>MD Reader</h1>
           <p>Open a markdown file, drop one on the window, or start a new one.</p>
           <!--
-            The window says a new file can be started here, so there is a
-            way to start one. Until the sidebar arrives in Phase 2 the
-            other two are Cmd+N and the command palette.
+            The two ways in, where a window with nothing in it can find
+            them: a file to write, or a folder to work in (design 4.1).
           -->
           <button type="button" class="start" onclick={() => workspace.newUntitled()}>
             New File
+          </button>
+          <button
+            type="button"
+            class="start"
+            onclick={() => void workspace.pickAndOpenFolder()}
+          >
+            Open Folder…
           </button>
         </div>
       </main>

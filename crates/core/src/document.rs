@@ -91,6 +91,8 @@ pub enum Error {
     ReadOnlyEncoding { path: PathBuf, encoding: String },
     #[error("{what} is unavailable: {message}")]
     Unavailable { what: String, message: String },
+    #[error("{query} is not a search that can be run: {message}")]
+    BadQuery { query: String, message: String },
 }
 
 fn read_error(path: &Path, source: &io::Error) -> Error {
@@ -158,7 +160,13 @@ pub fn read_document(path: &Path) -> Result<Document, Error> {
                 eol: stats.dominant(),
                 mixed_eol: stats.mixed(),
                 bom,
-                trailing_newline: eol::ends_with_eol(body),
+                // A file with no bytes in it has no stored form to
+                // restore, so the app's own is used: every markdown
+                // file it writes ends with a newline. Without this, a
+                // file made empty — by the sidebar's "New file", or by
+                // `touch` — would be written back without one for the
+                // rest of its life.
+                trailing_newline: body.is_empty() || eol::ends_with_eol(body),
                 encoding: encoding.to_owned(),
             },
         },
@@ -283,6 +291,20 @@ mod tests {
         assert_eq!(f.encoding, "utf-8");
         assert!(!doc.meta.read_only);
         assert_eq!(doc.meta.hash.len(), 64);
+    }
+
+    /// A file with nothing in it says nothing about how it is stored, so
+    /// what a save writes is the app's own form rather than the absence
+    /// of one (plan WP 2.4's "New file").
+    #[test]
+    fn an_empty_file_is_written_back_with_a_trailing_newline() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("new.md");
+        std::fs::write(&path, b"").unwrap();
+        let doc = read_document(&path).unwrap();
+        assert!(doc.meta.format.trailing_newline);
+        save_document(&path, "# Outline", Some(&doc.meta.hash), &doc.meta.format).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Outline\n");
     }
 
     #[test]

@@ -9,16 +9,17 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use mdreader_core::{
     AssetWrite, Block, BlockOp, Bounds, DirEntry, Document, Error, ExternalChange, FileFormat,
-    FileRemoved, FileRenamed, History, MergeResult, Restore, SaveResult, SearchHit, SearchOptions,
-    Session, Settings, SnapshotAuthor, SnapshotInfo, Store, WatchEvent, Watcher, WindowContent,
-    WindowState,
+    FileMatches, FileRemoved, FileRenamed, Folder, FolderChange, History, MergeResult, Restore,
+    SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session, Settings,
+    SnapshotAuthor, SnapshotInfo, Store, WatchEvent, Watcher, WindowContent, WindowState,
 };
 use specta_typescript::Typescript;
 use tauri::Manager;
@@ -36,6 +37,12 @@ use tauri_specta::{Builder, Event, collect_commands, collect_events};
 struct Services {
     watcher: Option<Mutex<Watcher>>,
     history: Option<Mutex<History>>,
+    /// The folder this window has open, if any (plan WP 2.4). Behind an
+    /// `Arc` because the walk and the search read it from threads of
+    /// their own, and neither should hold the lock while it works.
+    folder: Mutex<Option<Arc<Folder>>>,
+    /// The content search that is running, if one is.
+    search: Mutex<Searches>,
     settings: Store<Settings>,
     session: Store<Session>,
     launch: Mutex<HashMap<String, Launch>>,
@@ -43,6 +50,19 @@ struct Services {
     closing: Mutex<HashSet<String>>,
     /// Set once the windows have been asked to finish before a quit.
     quitting: Mutex<bool>,
+}
+
+/// The content search that is running, and the number the window knows
+/// it by.
+///
+/// A reader types and the results follow; each keystroke replaces the
+/// search before it, and the id is what lets the window tell the answers
+/// of the new one from the last of the old. The window chooses it rather
+/// than being told: results are events, and an event can reach the
+/// webview before the call that started the search has returned.
+#[derive(Default)]
+struct Searches {
+    running: Option<(u32, Arc<AtomicBool>)>,
 }
 
 /// Files the OS wants one window to open, and whether that window is
@@ -189,12 +209,6 @@ fn import_asset(
 #[specta::specta]
 fn convert_document_to_utf8(path: PathBuf) -> Result<Document, Error> {
     mdreader_core::convert_to_utf8(&path)
-}
-
-fn not_implemented<T>(command: &str) -> Result<T, Error> {
-    Err(Error::NotImplemented {
-        command: command.to_owned(),
-    })
 }
 
 /// Watch a file for writes by other processes.
@@ -357,20 +371,181 @@ fn block_diff(old_blocks: Vec<Block>, new_blocks: Vec<Block>) -> Vec<BlockOp> {
     mdreader_core::block_diff(&old_blocks, &new_blocks)
 }
 
-/// List a directory, honouring `.gitignore` (WP 2.x).
+// --- the folder --------------------------------------------------------
+
+/// How many results are sent at once, and how long a batch waits for
+/// company. A search of a large folder finds thousands of lines; an
+/// event each would cost more in bridge crossings than in searching.
+const SEARCH_BATCH: usize = 64;
+const SEARCH_FLUSH: Duration = Duration::from_millis(100);
+
+/// Open a folder as this window's workspace (design 4.1).
+///
+/// Answers with the root, which is the path every entry under it is
+/// built from. The tree is not returned with it: the window asks for the
+/// levels it shows, and the one it shows first is one `list_dir` away.
+#[tauri::command]
+#[specta::specta]
+fn open_folder(
+    app: tauri::AppHandle,
+    services: tauri::State<'_, Services>,
+    path: PathBuf,
+) -> Result<PathBuf, Error> {
+    let handle = app.clone();
+    let folder = Arc::new(Folder::open(&path, move |change| {
+        if let Err(error) = FolderChangedEvent(change).emit(&handle) {
+            eprintln!("could not report a folder change: {error}");
+        }
+    })?);
+    let root = folder.root().to_path_buf();
+    *locked(&services.folder) = Some(Arc::clone(&folder));
+    // The walk behind Cmd+P, started now and on a thread of its own, so
+    // that the first Cmd+P after opening a folder does not wait for it.
+    thread::spawn(move || folder.warm());
+    Ok(root)
+}
+
+/// Let the folder go: the watch stops with it, and so does whatever it
+/// was being searched for.
+#[tauri::command]
+#[specta::specta]
+fn close_folder(services: tauri::State<'_, Services>) {
+    *locked(&services.folder) = None;
+    if let Some((_, stop)) = locked(&services.search).running.take() {
+        stop.store(true, Ordering::Relaxed);
+    }
+}
+
+/// One level of the folder tree, honouring `.gitignore`.
 #[tauri::command]
 #[specta::specta]
 fn list_dir(path: PathBuf) -> Result<Vec<DirEntry>, Error> {
-    let _ = path;
-    not_implemented("list_dir")
+    mdreader_core::list_dir(&path)
 }
 
-/// Search file contents under `root` (WP 2.x).
+/// The files in the open folder that match what has been typed into
+/// Cmd+P, best first (plan WP 2.4).
+///
+/// With no folder open there is nothing to match against and the window
+/// is offering its tabs and its recents, which it ranks itself. That is
+/// an empty answer rather than an error: a folder can be closed while a
+/// keystroke is still crossing the bridge.
 #[tauri::command]
 #[specta::specta]
-fn search(root: PathBuf, query: String, options: SearchOptions) -> Result<Vec<SearchHit>, Error> {
-    let _ = (root, query, options);
-    not_implemented("search")
+fn find_files(services: tauri::State<'_, Services>, query: String, limit: u32) -> FileMatches {
+    let folder = locked(&services.folder).as_ref().map(Arc::clone);
+    let Some(folder) = folder else {
+        return FileMatches {
+            hits: Vec::new(),
+            files: 0,
+            truncated: false,
+        };
+    };
+    folder.find(&query, usize::try_from(limit).unwrap_or(usize::MAX))
+}
+
+/// Start searching the open folder's contents under the window's own
+/// number for it; results follow as events carrying that number.
+///
+/// The pattern is compiled here rather than on the search thread, so a
+/// regular expression with a typo in it comes back to the field it was
+/// typed into instead of arriving later as a result that is not one.
+#[tauri::command]
+#[specta::specta]
+fn start_search(
+    app: tauri::AppHandle,
+    services: tauri::State<'_, Services>,
+    id: u32,
+    query: String,
+    options: SearchOptions,
+) -> Result<(), Error> {
+    let folder = locked(&services.folder).as_ref().map(Arc::clone);
+    let Some(folder) = folder else {
+        return Err(Error::Unavailable {
+            what: "the folder".to_owned(),
+            message: "no folder is open to search".to_owned(),
+        });
+    };
+    mdreader_core::check_search(&query, &options)?;
+    let mut searches = locked(&services.search);
+    if let Some((_, stop)) = searches.running.take() {
+        stop.store(true, Ordering::Relaxed);
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    searches.running = Some((id, Arc::clone(&stop)));
+    drop(searches);
+    thread::spawn(move || run_search(&app, &folder, id, &query, &options, &stop));
+    Ok(())
+}
+
+/// Stop the search with this id, if it is still the one running.
+///
+/// The id is checked so that a cancel arriving after the reader has
+/// already started another search cannot stop the new one.
+#[tauri::command]
+#[specta::specta]
+fn cancel_search(services: tauri::State<'_, Services>, id: u32) {
+    let mut searches = locked(&services.search);
+    if searches.running.as_ref().is_some_and(|(at, _)| *at == id)
+        && let Some((_, stop)) = searches.running.take()
+    {
+        stop.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Walk and search, reporting as it goes. Runs on its own thread.
+fn run_search(
+    app: &tauri::AppHandle,
+    folder: &Folder,
+    id: u32,
+    query: &str,
+    options: &SearchOptions,
+    stop: &AtomicBool,
+) {
+    let mut batch: Vec<SearchHit> = Vec::new();
+    let mut sent = Instant::now();
+    let found = mdreader_core::search(folder.root(), query, options, stop, |hit| {
+        batch.push(hit);
+        if batch.len() >= SEARCH_BATCH || sent.elapsed() >= SEARCH_FLUSH {
+            report_hits(app, id, std::mem::take(&mut batch));
+            sent = Instant::now();
+        }
+    });
+    if !batch.is_empty() {
+        report_hits(app, id, batch);
+    }
+    // The pattern was compiled before the thread started, so a failure
+    // here is the walk itself and there is nothing found to report.
+    let (hits, truncated) = found.map_or((0, false), |found| (found.hits, found.truncated));
+    let done = SearchDone {
+        id,
+        hits,
+        truncated,
+        cancelled: stop.load(Ordering::Relaxed),
+    };
+    if let Err(error) = SearchDoneEvent(done).emit(app) {
+        eprintln!("could not report the end of a search: {error}");
+    }
+}
+
+fn report_hits(app: &tauri::AppHandle, id: u32, hits: Vec<SearchHit>) {
+    if let Err(error) = SearchProgressEvent(SearchProgress { id, hits }).emit(app) {
+        eprintln!("could not report search results: {error}");
+    }
+}
+
+/// Make an empty file in `dir`, from the sidebar's "New file".
+#[tauri::command]
+#[specta::specta]
+fn create_file(dir: PathBuf, name: String) -> Result<PathBuf, Error> {
+    mdreader_core::create_file(&dir, &name)
+}
+
+/// Rename a file within its folder, from the sidebar's inline rename.
+#[tauri::command]
+#[specta::specta]
+fn rename_path(path: PathBuf, name: String) -> Result<PathBuf, Error> {
+    mdreader_core::rename(&path, &name)
 }
 
 /// The watcher's report of a write by another process (design 6.4).
@@ -384,6 +559,18 @@ pub struct FileRemovedEvent(pub FileRemoved);
 /// A watched file was renamed.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
 pub struct FileRenamedEvent(pub FileRenamed);
+
+/// Something under the open folder was written (plan WP 2.4).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
+pub struct FolderChangedEvent(pub FolderChange);
+
+/// Some of what a content search has found so far.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
+pub struct SearchProgressEvent(pub SearchProgress);
+
+/// A content search has finished, been filled up, or been replaced.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, Event)]
+pub struct SearchDoneEvent(pub SearchDone);
 
 /// Files the OS wants this window to open: a second launch, a Finder
 /// double-click, an `open` from a terminal.
@@ -679,6 +866,8 @@ fn services(app: &tauri::AppHandle) -> Services {
     Services {
         watcher,
         history,
+        folder: Mutex::new(None),
+        search: Mutex::new(Searches::default()),
         settings,
         session,
         launch: Mutex::new(HashMap::new()),
@@ -711,13 +900,22 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             take_launch_paths,
             confirm_close,
             block_diff,
+            open_folder,
+            close_folder,
             list_dir,
-            search,
+            find_files,
+            start_search,
+            cancel_search,
+            create_file,
+            rename_path,
         ])
         .events(collect_events![
             ExternalChangeEvent,
             FileRemovedEvent,
             FileRenamedEvent,
+            FolderChangedEvent,
+            SearchProgressEvent,
+            SearchDoneEvent,
             OpenPathsEvent,
             BeforeCloseEvent
         ])

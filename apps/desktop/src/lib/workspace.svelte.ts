@@ -58,9 +58,14 @@ import type {
   DocumentState,
   ExternalChange,
   FileFormat,
+  FileMatches,
   FileRemoved,
   FileRenamed,
+  FolderChange,
   MergeResult,
+  SearchDone,
+  SearchHit,
+  SearchProgress,
   Settings,
   SidebarPanel,
   SnapshotInfo,
@@ -95,13 +100,15 @@ import {
 import { blockChanges } from './changes.ts';
 import { type ClipboardWriter, copyRich, copyText } from './clipboard.ts';
 import { Doc, nextId } from './document.svelte.ts';
+import { Folder } from './folder.svelte.ts';
 import { snapshotTime } from './history.ts';
 import { imageResolver } from './images.ts';
 import { proposeFileName } from './naming.ts';
 import { imageLink, isImagePath, pastePlan, toBase64 } from './paste.ts';
-import { basename, dirname, resolvePath, shortenDir, tabLabels } from './paths.ts';
+import { basename, dirname, inside, resolvePath, shortenDir, tabLabels } from './paths.ts';
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
+import { FolderSearch } from './search.svelte.ts';
 import { count, countWords, describeError, describeFormat } from './text.ts';
 import {
   CHECK_INTERVAL_MS,
@@ -183,6 +190,8 @@ export interface WorkspaceOptions {
   commands: Commands;
   /** The OS open panel — one of the two dialogs design 4.5 allows. */
   pickFiles?: () => Promise<string[]>;
+  /** The same panel, asking for a folder to work in (design 4.1). */
+  pickFolder?: () => Promise<string | null>;
   /** The OS save panel, for the first save of an untitled document. */
   pickSaveTarget?: (suggested: string) => Promise<string | null>;
   /** Opens a link in the system browser; the webview never navigates. */
@@ -214,8 +223,12 @@ const NEW_FILE_FORMAT: FileFormat = {
   encoding: 'utf-8',
 };
 
+/** The sidebar's panels, for reading one back out of a session file. */
+const PANELS: readonly SidebarPanel[] = ['files', 'outline', 'history'];
 const CLOSED_LIMIT = 20;
 const RECENTS_LIMIT = 50;
+/** How many folder matches Cmd+P asks for. More than a list anyone reads. */
+const PALETTE_FILES = 50;
 /**
  * How long after the last keystroke autosave writes the file (design
  * 6.6). Short, because the file on disk is the channel to the AI and an
@@ -312,6 +325,15 @@ export class Workspace {
   review = $state(false);
   /** The versions of the active document, newest first (design 4.4). */
   snapshots = $state<SnapshotInfo[]>([]);
+  /** The folder tree, and the folder itself (design 4.1, plan WP 2.4). */
+  readonly folder: Folder;
+  /** Cmd+Shift+F: the content search over that folder. */
+  readonly search: FolderSearch;
+  /**
+   * What Cmd+P found in the folder, matched in Rust. Null until a query
+   * has been answered, so an empty list can mean "nothing matches".
+   */
+  folderMatches = $state<FileMatches | null>(null);
   /** Whether Read mode shows the comments it folds away (design 4.3). */
   comments = $state(false);
   /**
@@ -382,8 +404,18 @@ export class Workspace {
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
   private updateTimer: ReturnType<typeof setInterval> | null = null;
   private sessionDelay = 0;
+  /** Which Cmd+P keystroke is waiting on Rust, so stale answers are dropped. */
+  private paletteQuery = 0;
+  /** The file "New file" just made, which opens once it has its name. */
+  private justMade: string | null = null;
 
-  constructor(readonly options: WorkspaceOptions) {}
+  constructor(readonly options: WorkspaceOptions) {
+    const say = (message: string) => {
+      this.status = message;
+    };
+    this.folder = new Folder(options.commands, say);
+    this.search = new FolderSearch(options.commands, say, () => this.folder.root);
+  }
 
   activeTab: Tab | null = $derived(this.tabs.find((tab) => tab.id === this.activeId) ?? null);
   activeDoc: Doc | null = $derived(this.activeTab ? this.docOf(this.activeTab) : null);
@@ -1108,8 +1140,7 @@ export class Workspace {
   /**
    * What the save panel opens on for a document with no file yet
    * (design 4.5, scenario S8): a name from its first heading, in a
-   * folder this window is already working in. There is no folder
-   * workspace until WP 2.4, so that is the nearest open document's.
+   * folder this window is already working in.
    */
   private saveTarget(doc: Doc): string {
     const name = proposeFileName(this.firstHeading(doc), doc.untitledName);
@@ -1124,10 +1155,18 @@ export class Workspace {
   }
 
   private saveFolder(): string {
+    const root = this.folder.root;
     for (const tab of this.tabs) {
       const path = this.docOf(tab)?.path;
-      if (path) return dirname(path);
+      // Inside the open folder, beside an open document beats the root
+      // of it: that is the part of the folder the reader is working in.
+      // A document from somewhere else says nothing about where a new
+      // file in this workspace belongs.
+      if (path !== null && path !== undefined && (root === null || inside(root, path))) {
+        return dirname(path);
+      }
     }
+    if (root !== null) return root;
     const recent = this.recents[0];
     return recent === undefined ? '' : dirname(recent);
   }
@@ -1501,7 +1540,7 @@ export class Workspace {
     this.panel = panel;
     this.sidebar = true;
     if (panel === 'outline') this.refreshOutline();
-    else void this.refreshHistory();
+    if (panel === 'history') void this.refreshHistory();
     this.touch();
   }
 
@@ -2120,6 +2159,31 @@ export class Workspace {
 
   openPalette(kind: PaletteKind): void {
     this.palette = { open: true, kind, query: '', index: 0 };
+    this.folderMatches = null;
+  }
+
+  /**
+   * A keystroke in the palette. The tabs and recents are ranked here,
+   * where they already are; the folder is matched in Rust, over the walk
+   * it keeps, so a folder of fifty thousand files answers as fast as a
+   * folder of twelve (plan WP 2.4).
+   */
+  setPaletteQuery(query: string): void {
+    this.palette = { ...this.palette, query, index: 0 };
+    void this.matchFiles(query);
+  }
+
+  private async matchFiles(query: string): Promise<void> {
+    if (this.folder.root === null || query.trim() === '') {
+      this.folderMatches = null;
+      return;
+    }
+    this.paletteQuery += 1;
+    const asked = this.paletteQuery;
+    const found = await this.options.commands.findFiles(query, PALETTE_FILES);
+    // Answers can arrive out of order; only the newest question has an
+    // answer worth showing.
+    if (asked === this.paletteQuery) this.folderMatches = found;
   }
 
   closePalette(): void {
@@ -2159,6 +2223,143 @@ export class Workspace {
     this.closePalette();
     if (choice.tabId) this.activate(choice.tabId);
     else if (choice.path) await this.openPath(choice.path);
+  }
+
+  // --- the folder ---------------------------------------------------------
+
+  /** Cmd+Shift+O: choose a folder to work in (design 4.1, scenario S6). */
+  async pickAndOpenFolder(): Promise<void> {
+    const picked = await this.options.pickFolder?.();
+    if (picked !== null && picked !== undefined && picked !== '') await this.openFolder(picked);
+  }
+
+  /**
+   * Work in `path`: the tree in the sidebar, Cmd+P over its files,
+   * Cmd+Shift+F through its contents, and a watch on the whole of it.
+   */
+  async openFolder(path: string): Promise<void> {
+    if (!(await this.folder.open(path))) return;
+    this.search.clear();
+    this.folderMatches = null;
+    this.panel = 'files';
+    this.sidebar = true;
+    this.status = `Working in ${this.folder.name}`;
+    this.touch();
+  }
+
+  /**
+   * Let it go. The tabs stay: they are documents the reader opened, and
+   * closing a folder is not closing what came out of it. The panel stays
+   * on Files too, where the recents are (design 4.1).
+   */
+  closeFolder(): void {
+    const name = this.folder.name;
+    this.folder.close();
+    this.search.clear();
+    this.folderMatches = null;
+    if (name !== '') this.status = `Closed ${name}`;
+    this.touch();
+  }
+
+  /** The folder watch: something under the root was written. */
+  folderChanged(change: FolderChange): void {
+    if (change.root !== this.folder.root) return;
+    void this.folder.refresh(change.dirs);
+  }
+
+  searchProgress(progress: SearchProgress): void {
+    this.search.progress(progress);
+  }
+
+  searchDone(done: SearchDone): void {
+    this.search.done(done);
+  }
+
+  /**
+   * Cmd+Shift+F: the folder search, with the sidebar open on it. A
+   * selection becomes the query, the way it does for Cmd+F — what the
+   * reader has in front of them is usually what they are looking for.
+   */
+  findInFolder(): void {
+    if (this.folder.root === null) {
+      this.status = 'Open a folder to search across it';
+      return;
+    }
+    this.panel = 'files';
+    this.sidebar = true;
+    const selected = this.selectedWithin();
+    if (selected !== null && selected !== '') this.search.type(selected);
+    // The field itself is in the sidebar, which may only now be
+    // arriving; it takes the keyboard from its own effect.
+    this.search.wanted += 1;
+    this.touch();
+  }
+
+  /** A file in the tree. */
+  async openFile(path: string): Promise<void> {
+    this.folder.selected = path;
+    await this.openPath(path);
+  }
+
+  /**
+   * A search result: the file, at the line the match is on.
+   *
+   * Read mode has no cursor, so this is the tab's own scroll anchor,
+   * which both views honour. The selection goes on the tab as well, so
+   * switching to Edit puts the caret on the words that were found.
+   */
+  async openHit(hit: SearchHit): Promise<void> {
+    if (!(await this.openPath(hit.path))) return;
+    const tab = this.activeTab;
+    const doc = this.activeDoc;
+    if (!tab || !doc) return;
+    const text = doc.state.doc;
+    const line = text.line(Math.min(Math.max(hit.line, 1), text.lines));
+    const from = Math.min(line.from + hit.column, line.to);
+    const to = Math.min(from + (hit.to - hit.from), line.to);
+    tab.selection = EditorSelection.single(from, to);
+    tab.anchor = { offset: from, y: 8 };
+    const mounted = this.mounted;
+    if (mounted && mounted.tab === tab) {
+      mounted.view.dispatch({
+        selection: tab.selection,
+        effects: EditorView.scrollIntoView(from, { y: 'start', yMargin: 8 }),
+      });
+      mounted.view.focus();
+      tab.anchor = null;
+    } else if (this.reading && this.reading.tab === tab) {
+      this.reading.view.scrollToOffset(from);
+      tab.anchor = null;
+    }
+  }
+
+  /**
+   * The sidebar's "New file" (design 4.5): an empty file in the selected
+   * folder, with its name up for typing. It opens when the name is
+   * settled rather than now, so that the field the reader is typing into
+   * is not taken from them by a document arriving.
+   */
+  async newFileInFolder(): Promise<void> {
+    const made = await this.folder.newFile();
+    if (made === null) return;
+    this.justMade = made;
+    this.status = `${basename(made)} · name it and press Enter`;
+  }
+
+  /** The inline rename, committed. */
+  async renameInFolder(path: string, name: string): Promise<void> {
+    const opening = this.justMade === path;
+    this.justMade = null;
+    const to = await this.folder.rename(path, name);
+    if (to === null) return;
+    // A tab open on it follows, exactly as it does when something else
+    // renames the file under us.
+    this.fileRenamed({ from: path, to });
+    if (!opening) return;
+    await this.openFile(to);
+    // A file that has just been made is a file to write in, and an empty
+    // document has nothing to read — the same reason Cmd+N opens in Edit.
+    if (this.activeDoc?.path === to) this.setMode('edit');
   }
 
   // --- the outline and the sidebar ----------------------------------------
@@ -2209,14 +2410,29 @@ export class Workspace {
     view.focus();
   }
 
-  /** A link in Read mode. The webview never navigates (design 6.2). */
+  /**
+   * A link in Read mode. The webview never navigates (design 6.2): an
+   * outside link goes to the system browser, and a link to a file beside
+   * this one opens as a tab.
+   *
+   * Relative links resolve against the document's own folder rather than
+   * the open folder, because that is what they mean: the same link means
+   * the same file whether or not a folder happens to be open.
+   */
   openLink(href: string, external: boolean): void {
     if (external) {
       if (this.options.openExternal) this.options.openExternal(href);
       else this.status = `Cannot open ${href} here`;
       return;
     }
-    this.status = `${href} opens with the folder workspace, which is WP 2.4`;
+    const [target = ''] = href.split('#');
+    if (target === '') return;
+    const from = this.activeDoc?.path;
+    if (from === null || from === undefined) {
+      this.status = `Save this document to follow ${href}`;
+      return;
+    }
+    void this.openPath(resolvePath(dirname(from), decodeURIComponent(target)));
   }
 
   // --- the session --------------------------------------------------------
@@ -2260,6 +2476,7 @@ export class Workspace {
           anchor: tab.anchor?.offset ?? 0,
           folded: [...tab.folded],
         })),
+      folder: this.folder.root,
       sidebar: this.sidebar,
       panel: this.panel,
       comments: this.comments,
@@ -2277,8 +2494,15 @@ export class Workspace {
   async restore(content: WindowContent, recents: readonly string[] = []): Promise<void> {
     this.recents = [...recents];
     this.sidebar = content.sidebar ?? false;
-    this.panel = content.panel === 'history' ? 'history' : 'outline';
+    const panel = content.panel;
+    this.panel = panel !== undefined && PANELS.includes(panel) ? panel : 'outline';
     this.comments = content.comments ?? false;
+    // The folder first, because the tree is what the window looked like.
+    // One that has since been moved is not opened and is said to be
+    // gone, beside the files that are; the tabs are unaffected either
+    // way, since they are documents and not part of any folder.
+    const lost =
+      content.folder && !(await this.folder.open(content.folder)) ? basename(content.folder) : null;
     const docs: (Doc | null)[] = [];
     const gone: string[] = [];
     for (const entry of content.documents ?? []) {
@@ -2312,7 +2536,8 @@ export class Workspace {
     const said: string[] = [];
     if (this.tabs.length > 0)
       said.push(`Picked up where you left off · ${count(this.tabs.length, 'tab')}`);
-    if (gone.length > 0) said.push(`${gone.join(', ')} no longer there`);
+    const missing = lost === null ? gone : [...gone, lost];
+    if (missing.length > 0) said.push(`${missing.join(', ')} no longer there`);
     this.status = said.join(' · ');
   }
 
@@ -2582,6 +2807,9 @@ export class Workspace {
     }
     for (const timer of this.autosaveTimers.values()) clearTimeout(timer);
     this.autosaveTimers.clear();
+    // A search still walking a folder has a thread behind it in Rust,
+    // and a window that is going has no use for what it finds.
+    this.search.cancel();
     this.countTimer = null;
     this.changeTimer = null;
     this.sessionTimer = null;

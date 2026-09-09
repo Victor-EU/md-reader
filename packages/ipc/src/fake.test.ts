@@ -29,7 +29,7 @@ describe('fake ipc', () => {
     ]);
   });
 
-  it('refuses to save a read-only encoding and reports unimplemented commands', async () => {
+  it('refuses to save a read-only encoding', async () => {
     const ipc = createFakeIpc({
       '/l.md': { content: 'caf', format: { encoding: 'windows-1252' } },
     });
@@ -39,10 +39,77 @@ describe('fake ipc', () => {
     expect(result).toMatchObject({ status: 'error', error: { kind: 'read_only_encoding' } });
     const converted = await unwrap(ipc.commands.convertDocumentToUtf8('/l.md'));
     expect(converted.meta.read_only).toBe(false);
-    expect(await ipc.commands.listDir('/')).toMatchObject({
-      status: 'error',
-      error: { kind: 'not_implemented' },
+  });
+
+  it('lists a folder one level at a time, folders first', async () => {
+    const ipc = createFakeIpc({
+      '/w/b.md': 'b',
+      '/w/A.md': 'a',
+      '/w/sub/c.md': 'c',
+      '/elsewhere/d.md': 'd',
     });
+    const listed = await unwrap(ipc.commands.listDir('/w'));
+    expect(listed.map((entry) => entry.name)).toEqual(['sub', 'A.md', 'b.md']);
+    expect(listed[0]?.is_dir).toBe(true);
+    expect((await unwrap(ipc.commands.listDir('/w/sub'))).map((e) => e.path)).toEqual([
+      '/w/sub/c.md',
+    ]);
+  });
+
+  it('matches file names in the open folder and nowhere else', async () => {
+    const ipc = createFakeIpc({ '/w/notes/plan.md': 'p', '/other/plan.md': 'p' });
+    expect((await ipc.commands.findFiles('plan', 10)).hits).toEqual([]);
+    await unwrap(ipc.commands.openFolder('/w'));
+    const found = await ipc.commands.findFiles('plan', 10);
+    expect(found.hits.map((hit) => hit.path)).toEqual(['/w/notes/plan.md']);
+    expect(found.hits[0]).toMatchObject({ name: 'plan.md', dir: 'notes' });
+    expect(found.files).toBe(1);
+  });
+
+  it('searches the folder and delivers the results as events', async () => {
+    const ipc = createFakeIpc({
+      '/w/one.md': 'first\nthe cat sat\n',
+      '/w/two.md': 'nothing\n',
+    });
+    const progress: number[] = [];
+    let finished = 0;
+    ipc.onSearchProgress((p) => progress.push(p.id));
+    ipc.onSearchDone((d) => {
+      finished = d.hits;
+    });
+    await unwrap(ipc.commands.openFolder('/w'));
+    // The window names its own search, because the results are events
+    // and an event can arrive before the call that started it answers.
+    await unwrap(
+      ipc.commands.startSearch(7, 'cat', {
+        case_sensitive: false,
+        regex: false,
+        max_results: 100,
+      }),
+    );
+    await Promise.resolve();
+    expect(progress).toEqual([7]);
+    expect(finished).toBe(1);
+  });
+
+  it('makes a file, numbers the next one, and renames within the folder', async () => {
+    const ipc = createFakeIpc({ '/w/there.md': 'x' });
+    await unwrap(ipc.commands.openFolder('/w'));
+    const changed: string[] = [];
+    ipc.onFolderChange((change) => changed.push(...change.dirs));
+    expect(await ipc.commands.openFolder('/nowhere')).toMatchObject({
+      status: 'error',
+      error: { kind: 'read' },
+    });
+    expect(await unwrap(ipc.commands.createFile('/w', 'Untitled.md'))).toBe('/w/Untitled.md');
+    expect(await unwrap(ipc.commands.createFile('/w', 'Untitled.md'))).toBe('/w/Untitled 2.md');
+    expect(await unwrap(ipc.commands.renamePath('/w/Untitled.md', 'Notes.md'))).toBe('/w/Notes.md');
+    expect(ipc.files.has('/w/Notes.md')).toBe(true);
+    expect(await ipc.commands.renamePath('/w/Untitled 2.md', 'Notes.md')).toMatchObject({
+      status: 'error',
+      error: { kind: 'write' },
+    });
+    expect(changed).toEqual(['/w', '/w', '/w']);
   });
 
   /**

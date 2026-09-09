@@ -73,6 +73,17 @@ export function tabLabels(
 }
 
 /**
+ * Whether `path` is `dir` or something under it. Prefix matching alone
+ * would put `/notes-old/x.md` inside `/notes`, so the separator is part
+ * of the question.
+ */
+export function inside(dir: string, path: string): boolean {
+  if (path === dir) return true;
+  const root = /[/\\]$/.test(dir) ? dir : `${dir}/`;
+  return path.startsWith(root) || path.startsWith(root.replace(/\/$/, '\\'));
+}
+
+/**
  * A directory as a palette row shows it: the last `depth` segments, with a
  * leading ellipsis when there was more. Full paths are too long to read at
  * a glance, and the tail is the part that tells two files apart.

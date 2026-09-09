@@ -101,10 +101,51 @@ export const commands = {
 	 *  was sent.
 	 */
 	blockDiff: (oldBlocks: Block[], newBlocks: Block[]) => __TAURI_INVOKE<BlockOp[]>("block_diff", { oldBlocks, newBlocks }),
-	/**  List a directory, honouring `.gitignore` (WP 2.x). */
+	/**
+	 *  Open a folder as this window's workspace (design 4.1).
+	 * 
+	 *  Answers with the root, which is the path every entry under it is
+	 *  built from. The tree is not returned with it: the window asks for the
+	 *  levels it shows, and the one it shows first is one `list_dir` away.
+	 */
+	openFolder: (path: string) => typedError<string, Error>(__TAURI_INVOKE("open_folder", { path })),
+	/**
+	 *  Let the folder go: the watch stops with it, and so does whatever it
+	 *  was being searched for.
+	 */
+	closeFolder: () => __TAURI_INVOKE<void>("close_folder"),
+	/**  One level of the folder tree, honouring `.gitignore`. */
 	listDir: (path: string) => typedError<DirEntry[], Error>(__TAURI_INVOKE("list_dir", { path })),
-	/**  Search file contents under `root` (WP 2.x). */
-	search: (root: string, query: string, options: SearchOptions) => typedError<SearchHit[], Error>(__TAURI_INVOKE("search", { root, query, options })),
+	/**
+	 *  The files in the open folder that match what has been typed into
+	 *  Cmd+P, best first (plan WP 2.4).
+	 * 
+	 *  With no folder open there is nothing to match against and the window
+	 *  is offering its tabs and its recents, which it ranks itself. That is
+	 *  an empty answer rather than an error: a folder can be closed while a
+	 *  keystroke is still crossing the bridge.
+	 */
+	findFiles: (query: string, limit: number) => __TAURI_INVOKE<FileMatches>("find_files", { query, limit }),
+	/**
+	 *  Start searching the open folder's contents under the window's own
+	 *  number for it; results follow as events carrying that number.
+	 * 
+	 *  The pattern is compiled here rather than on the search thread, so a
+	 *  regular expression with a typo in it comes back to the field it was
+	 *  typed into instead of arriving later as a result that is not one.
+	 */
+	startSearch: (id: number, query: string, options: SearchOptions) => typedError<null, Error>(__TAURI_INVOKE("start_search", { id, query, options })),
+	/**
+	 *  Stop the search with this id, if it is still the one running.
+	 * 
+	 *  The id is checked so that a cancel arriving after the reader has
+	 *  already started another search cannot stop the new one.
+	 */
+	cancelSearch: (id: number) => __TAURI_INVOKE<void>("cancel_search", { id }),
+	/**  Make an empty file in `dir`, from the sidebar's "New file". */
+	createFile: (dir: string, name: string) => typedError<string, Error>(__TAURI_INVOKE("create_file", { dir, name })),
+	/**  Rename a file within its folder, from the sidebar's inline rename. */
+	renamePath: (path: string, name: string) => typedError<string, Error>(__TAURI_INVOKE("rename_path", { path, name })),
 };
 
 /** Events */
@@ -113,7 +154,10 @@ export const events = {
 	externalChangeEvent: makeEvent<ExternalChangeEvent>("external-change-event"),
 	fileRemovedEvent: makeEvent<FileRemovedEvent>("file-removed-event"),
 	fileRenamedEvent: makeEvent<FileRenamedEvent>("file-renamed-event"),
+	folderChangedEvent: makeEvent<FolderChangedEvent>("folder-changed-event"),
 	openPathsEvent: makeEvent<OpenPathsEvent>("open-paths-event"),
+	searchDoneEvent: makeEvent<SearchDoneEvent>("search-done-event"),
+	searchProgressEvent: makeEvent<SearchProgressEvent>("search-progress-event"),
 };
 
 /* Types */
@@ -228,7 +272,7 @@ export type DocumentState = {
 export type Eol = "lf" | "crlf" | "cr";
 
 /**  Errors, serializable so the frontend can branch on `kind`. */
-export type Error = { kind: "not_implemented"; command: string } | { kind: "read"; path: string; message: string } | { kind: "write"; path: string; message: string } | { kind: "hash_mismatch"; path: string; expected: string; actual: string } | { kind: "read_only_encoding"; path: string; encoding: string } | { kind: "unavailable"; what: string; message: string };
+export type Error = { kind: "not_implemented"; command: string } | { kind: "read"; path: string; message: string } | { kind: "write"; path: string; message: string } | { kind: "hash_mismatch"; path: string; expected: string; actual: string } | { kind: "read_only_encoding"; path: string; encoding: string } | { kind: "unavailable"; what: string; message: string } | { kind: "bad_query"; query: string; message: string };
 
 /**  Payload of the `external_change` event (design 6.4). */
 export type ExternalChange = {
@@ -271,6 +315,32 @@ export type FileFormat = {
 };
 
 /**
+ *  One file Cmd+P is offering, with the part of its name the query
+ *  matched so the palette can underline it (plan WP 2.4).
+ */
+export type FileHit = {
+	path: string,
+	name: string,
+	/**  The folder it is in, relative to the root and empty at the root. */
+	dir: string,
+	/**  UTF-16 offsets into `name` that the query matched. */
+	positions: number[],
+};
+
+/**  What one Cmd+P query came back with. */
+export type FileMatches = {
+	hits: FileHit[],
+	/**  How many files the folder walk holds, matched or not. */
+	files: number,
+	/**
+	 *  The walk stopped at its limit, so the folder holds files that
+	 *  nothing here was matched against. The palette says so rather than
+	 *  quietly leaving them out.
+	 */
+	truncated: boolean,
+};
+
+/**
  *  Payload of the `file_removed` event: a file with a tab open on it is
  *  no longer on disk. The buffer stays; the next save recreates the file.
  */
@@ -292,6 +362,19 @@ export type FileRenamed = {
 
 /**  A watched file was renamed. */
 export type FileRenamedEvent = FileRenamed;
+
+/**
+ *  Payload of the `folder_changed` event: something under the open
+ *  folder was written, and these are the folders whose listings may no
+ *  longer be right.
+ */
+export type FolderChange = {
+	root: string,
+	dirs: string[],
+};
+
+/**  Something under the open folder was written (plan WP 2.4). */
+export type FolderChangedEvent = FolderChange;
 
 export type MergeResult = {
 	changes: PositionEdit[],
@@ -346,11 +429,37 @@ export type SaveResult = {
 	modified_ms: number | null,
 };
 
+/**  Payload of the `search_done` event: that search is over, and why. */
+export type SearchDone = {
+	id: number,
+	hits: number,
+	/**  The result limit was reached; the folder holds more. */
+	truncated: boolean,
+	/**  Another search replaced this one before it finished. */
+	cancelled: boolean,
+};
+
+/**  A content search has finished, been filled up, or been replaced. */
+export type SearchDoneEvent = SearchDone;
+
+/**  One line of one file that a search matched. */
 export type SearchHit = {
 	path: string,
+	/**  One-based, the way an editor counts lines. */
 	line: number,
+	/**
+	 *  UTF-16 offsets of the match within `text`, which is what the
+	 *  results panel highlights.
+	 */
 	from: number,
 	to: number,
+	/**
+	 *  Where the match is in the line itself, which is where the cursor
+	 *  goes. Not the same as `from` when a very long line has been cut
+	 *  down to what a row can show.
+	 */
+	column: number,
+	/**  The line as a row shows it, cut around the match when it is long. */
 	text: string,
 };
 
@@ -359,6 +468,24 @@ export type SearchOptions = {
 	regex: boolean,
 	max_results: number,
 };
+
+/**
+ *  Payload of the `search_progress` event: some of what one search has
+ *  found so far. Results are sent in batches as they arrive, so a panel
+ *  fills while the walk is still going (plan WP 2.4).
+ */
+export type SearchProgress = {
+	/**
+	 *  Which search these belong to. A reader who types again while the
+	 *  last one is still walking gets a new id, and the old one's
+	 *  leftovers are recognized and dropped.
+	 */
+	id: number,
+	hits: SearchHit[],
+};
+
+/**  Some of what a content search has found so far. */
+export type SearchProgressEvent = SearchProgress;
 
 /**  Preferences that outlive every window (design 11, design 6.6). */
 export type Settings = {
@@ -377,10 +504,14 @@ export type Settings = {
 };
 
 /**
- *  Which of the sidebar's panels was showing (design 4.1, 4.4). The
- *  folder tree joins these in WP 2.4.
+ *  Which of the sidebar's panels was showing (design 4.1, 4.4).
+ * 
+ *  `Files` is the folder tree, and the recent files when no folder is
+ *  open; it is where a window with a folder starts. `Outline` is the
+ *  default without one, because a window with one document open has
+ *  nothing to put in a tree.
  */
-export type SidebarPanel = "outline" | "history";
+export type SidebarPanel = "files" | "outline" | "history";
 
 /**
  *  Who wrote a snapshot.
@@ -448,6 +579,13 @@ export type Untitled = {
 export type WindowContent = {
 	documents?: DocumentState[],
 	tabs?: TabState[],
+	/**
+	 *  The folder this window had open (plan WP 2.4), which it opens
+	 *  again on the next launch. A folder that has since been moved or
+	 *  deleted is simply not there any more; the window opens without
+	 *  one, and its tabs are unaffected.
+	 */
+	folder?: string | null,
 	sidebar?: boolean,
 	/**  Which panel the sidebar was showing (design 4.4). */
 	panel?: SidebarPanel,

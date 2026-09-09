@@ -12,6 +12,8 @@ interface Row {
   shortcut: string;
   enabled: boolean;
   positions: number[];
+  /** The file this row opens, so the folder does not offer it twice. */
+  path: string | null;
   run: () => void;
 }
 
@@ -20,7 +22,10 @@ const palette = $derived(workspace.palette);
 
 const rows: Row[] = $derived.by(() => {
   if (palette.kind === 'files') {
-    return rank(palette.query, workspace.fileChoices(), (choice) => choice.label).map(
+    // What this window already holds, ranked here: a handful of tabs and
+    // recents, which are the rows the reader most often wants and which
+    // should not wait for an answer from Rust.
+    const near = rank(palette.query, workspace.fileChoices(), (choice) => choice.label).map(
       ({ item, positions }: { item: FileChoice; positions: number[] }) => ({
         key: item.tabId ?? (item.path as string),
         label: item.label,
@@ -28,9 +33,27 @@ const rows: Row[] = $derived.by(() => {
         shortcut: '',
         enabled: true,
         positions,
+        path: item.path,
         run: () => workspace.chooseFile(item),
       }),
     );
+    // Then the open folder, matched in Rust over its own walk. A file
+    // that is already a row above is not offered a second time.
+    const open = new Set(near.map((row) => row.path).filter((path) => path !== null));
+    const folder = (workspace.folderMatches?.hits ?? [])
+      .filter((hit) => !open.has(hit.path))
+      .map((hit) => ({
+        key: hit.path,
+        label: hit.name,
+        detail: hit.dir,
+        shortcut: '',
+        enabled: true,
+        positions: hit.positions,
+        path: hit.path,
+        run: () =>
+          workspace.chooseFile({ label: hit.name, detail: hit.dir, tabId: null, path: hit.path }),
+      }));
+    return [...near, ...folder];
   }
   return rank(palette.query, registry.listed(), (command) => command.title).map(
     ({ item, positions }: { item: Command; positions: number[] }) => ({
@@ -40,6 +63,7 @@ const rows: Row[] = $derived.by(() => {
       shortcut: item.shortcut,
       enabled: registry.isEnabled(item),
       positions,
+      path: null,
       run: () => {
         workspace.closePalette();
         registry.run(item.id);
@@ -47,6 +71,17 @@ const rows: Row[] = $derived.by(() => {
     }),
   );
 });
+
+/**
+ * A folder so large the walk behind it stopped short. Said once, under
+ * the results, because a palette that quietly cannot see a file is worse
+ * than one that says which files it looked at.
+ */
+const walked = $derived(
+  workspace.folderMatches?.truncated === true
+    ? `Matched over the first ${workspace.folderMatches.files.toLocaleString()} files of this folder`
+    : '',
+);
 
 const index = $derived(Math.min(palette.index, Math.max(rows.length - 1, 0)));
 
@@ -116,10 +151,7 @@ function keydown(event: KeyboardEvent) {
       placeholder={palette.kind === 'files' ? 'Go to file…' : 'Run a command…'}
       aria-label={palette.kind === 'files' ? 'Go to file' : 'Run a command'}
       value={palette.query}
-      oninput={(event) => {
-        workspace.palette.query = event.currentTarget.value;
-        workspace.palette.index = 0;
-      }}
+      oninput={(event) => workspace.setPaletteQuery(event.currentTarget.value)}
       onkeydown={keydown}
     />
     {#if rows.length === 0}
@@ -150,5 +182,6 @@ function keydown(event: KeyboardEvent) {
         {/each}
       </ul>
     {/if}
+    {#if walked !== ''}<p class="empty">{walked}</p>{/if}
   </div>
 </div>

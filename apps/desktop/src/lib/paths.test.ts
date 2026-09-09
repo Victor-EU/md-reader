@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basename, dirname, fileUrlToPath, shortenDir, tabLabels } from './paths.ts';
+import { basename, dirname, fileUrlToPath, inside, shortenDir, tabLabels } from './paths.ts';
 
 describe('basename and dirname', () => {
   it('handle both separators', () => {
@@ -24,6 +24,22 @@ describe('tabLabels', () => {
 
   it('leaves untitled tabs with their fallback name', () => {
     expect(tabLabels([null, '/a/one.md'], ['Untitled 1'])).toEqual(['Untitled 1', 'one.md']);
+  });
+});
+
+describe('inside', () => {
+  it('says what is under a folder and what only starts like it', () => {
+    expect(inside('/w', '/w/notes/a.md')).toBe(true);
+    expect(inside('/w', '/w')).toBe(true);
+    expect(inside('/w/', '/w/a.md')).toBe(true);
+    // The separator is part of the question: this is a different folder.
+    expect(inside('/w', '/work/a.md')).toBe(false);
+    expect(inside('/w', '/elsewhere/a.md')).toBe(false);
+  });
+
+  it('works on the other separator too, since one build serves both', () => {
+    expect(inside('C:\\w', 'C:\\w\\a.md')).toBe(true);
+    expect(inside('C:\\w', 'C:\\work\\a.md')).toBe(false);
   });
 });
 

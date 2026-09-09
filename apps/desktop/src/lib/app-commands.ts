@@ -38,6 +38,30 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.canSave,
       run: () => workspace.save(),
     },
+    // The folder workspace (design 4.1, scenario S6). Cmd+Shift+O is
+    // Cmd+O with more of the same gesture in it: the open panel, asking
+    // for a folder rather than a file.
+    {
+      id: 'file.openFolder',
+      title: 'Open Folder…',
+      group: 'File',
+      key: 'Mod+Shift+O',
+      run: () => workspace.pickAndOpenFolder(),
+    },
+    {
+      id: 'file.closeFolder',
+      title: 'Close Folder',
+      group: 'File',
+      enabled: () => workspace.folder.root !== null,
+      run: () => workspace.closeFolder(),
+    },
+    {
+      id: 'file.newInFolder',
+      title: 'New File in Folder',
+      group: 'File',
+      enabled: () => workspace.folder.root !== null,
+      run: () => workspace.newFileInFolder(),
+    },
     {
       id: 'file.convert',
       title: 'Convert to UTF-8',
@@ -169,6 +193,17 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.find.query !== '',
       run: () => workspace.findStep(false),
     },
+    // Cmd+Shift+F is Cmd+F over the folder instead of the document
+    // (design 4.1). The results are a sidebar panel, so the same key
+    // opens the sidebar and puts the keyboard in the field.
+    {
+      id: 'edit.findInFolder',
+      title: 'Find in Folder…',
+      group: 'Edit',
+      key: 'Mod+Shift+F',
+      enabled: () => workspace.folder.root !== null,
+      run: () => workspace.findInFolder(),
+    },
     // Stepping through what an agent changed, then saying it has been
     // seen (design scenario S4). `G` because these are the siblings of
     // Find Next and Find Previous: the same gesture over a different
@@ -296,6 +331,12 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       group: 'View',
       key: 'Mod+Shift+B',
       run: () => workspace.toggleSidebar(),
+    },
+    {
+      id: 'view.files',
+      title: 'Show Files',
+      group: 'View',
+      run: () => workspace.showPanel('files'),
     },
     {
       id: 'view.outline',

@@ -63,6 +63,13 @@ export function describeError(error: IpcError): string {
       return `${error.command} is not implemented yet`;
     case 'unavailable':
       return `${error.what} is not available: ${error.message}`;
+    case 'bad_query': {
+      // A regex failure comes back as a little drawing: the pattern, a
+      // caret under where it went wrong, and the sentence last. The
+      // status bar has room for the sentence.
+      const said = error.message.trimEnd().split('\n').at(-1) ?? error.message;
+      return `Not a search: ${said.replace(/^error:\s*/, '').trim()}`;
+    }
     default:
       return error.message;
   }

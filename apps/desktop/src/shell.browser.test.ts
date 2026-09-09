@@ -25,6 +25,10 @@ function start(files: Record<string, string> = {}, extra: Partial<WorkspaceOptio
     ...extra,
   });
   app = mount(App, { target, props: { shell } });
+  // The folder events, wired exactly as `main.ts` wires the real ones.
+  ipc.onFolderChange((change) => shell.workspace.folderChanged(change));
+  ipc.onSearchProgress((progress) => shell.workspace.searchProgress(progress));
+  ipc.onSearchDone((done) => shell.workspace.searchDone(done));
 }
 
 /** Let effects, and any IPC call a command started, settle. */
@@ -100,8 +104,8 @@ describe('the window', () => {
 
   /**
    * The blank window offers a new file in words, so it offers one to
-   * click. Cmd+N and the command palette are the other two ways in
-   * until the sidebar arrives in Phase 2 (plan WP 1.11).
+   * click (plan WP 1.11). Beside it is the other way in: a folder to
+   * work in (design 4.1).
    */
   it('starts a new file from the blank window', async () => {
     start();
@@ -308,8 +312,8 @@ describe('read mode', () => {
     ).toEqual(['Title', 'Second']);
   });
 
-  /** The second panel of the sidebar (design 4.4, plan WP 2.3). */
-  it('switches between the outline and the history', async () => {
+  /** The sidebar's three panels (design 4.1, 4.4). */
+  it('switches between the files, the outline and the history', async () => {
     await press('KeyB', { shift: true });
     click('.sidebar-head button:last-child');
     await settle();
@@ -317,6 +321,13 @@ describe('read mode', () => {
     const rows = [...target.querySelectorAll('.version .when')];
     expect(rows).toHaveLength(1);
     click('.sidebar-head button:first-child');
+    await settle();
+    // No folder is open, so Files is the recent files (design 4.1).
+    expect(target.querySelector('.files')).not.toBeNull();
+    expect([...target.querySelectorAll('.tree .row-name')].map((el) => el.textContent)).toEqual([
+      'a.md',
+    ]);
+    click('.sidebar-head button:nth-child(2)');
     await settle();
     expect(target.querySelector('.outline')).not.toBeNull();
   });
@@ -554,5 +565,82 @@ describe('the updater in the chrome', () => {
     const about = target.querySelector('.page-settings');
     expect(about?.textContent).toContain('MD Reader 0.1.0');
     expect(about?.textContent).toContain('Check for updates');
+  });
+});
+
+/**
+ * The folder workspace, through the components (design 4.1, scenario
+ * S6). What the folder contains is `crates/core`'s answer and the state
+ * behind these panels is covered in `folder.browser.test.ts`; this is
+ * the sidebar itself: a tree that opens files, and a search that shows
+ * what it found.
+ */
+describe('the files panel', () => {
+  const FOLDER = {
+    '/w/plan.md': '# Plan\n\nthe cat sat\n',
+    '/w/notes/cats.md': '# Cats\n\nthe cat again\n',
+  };
+
+  const names = (selector: string) =>
+    [...target.querySelectorAll(selector)].map((el) => el.textContent?.trim() ?? '');
+
+  async function openFolder() {
+    start(FOLDER, { pickFolder: async () => '/w' });
+    await shell.registry.get('file.openFolder').run();
+    await settle();
+  }
+
+  it('opens a folder from the blank window and shows its tree', async () => {
+    start(FOLDER, { pickFolder: async () => '/w' });
+    click('.blank .start:last-child');
+    await settle();
+    expect(names('.tree .row-name')).toEqual(['notes', 'plan.md']);
+    expect(target.querySelector('.folder-name')?.textContent).toBe('w');
+  });
+
+  it('opens a file by clicking it, and folds a folder open', async () => {
+    await openFolder();
+    click('.tree .row');
+    await settle();
+    expect(names('.tree .row-name')).toEqual(['notes', 'cats.md', 'plan.md']);
+    const rows = [...target.querySelectorAll<HTMLButtonElement>('.tree .row')];
+    rows[1]?.click();
+    await settle();
+    expect(activeLabel()).toBe('cats.md •');
+  });
+
+  it('searches the folder from the sidebar and opens a result', async () => {
+    await openFolder();
+    await press('KeyF', { shift: true });
+    const field = target.querySelector<HTMLInputElement>('.find-in-folder input');
+    expect(field).not.toBeNull();
+    expect(document.activeElement).toBe(field);
+    shell.workspace.search.query = 'cat again';
+    await shell.workspace.search.run();
+    await settle();
+    expect(names('.result-file .row-name')).toEqual(['cats.md']);
+    expect(target.querySelector('.result mark')?.textContent).toBe('cat again');
+    click('.result');
+    await settle();
+    expect(activeLabel()).toBe('cats.md •');
+    // Read mode has no cursor, so the tab carries where to look: the
+    // words that matched, on the third line, ready for a switch to Edit.
+    const found = shell.workspace.activeTab?.selection.main;
+    expect([found?.from, found?.to]).toEqual([12, 21]);
+  });
+
+  it('makes a new file in the tree and names it in place', async () => {
+    await openFolder();
+    click('.folder-head .act');
+    await settle();
+    const field = target.querySelector<HTMLInputElement>('.naming');
+    expect(field).not.toBeNull();
+    expect(field?.value).toBe('Untitled.md');
+    if (!field) return;
+    field.value = 'brief.md';
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    expect(names('.tree .row-name')).toEqual(['notes', 'brief.md', 'plan.md']);
+    expect(activeLabel()).toBe('brief.md •');
   });
 });

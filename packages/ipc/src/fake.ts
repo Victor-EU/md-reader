@@ -3,17 +3,24 @@ import type {
   Block,
   BlockOp,
   Commands,
+  DirEntry,
   Document,
   ExternalChange,
   FileFormat,
+  FileHit,
+  FileMatches,
   FileRemoved,
   FileRenamed,
+  FolderChange,
   Error as IpcError,
   MergeResult,
   PositionEdit,
   Restore,
   Result,
   SaveResult,
+  SearchDone,
+  SearchHit,
+  SearchProgress,
   Settings,
   SnapshotAuthor,
   SnapshotInfo,
@@ -55,6 +62,16 @@ export interface FakeIpc {
   /** Simulate the file being renamed by something else. */
   externalRename(from: string, to: string): FileRenamed;
   onExternalChange(cb: (change: ExternalChange) => void): () => void;
+  /** The folder the shell has open, as `open_folder` left it. */
+  folder: string | null;
+  /**
+   * The three folder events Rust pushes at the window. Registered the
+   * same way the real ones are listened to in `main.ts`, so a test wires
+   * the shell up exactly as the app does.
+   */
+  onFolderChange(cb: (change: FolderChange) => void): () => void;
+  onSearchProgress(cb: (progress: SearchProgress) => void): () => void;
+  onSearchDone(cb: (done: SearchDone) => void): () => void;
   /** Every command call, for assertions on what the shell asked for. */
   calls: { command: string; args: unknown[] }[];
 }
@@ -164,15 +181,45 @@ export function fakeAlign(old: Block[], fresh: Block[]): BlockOp[] {
 
 const ok = <T>(data: T): Result<T, IpcError> => ({ status: 'ok', data });
 const err = <T>(error: IpcError): Result<T, IpcError> => ({ status: 'error', error });
-const notImplemented = <T>(command: string): Result<T, IpcError> =>
-  err({ kind: 'not_implemented', command });
+const SEPARATOR = /[/\\]/;
+
+function dirname(path: string): string {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return cut <= 0 ? '' : path.slice(0, cut);
+}
+
+function basename(path: string): string {
+  return path.split(SEPARATOR).pop() ?? path;
+}
+
+/**
+ * The fake's fuzzy match: the leftmost subsequence, with the positions it
+ * used. Which of two files scores higher is `nucleo`'s business and is
+ * settled in `crates/core`; what the shell needs from a fake is an
+ * answer of the right shape, with the right file in it.
+ */
+function subsequence(query: string, text: string): number[] | null {
+  const q = query.replace(/\s+/g, '').toLowerCase();
+  const t = text.toLowerCase();
+  const positions: number[] = [];
+  let at = 0;
+  for (const ch of q) {
+    const found = t.indexOf(ch, at);
+    if (found < 0) return null;
+    positions.push(found);
+    at = found + 1;
+  }
+  return positions;
+}
 
 function defaultFormat(content: string): FileFormat {
   return {
     eol: content.includes('\r\n') ? 'crlf' : 'lf',
     mixed_eol: false,
     bom: false,
-    trailing_newline: content.endsWith('\n'),
+    // An empty file has no stored form to preserve, so the app's own
+    // is used, as `crates/core` does.
+    trailing_newline: content === '' || content.endsWith('\n'),
     encoding: 'utf-8',
   };
 }
@@ -191,6 +238,9 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
   for (const [path, file] of Object.entries(initial))
     files.set(path, typeof file === 'string' ? { content: file } : file);
   const listeners = new Set<(change: ExternalChange) => void>();
+  const folderListeners = new Set<(change: FolderChange) => void>();
+  const progressListeners = new Set<(progress: SearchProgress) => void>();
+  const doneListeners = new Set<(done: SearchDone) => void>();
   const calls: FakeIpc['calls'] = [];
   const watching = new Set<string>();
   const state = {
@@ -199,7 +249,10 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     launch: [] as string[],
     flushes: 0,
     closed: false,
+    folder: null as string | null,
   };
+  /** The search that has been started and not yet replaced or cancelled. */
+  let search = 0;
   const history = new Map<string, { info: SnapshotInfo; content: string }[]>();
   /** What the last known disk content was, so a change reports edits from it. */
   const seen = new Map<string, string>();
@@ -207,6 +260,12 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
   const record = <T>(command: string, args: unknown[], result: T): Promise<T> => {
     calls.push({ command, args });
     return Promise.resolve(result);
+  };
+  /** What the folder watch would say about a write under the open folder. */
+  const touched = (dir: string): void => {
+    const root = state.folder;
+    if (root === null || !dir.startsWith(root)) return;
+    for (const cb of folderListeners) cb({ root, dirs: [dir] });
   };
   const read = (path: string): Result<Document, IpcError> => {
     const file = files.get(path);
@@ -403,9 +462,189 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     },
     blockDiff: (oldBlocks: Block[], newBlocks: Block[]) =>
       record('block_diff', [oldBlocks, newBlocks], fakeAlign(oldBlocks, newBlocks)),
-    listDir: (path) => record('list_dir', [path], notImplemented('list_dir')),
-    search: (root, query, options) =>
-      record('search', [root, query, options], notImplemented('search')),
+    /**
+     * One level of the tree, out of the paths in the file map. The real
+     * one leaves out what `.gitignore` names, which is decided by the
+     * same walker the search uses and tested where that lives.
+     */
+    listDir: (path) => {
+      const prefix = path.endsWith('/') ? path : `${path}/`;
+      const entries = new Map<string, DirEntry>();
+      for (const [at, file] of files) {
+        if (!at.startsWith(prefix)) continue;
+        const rest = at.slice(prefix.length);
+        const cut = rest.indexOf('/');
+        const name = cut < 0 ? rest : rest.slice(0, cut);
+        entries.set(prefix + name, {
+          path: prefix + name,
+          name,
+          is_dir: cut >= 0,
+          byte_len: cut < 0 ? file.content.length : 0,
+          modified_ms: null,
+        });
+      }
+      const listed = [...entries.values()].sort(
+        (a, b) =>
+          Number(b.is_dir) - Number(a.is_dir) ||
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+      );
+      return record('list_dir', [path], ok(listed));
+    },
+    /**
+     * A folder exists in the fake if some file is under it: the map is
+     * of files, and a directory is a prefix of their paths. That is the
+     * one way a fake folder can be missing, which is what the window
+     * needs to see when a session names a folder that has since moved.
+     */
+    openFolder: (path) => {
+      const prefix = path.endsWith('/') ? path : `${path}/`;
+      if (![...files.keys()].some((at) => at.startsWith(prefix))) {
+        return record(
+          'open_folder',
+          [path],
+          err<string>({ kind: 'read', path, message: 'No such file or directory' }),
+        );
+      }
+      state.folder = path;
+      return record('open_folder', [path], ok(path));
+    },
+    closeFolder: () => {
+      state.folder = null;
+      search = 0;
+      return record<void>('close_folder', [], undefined);
+    },
+    findFiles: (query, limit) => {
+      const root = state.folder;
+      const hits: FileHit[] = [];
+      const prefix = root === null ? null : root.endsWith('/') ? root : `${root}/`;
+      if (prefix !== null && query.trim() !== '') {
+        for (const at of files.keys()) {
+          if (!at.startsWith(prefix)) continue;
+          const relative = at.slice(prefix.length);
+          const matched = subsequence(query, relative);
+          if (matched === null) continue;
+          const name = basename(relative);
+          const start = relative.length - name.length;
+          hits.push({
+            path: at,
+            name,
+            dir: relative.slice(0, Math.max(start - 1, 0)),
+            positions: matched.filter((n) => n >= start).map((n) => n - start),
+          });
+        }
+      }
+      const matches: FileMatches = {
+        hits: hits.slice(0, limit),
+        files: prefix === null ? 0 : [...files.keys()].filter((at) => at.startsWith(prefix)).length,
+        truncated: false,
+      };
+      return record('find_files', [query, limit], matches);
+    },
+    /**
+     * Search the folder's contents and deliver the results the way Rust
+     * does: as events, after the call has already answered with the id.
+     */
+    startSearch: (id, query, options) => {
+      const root = state.folder;
+      if (root === null) {
+        return record(
+          'start_search',
+          [id, query, options],
+          err<null>({
+            kind: 'unavailable',
+            what: 'the folder',
+            message: 'no folder is open to search',
+          }),
+        );
+      }
+      let pattern: RegExp;
+      try {
+        pattern = new RegExp(
+          options.regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+          options.case_sensitive ? '' : 'i',
+        );
+      } catch (error) {
+        return record(
+          'start_search',
+          [id, query, options],
+          err<null>({ kind: 'bad_query', query, message: String(error) }),
+        );
+      }
+      search = id;
+      const prefix = root.endsWith('/') ? root : `${root}/`;
+      const hits: SearchHit[] = [];
+      for (const [at, file] of files) {
+        if (!at.startsWith(prefix)) continue;
+        file.content.split('\n').forEach((text, line) => {
+          if (hits.length >= options.max_results) return;
+          const found = pattern.exec(text);
+          if (found === null) return;
+          hits.push({
+            path: at,
+            line: line + 1,
+            from: found.index,
+            to: found.index + found[0].length,
+            column: found.index,
+            text,
+          });
+        });
+      }
+      queueMicrotask(() => {
+        if (search !== id) return;
+        if (hits.length > 0) for (const cb of progressListeners) cb({ id, hits });
+        for (const cb of doneListeners)
+          cb({
+            id,
+            hits: hits.length,
+            truncated: hits.length >= options.max_results,
+            cancelled: false,
+          });
+      });
+      return record('start_search', [id, query, options], ok(null));
+    },
+    cancelSearch: (id) => {
+      if (search === id) search = 0;
+      return record<void>('cancel_search', [id], undefined);
+    },
+    createFile: (dir, name) => {
+      const cut = name.lastIndexOf('.');
+      const [stem, ext] = cut > 0 ? [name.slice(0, cut), name.slice(cut)] : [name, ''];
+      for (let n = 1; n < 100; n++) {
+        const path = `${dir}/${n === 1 ? name : `${stem} ${n}${ext}`}`;
+        if (files.has(path)) continue;
+        files.set(path, { content: '' });
+        touched(dir);
+        return record('create_file', [dir, name], ok(path));
+      }
+      return record(
+        'create_file',
+        [dir, name],
+        err<string>({ kind: 'write', path: dir, message: 'too many files of this name' }),
+      );
+    },
+    renamePath: (path, name) => {
+      const dir = dirname(path);
+      const to = `${dir}/${name}`;
+      const file = files.get(path);
+      if (files.has(to)) {
+        return record(
+          'rename_path',
+          [path, name],
+          err<string>({
+            kind: 'write',
+            path: to,
+            message: 'there is already a file with that name',
+          }),
+        );
+      }
+      if (file) {
+        files.set(to, file);
+        files.delete(path);
+        watching.delete(path);
+      }
+      touched(dir);
+      return record('rename_path', [path, name], ok(to));
+    },
   };
   return {
     commands,
@@ -456,6 +695,21 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     onExternalChange(cb) {
       listeners.add(cb);
       return () => listeners.delete(cb);
+    },
+    get folder() {
+      return state.folder;
+    },
+    onFolderChange(cb) {
+      folderListeners.add(cb);
+      return () => folderListeners.delete(cb);
+    },
+    onSearchProgress(cb) {
+      progressListeners.add(cb);
+      return () => progressListeners.delete(cb);
+    },
+    onSearchDone(cb) {
+      doneListeners.add(cb);
+      return () => doneListeners.delete(cb);
     },
   };
 }
