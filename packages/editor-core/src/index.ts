@@ -1,9 +1,12 @@
 export {
   type ChangeKind,
   changeMarkers,
+  changeRuns,
   changesField,
   type LineChange,
   lineChanges,
+  nextChange,
+  previousChange,
   setChanges,
 } from './changes/index.ts';
 export {

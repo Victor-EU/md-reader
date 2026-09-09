@@ -395,7 +395,14 @@ export const linkSelection: Action = {
   },
 };
 
-/** The Phase 0 catalog for the Node runner. DOM actions live in the browser test. */
+/**
+ * The catalog for the Node runner, as it stands at the Phase 1 gate: the
+ * Phase 0 six, the five annotation commands from WP 1.6, and the marks,
+ * link and indentation from WP 1.10. DOM actions live in the browser
+ * test. Rich-text paste is deliberately absent — its byte change is one
+ * replacement CodeMirror itself guarantees, and what is worth testing is
+ * the conversion, which has its own cases (ADR 0016).
+ */
 export const nodeActions: Action[] = [
   typeCharacter,
   deleteCharacter,

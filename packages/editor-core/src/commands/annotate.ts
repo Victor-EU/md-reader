@@ -6,7 +6,7 @@ import {
   type PaletteMeaning,
   paletteEntry,
 } from '@mdreader/markdown';
-import { command, type Edit } from './edit.ts';
+import { command, type Edit, trimmed } from './edit.ts';
 
 /**
  * The four annotation commands of design 4.3: highlight, colour from the
@@ -25,7 +25,8 @@ export type AnnotationEdit = Edit;
 
 /**
  * Wrap every non-empty range in `marker`, or take the marker off a range
- * that is already exactly wrapped in it.
+ * that is already exactly wrapped in it. The whitespace at a range's
+ * edges is left outside the marks, for the reason `trimmed` gives.
  *
  * Toggling reads the two spans of source either side of the selection
  * rather than the tree. That is the same question the reader is asking —
@@ -34,27 +35,33 @@ export type AnnotationEdit = Edit;
  * to find.
  */
 export function toggleWrapEdit(state: EditorState, marker: string): AnnotationEdit | null {
-  if (state.selection.ranges.every((range) => range.empty)) return null;
   const width = marker.length;
-  return state.changeByRange((range) => {
-    if (range.empty) return { range };
-    if (wrapped(state.doc, range.from, range.to, marker)) {
+  let acted = false;
+  const edit = state.changeByRange((range) => {
+    // The whitespace at the edges stays outside the marks; `trimmed` says
+    // why that matters more for `==` than for anything else.
+    const span = range.empty ? null : trimmed(state, range);
+    if (!span) return { range };
+    acted = true;
+    const { from, to } = span;
+    if (wrapped(state.doc, from, to, marker)) {
       return {
         changes: [
-          { from: range.from - width, to: range.from },
-          { from: range.to, to: range.to + width },
+          { from: from - width, to: from },
+          { from: to, to: to + width },
         ],
-        range: EditorSelection.range(range.from - width, range.to - width),
+        range: EditorSelection.range(from - width, to - width),
       };
     }
     return {
       changes: [
-        { from: range.from, insert: marker },
-        { from: range.to, insert: marker },
+        { from, insert: marker },
+        { from: to, insert: marker },
       ],
-      range: EditorSelection.range(range.from + width, range.to + width),
+      range: EditorSelection.range(from + width, to + width),
     };
   });
+  return acted ? edit : null;
 }
 
 function wrapped(doc: Text, from: number, to: number, marker: string): boolean {
@@ -106,8 +113,9 @@ function enclosingSpan(doc: Text, from: number, to: number): { from: number; to:
  * inner one and leave the file saying two things.
  */
 export function colorEdit(state: EditorState, meaning: PaletteMeaning): AnnotationEdit | null {
-  const range = state.selection.main;
-  if (range.empty) return null;
+  const main = state.selection.main;
+  const range = main.empty ? null : trimmed(state, main);
+  if (!range) return null;
   const entry = paletteEntry(meaning);
   const open = `<span style="${colorStyle(entry.color)}">`;
   const existing = enclosingSpan(state.doc, range.from, range.to);
@@ -173,24 +181,31 @@ export function blockCommentPos(state: EditorState, pos: number): number {
  * The inline form gets a leading space when the character before it is
  * not one, so the comment never glues onto a word; the anchor rule
  * accepts whitespace between an element and its note.
+ *
+ * The selection is trimmed first. A selection dragged to the end of a
+ * line ends after the line break, and a note written there sits at the
+ * head of the next block, anchored to the wrong text. A selection of
+ * nothing but whitespace has no anchor at all, so it takes the block
+ * form.
  */
 export function commentEdit(state: EditorState, kind: AnnotationKind, text = ''): AnnotationEdit {
-  const range = state.selection.main;
+  const main = state.selection.main;
+  const span = main.empty ? null : trimmed(state, main);
   const note = commentText(kind, text);
-  if (range.empty) {
-    const at = blockCommentPos(state, range.from);
+  if (!span) {
+    const at = blockCommentPos(state, main.from);
     return {
       changes: { from: at, insert: `${note}\n` },
       selection: EditorSelection.single(at + commentPrefix(kind).length + text.length),
     };
   }
-  const before = state.doc.sliceString(Math.max(0, range.to - 1), range.to);
+  const before = state.doc.sliceString(Math.max(0, span.to - 1), span.to);
   const space = before === '' || /\s/.test(before) ? '' : ' ';
   const insert = `${space}${note}`;
   return {
-    changes: { from: range.to, insert },
+    changes: { from: span.to, insert },
     selection: EditorSelection.single(
-      range.to + space.length + commentPrefix(kind).length + text.length,
+      span.to + space.length + commentPrefix(kind).length + text.length,
     ),
   };
 }

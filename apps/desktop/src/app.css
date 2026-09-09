@@ -407,8 +407,19 @@ body,
  * loud. The size and the measure are settings, so both are variables.
  */
 
+/*
+ * `tabindex` because a scroller answers Page Down, Space and the arrows
+ * only when it has focus, and no ring because this is a page rather than
+ * a control: -1 keeps it out of the tab order, so the mount is the only
+ * thing that ever focuses it.
+ */
 .page-read {
   overflow-y: auto;
+}
+
+.page-read:focus,
+.page-settings:focus {
+  outline: none;
 }
 
 .read {

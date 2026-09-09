@@ -1,27 +1,38 @@
 //! Invariant C from design section 10 through the real file path: every
-//! adversarial corpus file, opened and saved with the buffer the editor
+//! committed corpus file, opened and saved with the buffer the editor
 //! would hold (LF-normalized, BOM kept as U+FEFF), comes back byte for
 //! byte. Then one edit, and the only difference is that edit.
+//!
+//! Both sets, because they fail differently. The adversarial files are
+//! hand-written to break the encoder — BOMs, CRLF, no final newline. The
+//! generated files are what a model actually writes, which is the shape
+//! this app spends its life saving.
 
 use std::path::{Path, PathBuf};
 
 use mdreader_core::{encode, read_document, save_document};
 
-fn corpus_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/adversarial")
+fn corpus_dir(set: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../corpus")
+        .join(set)
 }
 
 fn files() -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = std::fs::read_dir(corpus_dir())
-        .expect("corpus/adversarial exists")
-        .filter_map(Result::ok)
-        .map(|e| e.path())
+    let mut out: Vec<PathBuf> = ["adversarial", "generated"]
+        .iter()
+        .flat_map(|set| {
+            std::fs::read_dir(corpus_dir(set))
+                .unwrap_or_else(|e| panic!("corpus/{set} exists: {e}"))
+                .filter_map(Result::ok)
+                .map(|e| e.path())
+        })
         .filter(|p| p.extension().is_some_and(|x| x == "md"))
         .collect();
     out.sort();
     assert!(
-        out.len() >= 30,
-        "expected the adversarial set, found {}",
+        out.len() >= 200,
+        "expected both corpus sets, found {}",
         out.len()
     );
     out

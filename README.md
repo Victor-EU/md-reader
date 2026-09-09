@@ -59,11 +59,15 @@ that works — the Apple Developer Program enrollment, the repository
 secrets, and where the updater's private key lives — is in
 [docs/release.md](docs/release.md).
 
-`pnpm tauri build` on this machine needs `TAURI_SIGNING_PRIVATE_KEY` set
-to the contents of that key, because the config asks for updater
-artifacts. Without it the build stops after the bundle. To build without
-one, add `--config src-tauri/unsigned.conf.json`, which is what CI's
-nightly bundle does.
+`pnpm tauri build` on this machine needs two variables set, because the
+config asks for updater artifacts: `TAURI_SIGNING_PRIVATE_KEY` to the
+contents of that key, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` to the
+empty string. Without the key the build stops before the bundle; without
+the password variable it builds the bundle and then fails signing it,
+because the CLI asks for a password on a terminal a script does not have
+(`Device not configured (os error 6)`). To build without a key at all,
+add `--config src-tauri/unsigned.conf.json`, which is what CI's nightly
+bundle does.
 
 The `.dmg` target additionally drives Finder over Apple Events to lay the
 window out, so the first local `--bundles dmg` will sit waiting on a

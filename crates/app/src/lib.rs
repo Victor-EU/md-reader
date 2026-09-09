@@ -738,6 +738,21 @@ pub fn export_bindings(to: &Path) -> Result<(), specta_typescript::Error> {
     ipc_builder().export(typescript(), to)
 }
 
+/// Whether this process is `tauri dev` rather than a bundled application.
+///
+/// `bindings_path()` is baked in at compile time, so a debug bundle left
+/// in `target/` keeps a path into the source tree and rewrites the
+/// generated file when it is launched — with whatever command set it was
+/// built from. One did, at the Phase 1 gate: an old bundle that
+/// `LaunchServices` preferred for `.md` took two work packages of commands
+/// back out of `packages/ipc/src/bindings.ts` and broke `pnpm check`.
+/// A bundle has no business writing into a checkout, so only the loose
+/// binary does.
+#[cfg(debug_assertions)]
+fn from_source_tree() -> bool {
+    std::env::current_exe().is_ok_and(|exe| !exe.to_string_lossy().contains(".app/Contents/"))
+}
+
 /// Put every window back where it was and show it, then hand over
 /// whatever the launch was asked to open.
 ///
@@ -788,7 +803,9 @@ fn single_instance(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri:
 pub fn run(context: tauri::Context) {
     let builder = ipc_builder();
     #[cfg(debug_assertions)]
-    if let Err(e) = export_bindings(&bindings_path()) {
+    if from_source_tree()
+        && let Err(e) = export_bindings(&bindings_path())
+    {
         eprintln!("could not export IPC bindings: {e}");
     }
     let app = single_instance(tauri::Builder::default())

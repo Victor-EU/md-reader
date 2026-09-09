@@ -169,6 +169,26 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.find.query !== '',
       run: () => workspace.findStep(false),
     },
+    // Stepping through what an agent changed, then saying it has been
+    // seen (design scenario S4). `G` because these are the siblings of
+    // Find Next and Find Previous: the same gesture over a different
+    // list.
+    {
+      id: 'edit.nextChange',
+      title: 'Next Change',
+      group: 'Edit',
+      key: 'Mod+Alt+G',
+      enabled: () => workspace.unreviewed > 0,
+      run: () => workspace.stepChange(true),
+    },
+    {
+      id: 'edit.previousChange',
+      title: 'Previous Change',
+      group: 'Edit',
+      key: 'Mod+Alt+Shift+G',
+      enabled: () => workspace.unreviewed > 0,
+      run: () => workspace.stepChange(false),
+    },
     {
       id: 'edit.markReviewed',
       title: 'Mark Reviewed',

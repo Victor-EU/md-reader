@@ -1,5 +1,6 @@
 <script lang="ts">
 import { MEASURE_RANGE, SIZES } from '../lib/appearance.ts';
+import { focusScroller } from '../lib/scroller.ts';
 import { describeUpdate } from '../lib/update.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
@@ -45,9 +46,17 @@ const update = $derived(describeUpdate(workspace.update));
 
 const smallest = $derived(settings.size <= (SIZES[0] ?? 0));
 const largest = $derived(settings.size >= (SIZES.at(-1) ?? 0));
+
+let host: HTMLElement | undefined = $state();
+
+// This page is longer than the window and scrolls itself, so it needs the
+// keyboard the same way Read mode does.
+$effect(() => {
+  if (host) focusScroller(host);
+});
 </script>
 
-<main class="page page-settings">
+<main class="page page-settings" tabindex="-1" bind:this={host}>
   <div class="settings">
     <h1>Settings</h1>
 

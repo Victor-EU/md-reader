@@ -24,6 +24,8 @@ import {
   lineChanges,
   linkEdit,
   type MatchCount,
+  nextChange,
+  previousChange,
   replaceAll,
   replaceNext,
   SearchQuery,
@@ -308,6 +310,8 @@ export class Workspace {
   private readonly docs = new Map<string, Doc>();
   private closed = $state<ClosedTab[]>([]);
   private mounted: { view: EditorView; tab: Tab } | null = null;
+  /** A change step asked for from Read mode, waiting for the editor. */
+  private pendingStep: boolean | null = null;
   private reading: { view: ReadView; tab: Tab } | null = null;
   private untitledCount = 0;
   private epoch = $state(0);
@@ -724,6 +728,14 @@ export class Workspace {
       tab.anchor = null;
     } else {
       view.scrollDOM.scrollTop = tab.scrollTop;
+    }
+    // A change step asked for from Read mode has been waiting for this
+    // view. It runs after the place the reader left, because it is a
+    // request to go somewhere else and would otherwise be scrolled over.
+    if (this.pendingStep !== null) {
+      const forward = this.pendingStep;
+      this.pendingStep = null;
+      this.runStep(forward);
     }
     view.focus();
   }
@@ -1205,6 +1217,33 @@ export class Workspace {
   }
 
   // --- what the reader has seen -------------------------------------------
+
+  /**
+   * Walk the external changes, one run at a time (design scenario S4).
+   *
+   * Read mode has no cursor to put on a change, so the step happens in
+   * Edit — the same reasoning as find, whose bar also switches modes
+   * before it opens (ADR 0016). The editor arrives from its own effect a
+   * moment later, so the step waits in `pendingStep` and `mount` runs it.
+   */
+  stepChange(forward: boolean): boolean {
+    const tab = this.activeTab;
+    if (tab?.kind !== 'document') return false;
+    if (tab.mode === 'read') {
+      this.pendingStep = forward;
+      this.setMode('edit');
+      return true;
+    }
+    return this.runStep(forward);
+  }
+
+  private runStep(forward: boolean): boolean {
+    const view = this.mounted?.view;
+    if (!view) return false;
+    const moved = (forward ? nextChange : previousChange)(view);
+    if (!moved) this.status = 'Nothing has changed under you';
+    return moved;
+  }
 
   /** Everything in the buffer has been looked at (design 4.4). */
   markReviewed(): void {

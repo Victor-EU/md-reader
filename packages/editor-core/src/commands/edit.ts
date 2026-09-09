@@ -1,4 +1,10 @@
-import type { ChangeSpec, EditorSelection, EditorState, StateCommand } from '@codemirror/state';
+import {
+  type ChangeSpec,
+  EditorSelection,
+  type EditorState,
+  type SelectionRange,
+  type StateCommand,
+} from '@codemirror/state';
 
 /**
  * One planned edit: the bytes it changes and where the selection lands
@@ -26,4 +32,23 @@ export function command(
     dispatch(state.update({ ...edit, userEvent, scrollIntoView: true }));
     return true;
   };
+}
+
+/**
+ * The part of a range a mark should actually cover: the whitespace at its
+ * edges left outside. Null when there is nothing but whitespace to mark.
+ *
+ * Trimming matters more than it looks. A selection dragged to the end of a
+ * line takes the line break with it, and a marker either side of a line
+ * break is not a mark. `**` becomes four asterisks the reader has to
+ * delete. `==` is worse: alone on the line after a paragraph it is a Setext
+ * heading underline, so highlighting a whole paragraph turns it into an H1
+ * and puts it in the outline.
+ */
+export function trimmed(state: EditorState, range: SelectionRange): SelectionRange | null {
+  const text = state.doc.sliceString(range.from, range.to);
+  const lead = /^\s*/.exec(text)?.[0].length ?? 0;
+  const trail = /\s*$/.exec(text)?.[0].length ?? 0;
+  if (lead + trail >= text.length) return null;
+  return EditorSelection.range(range.from + lead, range.to - trail);
 }

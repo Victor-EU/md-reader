@@ -269,6 +269,56 @@ describe('what the reader has seen', () => {
     expect(doc.state.field(changesField).iter().from).toBe(before + 'new line\n'.length);
   });
 
+  /**
+   * Scenario S4's last clause: "the human presses a key to step through
+   * the changes, then mark reviewed". Added at the Phase 1 gate, where
+   * the by-hand pass found the marks drawn and no way to walk them.
+   */
+  it('steps the cursor from one changed run to the next, and wraps', async () => {
+    open({ '/a/one.md': 'one\ntwo\nthree\nfour\nfive\n' });
+    await workspace.openPath('/a/one.md');
+    edit();
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\nTWO\nthree\nFOUR\nfive\n'));
+    const line = () => {
+      const state = workspace.view?.state;
+      if (!state) throw new Error('no view');
+      return state.doc.lineAt(state.selection.main.head).number;
+    };
+    expect(workspace.stepChange(true)).toBe(true);
+    expect(line()).toBe(2);
+    // A cursor already on a change is looking at it, so next means the
+    // one after — and past the last one it comes back to the first.
+    expect(workspace.stepChange(true)).toBe(true);
+    expect(line()).toBe(4);
+    expect(workspace.stepChange(true)).toBe(true);
+    expect(line()).toBe(2);
+    expect(workspace.stepChange(false)).toBe(true);
+    expect(line()).toBe(4);
+  });
+
+  it('says so rather than moving when nothing has changed', async () => {
+    open({ '/a/one.md': 'one\ntwo\n' });
+    await workspace.openPath('/a/one.md');
+    edit();
+    expect(workspace.stepChange(true)).toBe(false);
+    expect(workspace.status).toBe('Nothing has changed under you');
+  });
+
+  it('steps from Read mode by switching to the view that has a cursor', async () => {
+    open({ '/a/one.md': 'one\ntwo\nthree\nfour\n' });
+    await workspace.openPath('/a/one.md');
+    edit();
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\ntwo\nTHREE\nfour\n'));
+    workspace.unmount();
+    workspace.setMode('read');
+    expect(workspace.stepChange(true)).toBe(true);
+    // The editor arrives from its own effect, which is where the step runs.
+    workspace.mount(host);
+    const state = workspace.view?.state;
+    if (!state) throw new Error('no view');
+    expect(state.doc.lineAt(state.selection.main.head).number).toBe(3);
+  });
+
   it('saving marks the document as seen', async () => {
     open({ '/a/one.md': 'one\n' });
     await workspace.openPath('/a/one.md');

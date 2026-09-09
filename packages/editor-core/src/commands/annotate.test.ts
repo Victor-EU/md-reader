@@ -55,6 +55,27 @@ describe('highlight and strikethrough', () => {
     expect(run(applyHighlight, doc, 4)).toBe(false);
   });
 
+  /**
+   * Found by hand at the Phase 1 gate. A reader dragging over a paragraph
+   * ends the selection after the last line break, and a `==` alone on the
+   * line that follows a paragraph is a Setext heading underline: the
+   * paragraph rendered as an H1 and appeared in the outline.
+   */
+  it('leaves the line break outside the marks', () => {
+    const para = 'One two\nthree four\n\nNext.\n';
+    expect(run(applyHighlight, para, { anchor: 0, head: 19 })).toBe(
+      '==[One two\nthree four]==\n\nNext.\n',
+    );
+    expect(run(applyStrikethrough, para, { anchor: 0, head: 19 })).toBe(
+      '~~[One two\nthree four]~~\n\nNext.\n',
+    );
+  });
+
+  it('does nothing to a selection of whitespace alone', () => {
+    expect(run(applyHighlight, 'One\n\n\nTwo.\n', { anchor: 3, head: 5 })).toBe(false);
+    expect(run(applyStrikethrough, 'One\n\n\nTwo.\n', { anchor: 3, head: 5 })).toBe(false);
+  });
+
   it('marks every range of a multiple selection', () => {
     let state = EditorState.create({
       doc,
@@ -97,6 +118,13 @@ describe('colour', () => {
   it('does nothing without a selection', () => {
     expect(run(applyColor('keep'), doc, 4)).toBe(false);
   });
+
+  it('leaves the line break outside the span', () => {
+    const para = 'One two\nthree four\n\nNext.\n';
+    const out = run(applyColor('remove'), para, { anchor: 0, head: 19 });
+    expect(out).toContain('">One two\nthree four</span>');
+    expect(out).not.toContain('</span>\n');
+  });
 });
 
 describe('comment', () => {
@@ -107,10 +135,20 @@ describe('comment', () => {
     );
   });
 
-  it('keeps a single space when there already is one', () => {
+  // The trailing space is trimmed off the anchor, so the note lands after
+  // the word with one space either side. Before the gate's trim it landed
+  // after the space and glued onto the next word: `-->two three.`
+  it('sits between the words when the selection took the space with it', () => {
     const doc = 'One two three.\n';
     expect(run(applyComment('keep', 'k'), doc, { anchor: 0, head: 4 })).toBe(
-      'One <!-- keep: k| -->two three.\n',
+      'One <!-- keep: k| --> two three.\n',
+    );
+  });
+
+  it('anchors to the text, not to the line break the drag took with it', () => {
+    const para = 'One two\nthree four\n\nNext.\n';
+    expect(run(applyComment('note', 'why'), para, { anchor: 0, head: 19 })).toBe(
+      'One two\nthree four <!-- note: why| -->\n\nNext.\n',
     );
   });
 

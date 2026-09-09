@@ -6,7 +6,7 @@ import { formatFailures, runNode } from './runner.ts';
 
 /**
  * The round-trip corpus (design section 10, plan WP 0.5), Node runner:
- * every action from the Phase 0 catalog over every corpus file, seeded.
+ * every action from the Phase 1 catalog over every corpus file, seeded.
  * A failure prints the file, the action, its seed, and the byte diff.
  */
 const files = corpusFiles(200);

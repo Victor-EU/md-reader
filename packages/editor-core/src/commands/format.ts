@@ -4,7 +4,7 @@ import {
   type SelectionRange,
   type Text,
 } from '@codemirror/state';
-import { command, type Edit } from './edit.ts';
+import { command, type Edit, trimmed } from './edit.ts';
 
 /**
  * The four inline marks of design 4.5: bold, italic, code, and link.
@@ -58,23 +58,15 @@ function marked(doc: Text, from: number, to: number, marker: string): boolean {
 
 /**
  * What the mark applies to: the selection with the whitespace at its
- * edges left outside, or the word the cursor is in.
- *
- * Trimming matters more than it looks. A selection dragged past the end
- * of a line takes the line break with it, and `**` either side of a line
- * break is not emphasis — it is four asterisks the reader then has to
- * delete. Null when there is nothing but whitespace to mark.
+ * edges left outside, or the word the cursor is in. The trimming is
+ * `trimmed` in `./edit.ts`, which the annotation marks share.
  */
 function target(state: EditorState, range: SelectionRange): SelectionRange | null {
   if (range.empty) {
     const word = state.wordAt(range.head);
     return word && !word.empty ? word : null;
   }
-  const text = state.doc.sliceString(range.from, range.to);
-  const lead = /^\s*/.exec(text)?.[0].length ?? 0;
-  const trail = /\s*$/.exec(text)?.[0].length ?? 0;
-  if (lead + trail >= text.length) return null;
-  return EditorSelection.range(range.from + lead, range.to - trail);
+  return trimmed(state, range);
 }
 
 /**

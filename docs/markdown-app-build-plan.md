@@ -492,6 +492,7 @@ Each of these should either be folded into the design or reversed here.
 | MCP token is stable and rotated on command; the binary has a stdio bridge mode | Per-launch rotation breaks configured clients; most clients speak stdio |
 | Goldens for adversarial files plus a 100-file sample, not the whole corpus | Repository churn |
 | Bundle identifier and license chosen in WP 0.1 | Both are hard to change once file associations, the updater, and the corpus exist |
+| Stepping through changes is `Cmd+Alt+G` and `Cmd+Alt+Shift+G`, and wraps | S4 says "presses a key" without saying which; these are the siblings of Find Next and Find Previous, over a different list |
 
 **Corrections from the review of draft v1.** `similar` was credited with a three-way merge it does not have. The Phase 1 gate required S4 while the phase only merged clean buffers. The schedule headline did not match the work package sums. Read mode had no path to the 100 ms budget at 1 MB before Phase 2. The table cell design intercepted `beforeinput`, which IME does not honor. The Windows rename note named the wrong API. The plan promised a signed build in WP 0.1 and a single bench runner for two webviews. Obsidian was described as lacking in-place cells, which stopped being true at 1.5.
 

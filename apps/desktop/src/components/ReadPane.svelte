@@ -1,5 +1,6 @@
 <script lang="ts">
 import { untrack } from 'svelte';
+import { focusScroller } from '../lib/scroller.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
 let { workspace }: { workspace: Workspace } = $props();
@@ -14,8 +15,10 @@ $effect(() => {
   const parent = host;
   if (!parent || key === null) return;
   untrack(() => workspace.mountRead(parent));
+  // The page is the scroller, so it is what the arrow keys have to reach.
+  focusScroller(parent);
   return () => untrack(() => workspace.unmountRead());
 });
 </script>
 
-<main class="page page-read" bind:this={host}></main>
+<main class="page page-read" tabindex="-1" bind:this={host}></main>
