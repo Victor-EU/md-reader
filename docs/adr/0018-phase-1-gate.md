@@ -115,6 +115,17 @@ that is a decision to take deliberately, not inside a gate run.
 > directories on Linux, where 0600 had been protecting them by accident.
 > The call now takes an `atomic::Create`, and each of the five sites says
 > which it means.
+>
+> Verifying that found the one file that does not go through the call at
+> all. SQLite creates `history.db` itself, so the index arrived at 0644
+> while every blob it points at was 0600 -- and its rows are the record of
+> which documents the reader has open and when they last touched them.
+> `History::open` now narrows the directory, the index, and the `-wal` and
+> `-shm` pair. All three, because none covers the others: SQLite gives the
+> pair the mode of the database it opened, but an unclean exit leaves a
+> pair behind and the next run picks it up as it stands, while the
+> directory is what covers whatever else ends up inside it and the file
+> modes are what survive a copy or a restore.
 
 **The word count includes comment text.** A `<!-- note: … -->` is markup the
 reader hid for a model, not prose they wrote, and one note moved the count

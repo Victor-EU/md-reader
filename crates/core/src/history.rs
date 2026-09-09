@@ -109,6 +109,41 @@ fn coalesces(previous: &SnapshotInfo, author: SnapshotAuthor, at_ms: u64) -> boo
         && at_ms.saturating_sub(previous.timestamp_ms) < COALESCE_MS
 }
 
+/// Keep the store to its owner.
+///
+/// The blobs go through `atomic::replace` and are private already, but the
+/// index is SQLite's own file and arrives at whatever the umask allows --
+/// 0644 on a normal machine. Its rows say which documents the reader has
+/// open and when they last touched them, which is the same thing the blobs
+/// are kept private for, so the two should not disagree.
+///
+/// Both the directory and the files, because neither covers the other.
+/// The `-wal` and `-shm` files are SQLite's own: it gives them the mode of
+/// the database it opened, so narrowing the index before the journal mode
+/// is set covers a pair this connection makes. A pair left behind by an
+/// older run is picked up as it stands, and an unclean exit leaves one
+/// every time, so they are named here too. Closing the directory covers
+/// whatever else ends up inside it; narrowing the files covers a directory
+/// whose mode is lost to a copy or a restore.
+///
+/// Best effort, like the permission copy in `atomic`: a store that cannot
+/// be narrowed is still a store that works.
+#[cfg(unix)]
+fn restrict(dir: &Path, index: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let private = std::fs::Permissions::from_mode(0o600);
+    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+    let _ = std::fs::set_permissions(index, private.clone());
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = index.as_os_str().to_os_string();
+        sidecar.push(suffix);
+        let _ = std::fs::set_permissions(PathBuf::from(sidecar), private.clone());
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict(_dir: &Path, _index: &Path) {}
+
 /// The document history for one app data directory.
 pub struct History {
     db: Connection,
@@ -125,8 +160,11 @@ impl History {
     /// opened and brought up to the current schema.
     pub fn open(dir: &Path) -> Result<Self, Error> {
         std::fs::create_dir_all(dir).map_err(|e| failed("create the history directory", &e))?;
-        let db = Connection::open(dir.join("history.db"))
-            .map_err(|e| failed("open the history index", &e))?;
+        let index = dir.join("history.db");
+        let db = Connection::open(&index).map_err(|e| failed("open the history index", &e))?;
+        // Before the journal mode, so that the files it creates inherit the
+        // narrowed one; see `restrict`.
+        restrict(dir, &index);
         // A crash must cost the last snapshot at worst, never the index.
         db.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| failed("set the journal mode", &e))?;
@@ -433,6 +471,69 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let history = History::open(dir.path()).expect("open");
         (dir, history)
+    }
+
+    /// The index says which documents the reader has open; the blobs were
+    /// already private, and SQLite's own file should not be the way in.
+    #[cfg(unix)]
+    #[test]
+    fn keeps_the_store_to_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path().join("history");
+        let mut history = History::open(&root).expect("open");
+        history
+            .snapshot(Path::new("/a.md"), "hello\n", SnapshotAuthor::User)
+            .expect("snapshot");
+        let mode = |p: &Path| {
+            std::fs::metadata(p)
+                .unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        assert_eq!(mode(&root), 0o700, "the directory");
+        assert_eq!(mode(&root.join("history.db")), 0o600, "the index");
+        // SQLite gives these the database's own mode. The write-ahead log is
+        // there for as long as the connection is; the shared memory file is
+        // the VFS's business, so it is checked where it is found.
+        assert_eq!(mode(&root.join("history.db-wal")), 0o600, "the log");
+        let shm = root.join("history.db-shm");
+        if shm.exists() {
+            assert_eq!(mode(&shm), 0o600, "the shared memory");
+        }
+    }
+
+    /// A store made before this was enforced. An unclean exit leaves the
+    /// `-wal` and `-shm` pair on disk, and the next run picks it up as it
+    /// stands, so opening has to narrow what it finds and not only what it
+    /// makes.
+    #[cfg(unix)]
+    #[test]
+    fn narrows_a_store_it_did_not_make() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path().join("history");
+        // Held open, so the pair is on disk exactly as an exit would leave it.
+        let mut older = History::open(&root).expect("open");
+        older
+            .snapshot(Path::new("/a.md"), "hello\n", SnapshotAuthor::User)
+            .expect("snapshot");
+        let widen = |path: &Path, mode: u32| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).expect("chmod");
+        };
+        widen(&root, 0o755);
+        for name in ["history.db", "history.db-wal", "history.db-shm"] {
+            widen(&root.join(name), 0o644);
+        }
+
+        let _current = History::open(&root).expect("reopen");
+        let mode = |p: &Path| std::fs::metadata(p).expect("meta").permissions().mode() & 0o777;
+        assert_eq!(mode(&root), 0o700, "the directory");
+        for name in ["history.db", "history.db-wal", "history.db-shm"] {
+            assert_eq!(mode(&root.join(name)), 0o600, "{name}");
+        }
+        drop(older);
     }
 
     fn blob_count(dir: &Path) -> usize {
