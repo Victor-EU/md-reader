@@ -199,15 +199,41 @@ export function commentEdit(state: EditorState, kind: AnnotationKind, text = '')
       selection: EditorSelection.single(at + commentPrefix(kind).length + text.length),
     };
   }
-  const before = state.doc.sliceString(Math.max(0, span.to - 1), span.to);
+  const at = pastMarks(state.doc, span.from, span.to);
+  const before = state.doc.sliceString(Math.max(0, at - 1), at);
   const space = before === '' || /\s/.test(before) ? '' : ' ';
   const insert = `${space}${note}`;
   return {
-    changes: { from: span.to, insert },
-    selection: EditorSelection.single(
-      span.to + space.length + commentPrefix(kind).length + text.length,
-    ),
+    changes: { from: at, insert },
+    selection: EditorSelection.single(at + space.length + commentPrefix(kind).length + text.length),
   };
+}
+
+/**
+ * Where a note about a marked span goes: after the mark, never inside it.
+ *
+ * Highlighting a paragraph and then commenting it is one gesture in two
+ * presses, and the second one is handed the same selection the first one
+ * wrapped — which is now the inside of the marks. A note written there
+ * is inside the anchor rather than beside it, and the extractor's rule
+ * is that a comment belongs to the element before it, so the reader's
+ * words would be part of the text they were about instead of a note on
+ * it. Stepping out of every mark the selection exactly fills puts it
+ * where both the rule and a person writing by hand would put it.
+ */
+function pastMarks(doc: Text, from: number, to: number): number {
+  for (;;) {
+    const marker = ['==', '~~'].find((mark) => wrapped(doc, from, to, mark));
+    if (marker) {
+      from -= marker.length;
+      to += marker.length;
+      continue;
+    }
+    const open = enclosingSpan(doc, from, to);
+    if (!open) return to;
+    from = open.from;
+    to += CLOSE_SPAN.length;
+  }
 }
 
 export const applyComment = (kind: AnnotationKind, text = ''): StateCommand =>

@@ -170,3 +170,58 @@ describe('the frontmatter properties panel', () => {
     one.destroy();
   });
 });
+
+/**
+ * Where a block widget's own box ends is the only thing the editor knows
+ * about its height: it measures the element it was handed. A vertical
+ * margin is outside that box, so every margin on a widget moves the text
+ * below it down by an amount the editor does not know about, and the
+ * error adds up down the document until a click lands on the wrong line.
+ * The spacing around these four is padding for that reason (Phase 3
+ * gate). This asserts the consequence rather than the rule: a click on a
+ * line below all of them lands on that line.
+ */
+describe('block widgets and the lines below them', () => {
+  const text = [
+    '---',
+    'title: A doc',
+    '---',
+    '',
+    '| Task | Owner |',
+    '|---|---|',
+    '| Write | Sam |',
+    '| Ship | Lee |',
+    '',
+    '```mermaid',
+    'graph TD; A-->B;',
+    '```',
+    '',
+    '![a picture](pictures/x.png)',
+    '',
+    'The order matters more than the dates do.',
+    'Nothing after the review can start until the brief is agreed.',
+    'And the build is the only step with any slack in it.',
+    '',
+  ].join('\n');
+
+  it('puts a click on the line under the pointer', () => {
+    const host = document.createElement('div');
+    host.style.cssText = 'height: 700px; width: 800px; overflow: hidden;';
+    document.body.appendChild(host);
+    const one = createEditor(host, text, { preview });
+    one.view.dispatch({ selection: { anchor: 0 } });
+
+    const line = (n: number) => one.view.state.doc.lineAt(n).number;
+    for (const word of ['order', 'review', 'slack']) {
+      const at = text.indexOf(word) + 1;
+      const box = one.view.coordsAtPos(at);
+      expect(box, word).not.toBeNull();
+      if (box === null) continue;
+      const got = one.view.posAtCoords({ x: box.left + 1, y: (box.top + box.bottom) / 2 });
+      expect(got, word).not.toBeNull();
+      expect(line(got ?? 0), `a click on "${word}"`).toBe(line(at));
+    }
+    one.destroy();
+    host.remove();
+  });
+});

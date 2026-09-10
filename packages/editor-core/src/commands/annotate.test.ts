@@ -163,6 +163,32 @@ describe('comment', () => {
     const doc = 'A paragraph.\n';
     expect(run(applyComment('note'), doc, 3)).toBe('<!-- note: | -->\nA paragraph.\n');
   });
+
+  // Highlight, then comment, is one gesture in two presses: the second is
+  // handed the selection the first one wrapped. A note written inside the
+  // marks is part of the anchor rather than a note on it, and the
+  // extractor never sees it (Phase 3 gate).
+  it('goes after a mark the selection exactly fills, not inside it', () => {
+    const doc = 'One ==two== three.\n';
+    expect(run(applyComment('note', 'why'), doc, around(doc, 'two'))).toBe(
+      'One ==two== <!-- note: why| --> three.\n',
+    );
+    const struck = 'One ~~two~~ three.\n';
+    expect(run(applyComment('note', 'why'), struck, around(struck, 'two'))).toBe(
+      'One ~~two~~ <!-- note: why| --> three.\n',
+    );
+    const colored = 'One <span style="color:#dc2626">two</span> three.\n';
+    expect(run(applyComment('note', 'why'), colored, around(colored, 'two'))).toBe(
+      'One <span style="color:#dc2626">two</span> <!-- note: why| --> three.\n',
+    );
+  });
+
+  it('stays inside a mark it only partly fills', () => {
+    const doc = 'One ==two words== three.\n';
+    expect(run(applyComment('note', 'why'), doc, around(doc, 'two'))).toBe(
+      'One ==two <!-- note: why| --> words== three.\n',
+    );
+  });
 });
 
 describe('blockCommentPos', () => {

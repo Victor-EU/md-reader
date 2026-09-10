@@ -132,7 +132,7 @@ export const previewTheme = EditorView.baseTheme({
   '.mdr-ol-mark': { color: 'var(--mdr-muted, #888)' },
   '.mdr-table-widget': {
     borderCollapse: 'collapse',
-    margin: '0.4em 0',
+    padding: '0.4em 0',
     fontSize: '0.95em',
   },
   '.mdr-table-widget th, .mdr-table-widget td': {
@@ -156,13 +156,20 @@ export const previewTheme = EditorView.baseTheme({
   '.mdr-table-widget .cm-line': { padding: '0' },
 
   // Block widgets: the frontmatter panel, a diagram, a lone image.
+  //
+  // Space them with padding and never with a vertical margin. The editor
+  // takes a block's height from the box of the element the widget handed
+  // it, and a margin is outside that box: the text below moves down by an
+  // amount the height map never learns, the error adds up over a document,
+  // and a click lands on the wrong line (Phase 3 gate). The table above is
+  // the same rule; `border-collapse` does not swallow padding on the
+  // table element, only borders.
   '.mdr-properties': {
     display: 'grid',
     gridTemplateColumns: 'minmax(6em, auto) 1fr',
     gap: '2px 10px',
     alignItems: 'baseline',
-    padding: '6px 8px',
-    margin: '0.2em 0',
+    padding: '9px 8px',
     background: 'var(--mdr-code-bg, rgba(127, 127, 127, 0.1))',
     borderRadius: '4px',
   },
@@ -197,8 +204,7 @@ export const previewTheme = EditorView.baseTheme({
   },
   '.mdr-mermaid': {
     display: 'block',
-    padding: '8px',
-    margin: '0.2em 0',
+    padding: '11px 8px',
     textAlign: 'center',
     background: 'var(--mdr-code-bg, rgba(127, 127, 127, 0.06))',
     borderRadius: '4px',
@@ -211,7 +217,7 @@ export const previewTheme = EditorView.baseTheme({
     textAlign: 'center',
     whiteSpace: 'pre-wrap',
   },
-  '.mdr-image-widget': { maxWidth: '100%', height: 'auto', display: 'block', margin: '0.3em 0' },
+  '.mdr-image-widget': { maxWidth: '100%', height: 'auto', display: 'block', padding: '0.3em 0' },
 });
 
 /**
