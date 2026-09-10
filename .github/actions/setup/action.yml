@@ -15,8 +15,23 @@ runs:
       with:
         node-version: 24
         cache: pnpm
-    # No `toolchain` input: the action reads rust-toolchain.toml.
+    # `dtolnay/rust-toolchain` requires the toolchain as an input — it does
+    # not read `rust-toolchain.toml`, whatever the file's presence suggests.
+    # So the file is read here instead, and stays the one place the version
+    # and the components are written down (ADR 0001 pins both).
+    - name: The pinned toolchain, out of rust-toolchain.toml
+      id: rust
+      shell: bash
+      run: |
+        channel=$(sed -n 's/^ *channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
+        components=$(sed -n 's/^ *components *= *\[\(.*\)\]/\1/p' rust-toolchain.toml | tr -d '" ')
+        test -n "$channel" || { echo "no channel in rust-toolchain.toml"; exit 1; }
+        echo "channel=$channel" >> "$GITHUB_OUTPUT"
+        echo "components=$components" >> "$GITHUB_OUTPUT"
     - uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ steps.rust.outputs.channel }}
+        components: ${{ steps.rust.outputs.components }}
     - uses: Swatinem/rust-cache@v2
       with:
         workspaces: '. -> target'
