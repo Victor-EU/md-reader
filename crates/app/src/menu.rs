@@ -259,7 +259,11 @@ fn install(menu: &Menu<Wry>) -> tauri::Result<()> {
     Ok(())
 }
 
+// The signature is the macOS one's, which is the point: `apply` calls one
+// function and does not know which platform answered. Clippy sees only
+// this arm on Linux and Windows, where it cannot fail.
 #[cfg(not(target_os = "macos"))]
+#[allow(clippy::unnecessary_wraps)]
 fn install(_menu: &Menu<Wry>) -> tauri::Result<()> {
     Ok(())
 }
