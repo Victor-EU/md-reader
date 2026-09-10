@@ -23,6 +23,16 @@ describe('inline marks', () => {
     expect(md('a <b>bold </b>b')).toBe('a **bold** b');
   });
 
+  it('believes the style rather than the tag', () => {
+    // A word processor writes `<b>` for grouping and says what it means
+    // in the style, so the tag on its own is not an answer.
+    expect(md('<b style="font-weight:normal">plain</b>')).toBe('plain');
+    expect(md('<b style="font-weight:300">plain</b>')).toBe('plain');
+    expect(md('<em style="font-style: normal">plain</em>')).toBe('plain');
+    expect(md('<span style="font-weight:700">bold</span>')).toBe('**bold**');
+    expect(md('<span style="font-style:italic">it</span>')).toBe('*it*');
+  });
+
   it('keeps the four whitelisted tags the dialect spells with the tag', () => {
     expect(md('H<sub>2</sub>O')).toBe('H<sub>2</sub>O');
     expect(md('x<sup>2</sup>')).toBe('x<sup>2</sup>');
@@ -97,6 +107,11 @@ describe('escaping', () => {
 
   it('leaves a hyphen inside a word alone', () => {
     expect(md('<p>well-worn</p>')).toBe('well-worn\n');
+  });
+
+  it('escapes a dollar, which would otherwise make maths out of a price', () => {
+    expect(md('<p>it cost $5, or $9 framed</p>')).toBe('it cost \\$5, or \\$9 framed\n');
+    expect(md('<p>$$ is a lot</p>')).toBe('\\$\\$ is a lot\n');
   });
 });
 
@@ -202,6 +217,24 @@ describe('what comes off a real clipboard', () => {
     const html =
       '<meta charset="utf-8"><div><h2>Title</h2><p>Some <a href="/x">link</a>.</p></div>';
     expect(md(html)).toBe('## Title\n\nSome [link](/x).\n');
+  });
+
+  it('takes the wrapper Google Docs puts around everything it copies', () => {
+    // Every Docs payload is one `<b>` that asks for normal weight, with
+    // the whole document inside it and the real emphasis written as
+    // styles on spans.
+    const html =
+      '<meta charset="utf-8"><b style="font-weight:normal" id="docs-internal-guid-8f2a">' +
+      '<h2 dir="ltr"><span style="font-weight:400;font-style:normal">Title</span></h2>' +
+      '<p dir="ltr"><span style="font-weight:400;font-style:normal">First paragraph.</span></p>' +
+      '<p dir="ltr"><span style="font-weight:700">Bold</span> and ' +
+      '<span style="font-style:italic">italic</span>.</p>' +
+      '<ul><li dir="ltr"><p dir="ltr"><span style="font-weight:400">item one</span></p></li>' +
+      '<li dir="ltr"><p dir="ltr"><span style="font-weight:400">item two</span></p></li></ul></b>';
+
+    expect(md(html)).toBe(
+      '## Title\n\nFirst paragraph.\n\n**Bold** and *italic*.\n\n- item one\n- item two\n',
+    );
   });
 
   it('has nothing to say about empty HTML', () => {

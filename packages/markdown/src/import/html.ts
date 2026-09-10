@@ -58,6 +58,9 @@ const BLOCK = new Set([
   'ul',
 ]);
 
+/** The same list as a selector, for asking whether one is anywhere inside. */
+const BLOCK_SELECTOR = Array.from(BLOCK).join(',');
+
 /** Kept as themselves: the dialect spells these with the tag (design 5.3). */
 const KEPT = new Set(['sub', 'sup', 'kbd', 'u']);
 
@@ -74,6 +77,21 @@ function isBlock(node: Node): boolean {
   return BLOCK.has(tagOf(node));
 }
 
+/**
+ * Whether a tag that is not on the list is holding things that are.
+ *
+ * Google Docs wraps everything it puts on the clipboard in a single
+ * `<b style="font-weight:normal">`, so a heading, two paragraphs and a
+ * list all arrive inside one inline tag. Run through `inline()` that is
+ * one run of text with nothing between the blocks — the whole document
+ * as a single bold line — because `inline()` is the half of this file
+ * that has no notion of a separator. Anything holding a block belongs to
+ * the other half, whatever tag it wears.
+ */
+function holdsBlock(node: Node): boolean {
+  return node.nodeType === 1 && (node as Element).querySelector(BLOCK_SELECTOR) !== null;
+}
+
 // --- escaping -------------------------------------------------------------
 
 /**
@@ -84,11 +102,17 @@ function isBlock(node: Node): boolean {
  * would be noise in every identifier anybody pastes. `<` and `&` are
  * escaped only when they look like a tag or an entity, for the same
  * reason: `a < b` is prose and stays prose.
+ *
+ * `$` is escaped wherever it appears, unlike those two, because the
+ * dialect's maths is the one construct a reader cannot see coming: a
+ * price list pastes as `$5` and `$9`, and the words between them
+ * silently become a formula. Design 5.4 says the app never writes a
+ * construct nobody asked for, and a price is not a formula.
  */
 function escapeText(text: string): string {
   return text
     .replace(/\\/g, '\\\\')
-    .replace(/[`*[\]]/g, (c) => `\\${c}`)
+    .replace(/[`*[\]$]/g, (c) => `\\${c}`)
     .replace(/(^|[^\p{L}\p{N}])_|_(?=[^\p{L}\p{N}]|$)/gu, (m) => m.replace('_', '\\_'))
     .replace(/~~/g, '\\~\\~')
     .replace(/==/g, '\\=\\=')
@@ -135,6 +159,43 @@ function inlineChildren(node: Node): string {
   return out;
 }
 
+/** What the element's own `style` attribute says one property is. */
+function cssValue(node: Node, property: string): string {
+  for (const declaration of attr(node, 'style').toLowerCase().split(';')) {
+    const colon = declaration.indexOf(':');
+    if (colon !== -1 && declaration.slice(0, colon).trim() === property) {
+      return declaration.slice(colon + 1).trim();
+    }
+  }
+  return '';
+}
+
+/**
+ * Whether a style says this run is bold, says it is not, or says nothing
+ * either way.
+ *
+ * A word processor does not use the tags: what it writes is `<b>` for
+ * grouping and the weight in the style, so its wrapper is a `<b>` that
+ * asks for normal text and its actual bold is a `<span>` asking for 700.
+ * Reading only the tag turns a whole pasted document bold and loses the
+ * words that really were. The line between the two is where the browsers
+ * put it, at 600.
+ */
+function styledBold(node: Node): boolean | null {
+  const weight = cssValue(node, 'font-weight');
+  if (weight === 'bold' || weight === 'bolder') return true;
+  if (weight === 'normal' || weight === 'lighter') return false;
+  const number = Number.parseInt(weight, 10);
+  return Number.isNaN(number) ? null : number >= 600;
+}
+
+/** The same question about italics, which is spelled with one property. */
+function styledItalic(node: Node): boolean | null {
+  const style = cssValue(node, 'font-style');
+  if (style === 'normal') return false;
+  return style.startsWith('italic') || style.startsWith('oblique') ? true : null;
+}
+
 /**
  * Wrap `text` in `marker`, moving the whitespace at its edges outside the
  * marks: `** bold** ` is not emphasis, and a browser's selection is full
@@ -161,11 +222,11 @@ function inline(node: Node): string {
     }
     case 'strong':
     case 'b':
-      return wrap(inlineChildren(node), '**');
+      return styledBold(node) === false ? inlineChildren(node) : wrap(inlineChildren(node), '**');
     case 'em':
     case 'i':
     case 'cite':
-      return wrap(inlineChildren(node), '*');
+      return styledItalic(node) === false ? inlineChildren(node) : wrap(inlineChildren(node), '*');
     case 's':
     case 'del':
     case 'strike':
@@ -182,9 +243,15 @@ function inline(node: Node): string {
       if (href === '' || href.startsWith('javascript:')) return text;
       return `[${text.trim() === '' ? escapeText(href) : text}](${linkDestination(href)})`;
     }
-    default:
+    default: {
       if (KEPT.has(tag)) return `<${tag}>${inlineChildren(node)}</${tag}>`;
-      return inlineChildren(node);
+      // Emphasis a word processor wrote as a style rather than as a tag,
+      // which is the only place it is: the rest of the span is unwrapped
+      // to the text inside it, as everything unrecognised is.
+      const inner = inlineChildren(node);
+      const bold = styledBold(node) === true ? wrap(inner, '**') : inner;
+      return styledItalic(node) === true ? wrap(bold, '*') : bold;
+    }
   }
 }
 
@@ -216,7 +283,7 @@ function blocksOf(parent: Node): string[] {
     run = '';
   };
   for (const child of Array.from(parent.childNodes)) {
-    if (isBlock(child)) {
+    if (isBlock(child) || holdsBlock(child)) {
       flush();
       out.push(...blockOf(child as Element));
     } else {
@@ -336,7 +403,7 @@ export function domToMarkdown(root: Node): string {
   const blocks = blocksOf(root);
   const only = blocks[0];
   if (only === undefined) return '';
-  const inlineOnly = !Array.from(root.childNodes).some(isBlock);
+  const inlineOnly = !Array.from(root.childNodes).some((n) => isBlock(n) || holdsBlock(n));
   return inlineOnly ? only : `${blocks.join('\n\n')}\n`;
 }
 

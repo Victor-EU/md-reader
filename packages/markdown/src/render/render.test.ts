@@ -148,6 +148,13 @@ describe('inline', () => {
     expect(render(source)).toBe(expected);
   });
 
+  it('renders a number that is not a character as the replacement character', () => {
+    // The grammar takes any run of digits, and `String.fromCodePoint`
+    // throws on most of them. A throw here would be the whole render.
+    expect(render('a &#99999999; b')).toBe('<p>a \ufffd b</p>');
+    expect(render('&#0; &#xD800;')).toBe('<p>\ufffd \ufffd</p>');
+  });
+
   it('renders block math with its source as the placeholder', () => {
     expect(render('$$\na = b\n$$')).toBe(
       '<div class="mdr-math-block" data-tex="a = b">a = b</div>',
@@ -171,6 +178,31 @@ describe('links', () => {
     ['[a](javascript:alert(1))', '<p>a</p>'],
   ])('%j', (source, expected) => {
     expect(render(source)).toBe(expected);
+  });
+
+  it('refuses a destination that hides its scheme behind a control character', () => {
+    // The tab is gone by the time a browser reads this, so what the
+    // destination says here and what it means there are two different
+    // strings; the one that matters is `javascript:`.
+    expect(render('[x]: <java\tscript:alert(1)>\n\n[x]')).toBe('<p>x</p>');
+    expect(render('[a](javascript:alert(1))')).toBe('<p>a</p>');
+  });
+
+  it('takes the angle brackets off a destination, as a definition already does', () => {
+    expect(render('[x](<a b.md>)')).toBe('<p><a href="a b.md">x</a></p>');
+    expect(render('[x](<http://e.test/a>)')).toBe(
+      '<p><a href="http://e.test/a" data-external>x</a></p>',
+    );
+    expect(render('![alt](<a b.png>)')).toBe(
+      '<p><span class="mdr-image" data-src="a b.png" data-blocked="unavailable">alt</span></p>',
+    );
+  });
+
+  it('leaves a destination that names a host to the browser', () => {
+    // Neither of these is relative to this document, and following one
+    // as if it were asks a machine on the network for a file.
+    expect(render('[a](//host.test/x)')).toBe('<p><a href="//host.test/x" data-external>a</a></p>');
+    expect(render('[a](\\\\host\\share)')).toContain('data-external');
   });
 
   it('resolves a reference defined anywhere in the document', () => {

@@ -49,6 +49,39 @@ const SENTINEL = 'mdr-export-image-';
 /** A source that is already something a browser can load on its own. */
 const READY = /^(?:https?:|\/\/|data:)/i;
 
+/**
+ * What the exported page is allowed to do, which is almost nothing.
+ *
+ * Everything the page is made of is already in it: the stylesheet is
+ * inline, a diagram is inline SVG, a formula is MathML the browser sets
+ * itself, and a picture is either its own bytes in the `src` or a file in
+ * the folder beside it. Nothing arrives later and nothing runs, so the
+ * policy refuses everything and then names the three things that are
+ * really there.
+ *
+ * It is here because the page outlives the app. Inside the window a
+ * destination is checked before it is written, but this file can be
+ * mailed on and opened in a real browser years from now, where a
+ * `javascript:` href that got past that check once is a script running
+ * on a click. Two lines in the head cost nothing and hold whatever the
+ * renderer got wrong.
+ *
+ * `file:` stands beside `'self'`, because a page opened from disk has no
+ * origin for `'self'` to match in some browsers and the images in the
+ * folder beside it would simply go missing. `http:` and `https:` are
+ * there because a document whose reader has turned remote images on
+ * keeps those addresses as they were written (design 8), and an export
+ * that dropped them would show holes where the window shows pictures.
+ */
+const POLICY = [
+  "default-src 'none'",
+  "script-src 'none'",
+  "img-src 'self' data: file: http: https:",
+  "style-src 'unsafe-inline'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join('; ');
+
 /** Attributes the window needs and a copy of the document does not. */
 const NOISE = ['data-from', 'data-to', 'data-enhanced'];
 
@@ -179,6 +212,7 @@ function page(body: string, options: ExportOptions): string {
     '<html>',
     '<head>',
     '<meta charset="utf-8">',
+    `<meta http-equiv="Content-Security-Policy" content="${POLICY}">`,
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="generator" content="MD Reader">',
     `<title>${escapeText(options.title)}</title>`,

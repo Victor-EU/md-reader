@@ -32,6 +32,17 @@ describe('resolveImage', () => {
     );
   });
 
+  it('counts a Windows share as somewhere else, not as a folder here', () => {
+    // A UNC path resolved against the document's folder is this machine
+    // asking a stranger's server for a file, and handing it a login on
+    // the way. It reads as remote, which is what the renderer's own link
+    // check makes of the same two spellings.
+    expect(resolveImage('\\\\host\\share\\a.png', doc)).toEqual({
+      url: null,
+      blocked: 'remote',
+    });
+  });
+
   it('loads a data URL either way, since it asks nobody anything', () => {
     const src = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
     expect(resolveImage(src, doc).url).toBe(src);

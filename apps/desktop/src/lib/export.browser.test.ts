@@ -77,6 +77,23 @@ describe('an exported page', () => {
     );
   });
 
+  it('forbids itself everything it does not need, starting with script', async () => {
+    // The file leaves the app and can be opened in a real browser years
+    // from now, where a link the renderer should never have written is a
+    // script running on a click.
+    const { html } = await exportPage(options());
+
+    const meta = parse(html).querySelector('meta[http-equiv="Content-Security-Policy"]');
+    const policy = meta?.getAttribute('content') ?? '';
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).toContain("script-src 'none'");
+    // And then the three things the page really is: its own stylesheet,
+    // its own bytes, and the images beside it.
+    expect(policy).toContain("style-src 'unsafe-inline'");
+    expect(policy).toMatch(/img-src [^;]*\bdata:/);
+    expect(policy).toMatch(/img-src [^;]*'self'/);
+  });
+
   it('carries nothing the window kept for itself', async () => {
     const { html } = await exportPage(options());
 

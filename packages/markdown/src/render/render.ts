@@ -79,8 +79,34 @@ const SCHEME = /^[a-z][a-z\d+\-.]*:/i;
 /** Schemes a rendered `href` or `src` may carry. Everything else renders as text. */
 const SAFE_SCHEME = /^(?:https?|mailto|tel)$/i;
 
-/** Links that leave the app, and so open in the system browser. */
-const EXTERNAL = /^(?:https?|mailto|tel):/i;
+/**
+ * Links that leave the app, and so open in the system browser.
+ *
+ * A destination that starts `//` or `\\` names a host rather than a path:
+ * the first borrows whatever scheme the page was loaded over, the second
+ * is a Windows share. Neither is relative to anything, and treating them
+ * as relative is how a click ends up resolving them against the
+ * document's folder and asking `file://host` for a file — which on
+ * Windows is this machine handing a stranger a login.
+ */
+const EXTERNAL = /^(?:(?:https?|mailto|tel):|\/\/|\\\\)/i;
+
+/**
+ * What a browser drops on its way to the scheme. Its URL parser removes
+ * every ASCII tab and newline wherever they sit, and skips the C0
+ * controls in front, all before it looks for the colon. So a destination
+ * that reads `java`, a tab, `script:alert(1)` here is `javascript:` by
+ * the time anything is loaded, and a pattern tested against the string as
+ * written has been asked about a string nobody will ever see.
+ *
+ * A plain space is not in here on purpose. The parser leaves it where it
+ * is, so it can never join the two halves of a scheme, and a destination
+ * with a space in it is one this app writes itself: `linkDestination`
+ * puts `a b.md` in angle brackets, and refusing it here would mean the
+ * reader could not follow a link the editor had just written.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the point is the control characters.
+const SMUGGLED = /[\u0000-\u001f\u007f]/;
 
 /**
  * The destination of text that is its own link, by GFM's rules: `www.` is
@@ -94,13 +120,36 @@ function autoHref(raw: string): string {
 }
 
 /**
+ * A destination with the angle brackets taken off, which is how
+ * CommonMark writes one that holds a space: `[x](<a b.md>)`. Lezer keeps
+ * them inside the `URL` node, so a slice of the source is not yet an
+ * address — `<a b.md>` as an `href` is a file of that literal name, and
+ * as an `src` it is a picture that never loads. A definition's
+ * destination has them taken off by the pattern in `references.ts`, and
+ * the same link written the two ways has to mean the same thing.
+ */
+function unbracket(url: string): string {
+  return url.startsWith('<') && url.endsWith('>') ? url.slice(1, -1) : url;
+}
+
+/**
  * The address as it may be written into the page, or null when it may not.
  * A destination with no scheme is a path inside the document's own world
  * and is always safe; one with a scheme is safe only if the scheme is.
+ *
+ * The controls go first, before the scheme is read, because a string that
+ * carries one does not mean here what it will mean in the page: `SMUGGLED`
+ * says why. Nothing worth linking to holds one anyway.
+ *
+ * This is also what an image `src` goes through, which is why a `data:`
+ * image is let past a rule that otherwise allows three schemes. Bytes the
+ * page draws are not code it runs, and whether a picture may load at all
+ * is design 8's question, asked of the resolver a moment later.
  */
 function safeUrl(url: string): string | null {
   const trimmed = url.trim();
   if (trimmed === '') return null;
+  if (SMUGGLED.test(trimmed)) return null;
   if (trimmed.startsWith('data:image/')) return trimmed;
   const scheme = SCHEME.exec(trimmed)?.[0].slice(0, -1);
   if (scheme === undefined) return trimmed;
@@ -163,12 +212,32 @@ const NAMED: Record<string, string> = {
   check: '\u2713',
 };
 
+/**
+ * The character a numeric entity asks for, or the replacement character
+ * when it asks for something that is not a character at all.
+ *
+ * The grammar takes any run of digits, so a document can ask for a code
+ * point past the last plane, for half of a surrogate pair, or for a NUL —
+ * and `String.fromCodePoint` throws on the first two. A throw here is not
+ * a broken character somewhere in a paragraph, it is the whole render
+ * gone: Read mode, the outline, the export and the rich text on the
+ * clipboard all come through this one function, and design 5.2 says the
+ * parser never fails on what an AI writes. CommonMark answers the same
+ * three cases the same way, so this is also what every other renderer
+ * shows.
+ */
+function codePoint(value: number): string {
+  if (value === 0 || value > 0x10ffff) return '\ufffd';
+  if (value >= 0xd800 && value <= 0xdfff) return '\ufffd';
+  return String.fromCodePoint(value);
+}
+
 /** Decode one entity node's source, or leave it as it stands. */
 function decodeEntity(source: string): string {
   const m = /^&(?:#(\d+)|#[xX]([\da-fA-F]+)|([a-zA-Z]+));$/.exec(source);
   if (!m) return source;
-  if (m[1]) return String.fromCodePoint(Number(m[1]));
-  if (m[2]) return String.fromCodePoint(Number.parseInt(m[2], 16));
+  if (m[1]) return codePoint(Number(m[1]));
+  if (m[2]) return codePoint(Number.parseInt(m[2], 16));
   return NAMED[(m[3] ?? '').toLowerCase()] ?? source;
 }
 
@@ -875,7 +944,7 @@ export class Renderer {
     if (url) {
       const title = link.getChild('LinkTitle');
       return {
-        url: this.slice(url.from, url.to),
+        url: unbracket(this.slice(url.from, url.to)),
         title: title ? this.slice(title.from + 1, title.to - 1) : null,
       };
     }

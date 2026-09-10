@@ -20,7 +20,17 @@ export interface ImageRules {
   assetUrl?: ((path: string) => string) | undefined;
 }
 
-const REMOTE = /^(?:https?:|\/\/)/i;
+/**
+ * A source that names a host rather than a path in the document's own
+ * folder, and so is somebody else's to serve.
+ *
+ * `\\host\share.png` belongs here with `//host/x`: a UNC path is a
+ * Windows file share, and resolving one against the document's folder is
+ * this machine reaching out to a stranger's server -- and, on Windows,
+ * offering it a login on the way. It is the same reading the renderer's
+ * own link check gives the same two spellings.
+ */
+const REMOTE = /^(?:https?:|\/\/|\\\\)/i;
 const DATA = /^data:image\//i;
 
 /** Strip a query or fragment, and undo the percent encoding a path may carry. */
