@@ -2,7 +2,7 @@
   "name": "@markdown/corpus-gen",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "description": "Generates corpus documents from model APIs and records a manifest. Plain Node, no dependencies.",
   "type": "module"
 }

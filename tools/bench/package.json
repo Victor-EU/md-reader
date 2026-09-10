@@ -2,7 +2,7 @@
   "name": "@markdown/bench",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "description": "Performance harness: synthetic fixtures and keystroke latency measurements in the browser runner.",
   "type": "module",
   "scripts": {

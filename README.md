@@ -118,6 +118,6 @@ permission prompt until Automation access is granted.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The three bundled font families are not
-covered by it; they ship under the SIL Open Font License, recorded in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+GPL-3.0-only, copyright 2026 Victor Zhang — see [LICENSE](LICENSE). The
+three bundled font families are not covered by it; they ship under the SIL
+Open Font License, recorded in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

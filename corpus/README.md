@@ -9,7 +9,7 @@ The round-trip corpus from design section 10 and plan section 7.1.
 - `generated/` AI-generated documents produced by `tools/corpus-gen`, with
   `manifest.json` recording model, prompt category, and date. Regenerated
   quarterly; the old set is kept; a file that once failed is never deleted.
-  The text here is committed under the repository's MIT licence, which is
+  The text here is committed under the repository's GPL-3.0-only licence, which is
   why the prompts tell the model to invent everything and quote nothing.
 - `goldens/read/` the rendered document for every adversarial file and a fixed
   sample of a hundred generated ones, from WP 1.4. One file per source file

@@ -2,7 +2,7 @@
   "name": "@markdown/release",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "description": "The updater manifest and the version numbers a release has to keep in step. Plain Node, no dependencies.",
   "type": "module"
 }

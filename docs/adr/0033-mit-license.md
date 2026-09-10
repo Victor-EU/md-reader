@@ -1,6 +1,9 @@
 # ADR 0033: MIT for the repository
 
-Status: accepted, 2026-09-10. Settles the question ADR 0001 left open.
+Status: accepted 2026-09-10 and superseded the same day by
+[ADR 0034](0034-gpl-3.0-license.md), which moves the repository to
+GPL-3.0-only. Kept as the record of why MIT was chosen first. Settled the
+question ADR 0001 left open.
 
 The repository is MIT licensed, copyright 2026 Victor Zhang. `LICENSE` is
 at the root; every `package.json` and every crate carries the SPDX

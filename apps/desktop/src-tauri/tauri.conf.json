@@ -76,6 +76,7 @@
     "longDescription": "A markdown viewer and editor whose files stay exactly as they were written, so a document can go out to a model and come back without drifting.",
     "homepage": "https://github.com/victor-eu/markdown",
     "resources": {
+      "../../../LICENSE": "LICENSE",
       "../../../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     },
     "createUpdaterArtifacts": true,

@@ -2,7 +2,7 @@
   "name": "@markdown/editor-core",
   "version": "0.1.0",
   "private": true,
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "description": "CodeMirror 6 extensions: live preview, reveal rule, widgets, editing commands. Framework free.",
   "type": "module",
   "exports": {
