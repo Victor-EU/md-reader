@@ -113,6 +113,42 @@ describe('the inline marks', () => {
   });
 });
 
+describe('a document the app cannot write back', () => {
+  async function latin1() {
+    open({ '/a/latin1.md': 'One two three.\n' });
+    ipc.files.set('/a/latin1.md', {
+      content: 'One two three.\n',
+      format: { encoding: 'windows-1252' },
+    });
+    await edit('/a/latin1.md');
+  }
+
+  it('does not take a keystroke, so there is nothing for Convert to throw away', async () => {
+    await latin1();
+    // The gate the editor is opened behind. Only the size ceiling used
+    // to be here, so a reader could type two paragraphs into a file
+    // whose every save was refused, and then lose them to the banner's
+    // own Convert button.
+    expect(workspace.view?.state.readOnly).toBe(true);
+    expect(workspace.view?.contentDOM.isContentEditable).toBe(false);
+  });
+
+  it('still takes a write that lands on the file underneath it', async () => {
+    await latin1();
+    await workspace.externalChange(ipc.externalWrite('/a/latin1.md', 'Four five six.\n'));
+    expect(text()).toBe('Four five six.\n');
+  });
+
+  it('takes typing again once it has been converted', async () => {
+    await latin1();
+    expect(await workspace.convertToUtf8()).toBe(true);
+    workspace.unmount();
+    workspace.mount(host);
+    expect(workspace.view?.state.readOnly).toBe(false);
+    expect(workspace.view?.contentDOM.isContentEditable).toBe(true);
+  });
+});
+
 describe('the checkbox in Read mode', () => {
   const TASKS = { '/a/todo.md': '# Todo\n\n- [ ] one\n- [x] two\n' };
 

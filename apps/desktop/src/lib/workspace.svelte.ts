@@ -267,6 +267,16 @@ export interface FindState {
 }
 
 const AUTOSAVE_DELAY = 800;
+
+/**
+ * How many times a merge is asked again after the buffer moved under it.
+ *
+ * Each attempt costs one round trip to Rust and only happens when a
+ * keystroke landed inside that trip. Three is generous for a reader
+ * pausing between words; somebody who never pauses gets the message
+ * instead, and their file is merged on the next save.
+ */
+const MERGE_ATTEMPTS = 3;
 /** Long enough that a fast typist counts once per pause, not once per key. */
 const WORD_COUNT_DELAY = 250;
 /**
@@ -478,6 +488,8 @@ export class Workspace {
   /** Writes in flight, per document, so two of them cannot race. */
   private readonly writing = new Map<string, Promise<boolean>>();
   private readonly autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** One external write at a time per path; see `externalChange`. */
+  private readonly externalWrites = new Map<string, Promise<void>>();
   private countTimer: ReturnType<typeof setTimeout> | null = null;
   private changeTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -990,6 +1002,17 @@ export class Workspace {
     }
     if (doc.ephemeral) {
       this.status = `${doc.label} is a version out of the history, not a document to move`;
+      return false;
+    }
+    // A serialized state carries the buffer, the selection and the undo
+    // history, and nothing else: the conflict regions do not travel. The
+    // window taking the tab in would see a dirty buffer with nothing held
+    // against it, start an autosave timer, and eight hundred milliseconds
+    // later write "mine" over the version the reader was still deciding
+    // about. Settling the conflict first is one click and keeps the
+    // choice theirs.
+    if (hasConflicts(doc.state)) {
+      this.status = `${doc.label} has a conflict open · settle it to move the document`;
       return false;
     }
     // A document lives in one window, so it cannot be half moved. The
@@ -1595,6 +1618,36 @@ export class Workspace {
   }
 
   /**
+   * Whatever the disk would not take, kept where it can be got back.
+   *
+   * A document with a conflict open is held out of every write on
+   * purpose: a timer must not answer a question the reader has not
+   * (design 7.2). But the window is closing, and what is held back has
+   * nowhere else to be. The session records a path for a file-backed
+   * document and not its buffer, and versions are taken on a save and on
+   * an external write, so a reader who worked for twenty minutes under
+   * "Save held" and then pressed Cmd+Q lost all of it, with no copy
+   * anywhere. The same road runs through any dirty document the disk did
+   * not take: autosave off, or an encoding that opens read-only.
+   *
+   * A version under the reader's own name is not an answer to the
+   * conflict. It is the work, kept, so that answering later is still
+   * something they can do.
+   */
+  private async keepWhatTheDiskRefused(): Promise<void> {
+    const kept = [];
+    for (const doc of this.docs.values()) {
+      // An untitled document has no path to file a version under; the
+      // session already carries its whole buffer, which is the same
+      // promise kept a different way.
+      if (doc.path === null || !doc.dirty) continue;
+      kept.push(this.options.commands.snapshot(doc.path, doc.text, 'user'));
+    }
+    if (kept.length === 0) return;
+    await Promise.all(kept);
+  }
+
+  /**
    * Autosave on or off (design 6.6). Off is the dirty dot and Cmd+S,
    * for a reader who would rather decide themselves when a version of
    * their file exists. On writes what is dirty already, because turning
@@ -1624,8 +1677,11 @@ export class Workspace {
     }
     this.unmount();
     this.unmountRead();
-    doc.replace(result.data.content, tab.mode === 'read' ? 'edit' : tab.mode);
+    // The meta first: the document reads it to decide whether the state
+    // it is about to build takes typing, and the whole point of this
+    // command is that the new one does.
     doc.meta = result.data.meta;
+    doc.replace(result.data.content, tab.mode === 'read' ? 'edit' : tab.mode);
     tab.selection = EditorSelection.single(0);
     this.epoch += 1;
     this.status = `Converted ${basename(doc.path)} to UTF-8`;
@@ -1780,14 +1836,50 @@ export class Workspace {
    * whole write, which is how case 1 of design 7.2 falls out of case 2
    * instead of being written a second time.
    */
-  async externalChange(change: ExternalChange): Promise<void> {
+  externalChange(change: ExternalChange): Promise<void> {
+    // Two of these can be in flight for one path -- the watcher's report
+    // of a write, and the re-read a refused save does itself -- and each
+    // waits on a merge in Rust. Run at once, the second merges against a
+    // base the first is about to replace, and the later answer wins. One
+    // at a time per path, and the queue is per path so a slow merge of a
+    // ten megabyte document does not hold up a write to another one.
+    const queued = (this.externalWrites.get(change.path) ?? Promise.resolve()).then(
+      () => this.applyExternalChange(change),
+      () => this.applyExternalChange(change),
+    );
+    const settled = queued.catch(() => undefined);
+    this.externalWrites.set(change.path, settled);
+    void settled.then(() => {
+      if (this.externalWrites.get(change.path) === settled) {
+        this.externalWrites.delete(change.path);
+      }
+    });
+    return queued;
+  }
+
+  private async applyExternalChange(change: ExternalChange): Promise<void> {
     const doc = this.docFor(change.path);
     if (!doc) return;
-    const merged = await this.options.commands.merge3(
-      doc.base.toString(),
-      doc.text,
-      change.content,
-    );
+    // The merge happens in Rust and the reader does not stop typing for
+    // it. What comes back is offsets into the buffer as it was when the
+    // question was asked, and applying those to a buffer that has moved
+    // since puts somebody else's text in the wrong place -- silently,
+    // because a stale offset is usually still in range. So the buffer is
+    // checked when the answer arrives, and a merge that was overtaken is
+    // asked again against what is there now.
+    let merged: MergeResult | null = null;
+    for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
+      const before = doc.state.doc;
+      const result = await this.options.commands.merge3(
+        doc.base.toString(),
+        doc.text,
+        change.content,
+      );
+      if (doc.state.doc === before) {
+        merged = result;
+        break;
+      }
+    }
     // What arrived is kept whatever we do with it, so a hunk still under
     // discussion is in the history rather than gone (design 4.4). An
     // agent write is already in there under the agent's own name, taken
@@ -1795,6 +1887,15 @@ export class Workspace {
     // would be a second row saying `Outside` about the same version.
     if (change.agent === null) {
       void this.options.commands.snapshot(change.path, change.content, 'external');
+    }
+    if (merged === null) {
+      // Three merges overtaken in a row is somebody typing without a
+      // pause. Nothing is applied and, more to the point, `base` is left
+      // alone: the file on disk is still ahead of what this side thinks
+      // it read, so the next save finds the mismatch and merges then,
+      // which is the same path a save into a changed file already takes.
+      this.status = `${basename(change.path)} changed on disk · it will be merged on the next save`;
+      return;
     }
     if (this.sidebar && this.panel === 'history' && this.activeDoc === doc) {
       void this.refreshHistory();
@@ -3278,6 +3379,7 @@ export class Workspace {
    */
   async flushPending(): Promise<void> {
     await this.flushAutosave();
+    await this.keepWhatTheDiskRefused();
     if (this.sessionTimer !== null) {
       clearTimeout(this.sessionTimer);
       this.sessionTimer = null;

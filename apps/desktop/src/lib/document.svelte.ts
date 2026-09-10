@@ -1,5 +1,6 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { EditorState, type Extension, type Text } from '@codemirror/state';
+import { EditorView } from '@codemirror/view';
 import type { Tree } from '@lezer/common';
 import {
   type ChangeRecord,
@@ -195,7 +196,7 @@ export class Doc {
     const config = {
       mode: options.mode ?? 'edit',
       preview: this.previewOptions(),
-      extra: this.extra,
+      extra: this.configured(),
     };
     this.state =
       (options.restore === undefined ? null : editorStateFromJSON(options.restore, config)) ??
@@ -391,12 +392,39 @@ export class Doc {
     this.againstId = text === null ? null : id;
   }
 
+  /**
+   * What this document adds to every state it builds.
+   *
+   * A file the app cannot write back does not take typing. Only the size
+   * ceiling used to keep the editor out, so a windows-1252 document
+   * opened fully editable: the reader typed two paragraphs, found every
+   * save refused with the same sentence, and pressing the way out the
+   * banner offers -- Convert to UTF-8 -- re-read the file from disk and
+   * threw the paragraphs away.
+   *
+   * Both facets, because CodeMirror keeps them apart on purpose.
+   * `EditorState.readOnly` is what the editing commands ask, so the ones
+   * that refuse go on saying why; `EditorView.editable` is what the
+   * content element's `contenteditable` comes from, so a keystroke, a
+   * paste and a drop stop at the door rather than at a command. Setting
+   * only the first leaves the document typable, which is the state this
+   * fixes.
+   *
+   * Neither touches `dispatch`, which is how an external write still
+   * lands in a document nobody here may type in.
+   */
+  private configured(): Extension[] {
+    return this.meta?.read_only == null
+      ? this.extra
+      : [this.extra, EditorState.readOnly.of(true), EditorView.editable.of(false)];
+  }
+
   /** Replace the buffer, as opening or converting a file does. Undo resets. */
   replace(text: string, mode: EditorMode): void {
     this.state = createEditorState(text, {
       mode,
       preview: this.previewOptions(),
-      extra: this.extra,
+      extra: this.configured(),
     });
     this.base = this.state.doc;
     this.reviewed = this.state.doc;

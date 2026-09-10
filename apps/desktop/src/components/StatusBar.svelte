@@ -97,7 +97,16 @@ const endpoint = $derived(
       {agent}
     </button>
   {/if}
-  <span class="message">{workspace.status}</span>
+  <!--
+    The app's only feedback channel, by design: every refusal, every
+    merge and every save says so here and nowhere else (build plan rule
+    5, no dialogs). Without `aria-live` a screen reader is told none of
+    it, which makes the whole channel silent to the readers who have
+    least other way of knowing. `polite` rather than `assertive`: these
+    are reports, and they should wait for a pause rather than cut across
+    what is being read.
+  -->
+  <span class="message" role="status" aria-live="polite">{workspace.status}</span>
   {#if update !== ''}
     {#if updates === null}
       <span class="cell update">{update}</span>

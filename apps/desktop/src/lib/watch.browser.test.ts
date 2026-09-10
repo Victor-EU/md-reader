@@ -44,6 +44,75 @@ afterEach(() => {
   host.remove();
 });
 
+describe('a merge that the reader overtakes', () => {
+  it('is asked again rather than applied at offsets the buffer no longer has', async () => {
+    ipc = createFakeIpc({ '/a/one.md': 'one\ntwo\nthree\n' });
+    const asked: string[] = [];
+    const held: { release: ((result: MergeResult) => void) | null } = { release: null };
+    // What a three-way merge says when they appended a line: put it at
+    // the end of whatever we have. The offset is only right for the
+    // buffer it was asked about.
+    const append = (ours: string): MergeResult => ({
+      changes: [{ from: ours.length, to: ours.length, insert: 'four\n' }],
+      conflicts: [],
+    });
+    workspace = new Workspace({
+      commands: {
+        ...ipc.commands,
+        merge3: (_base, ours) => {
+          asked.push(ours);
+          // The first is left in flight, which is where the reader's
+          // keystroke gets in.
+          if (asked.length === 1) {
+            return new Promise<MergeResult>((resolve) => {
+              held.release = resolve;
+            });
+          }
+          return Promise.resolve(append(ours));
+        },
+      },
+    });
+    await workspace.openPath('/a/one.md');
+    edit();
+
+    const landing = workspace.externalChange(
+      ipc.externalWrite('/a/one.md', 'one\ntwo\nthree\nfour\n'),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(asked).toHaveLength(1);
+
+    // A keystroke at the top of the document, so every offset the merge
+    // is about to answer with is one character short of where it means.
+    workspace.view?.dispatch({ changes: { from: 0, insert: 'ZERO\n' } });
+    held.release?.(append(asked[0] ?? ''));
+    await landing;
+
+    expect(asked).toHaveLength(2);
+    expect(workspace.view?.state.doc.toString()).toBe('ZERO\none\ntwo\nthree\nfour\n');
+  });
+
+  it('takes two writes to one path one at a time', async () => {
+    const order: string[] = [];
+    ipc = createFakeIpc({ '/a/one.md': 'one\n' });
+    workspace = new Workspace({
+      commands: {
+        ...ipc.commands,
+        merge3: async (_base, _ours, theirs) => {
+          order.push(`asked ${theirs.trim()}`);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          order.push(`answered ${theirs.trim()}`);
+          return { changes: [], conflicts: [] };
+        },
+      },
+    });
+    await workspace.openPath('/a/one.md');
+    const first = workspace.externalChange(ipc.externalWrite('/a/one.md', 'two\n'));
+    const second = workspace.externalChange(ipc.externalWrite('/a/one.md', 'three\n'));
+    await Promise.all([first, second]);
+    expect(order).toEqual(['asked two', 'answered two', 'asked three', 'answered three']);
+  });
+});
+
 describe('watching an open file', () => {
   it('watches a file it opens and snapshots what it found', async () => {
     open({ '/a/one.md': '# One\n' });

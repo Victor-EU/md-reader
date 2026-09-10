@@ -64,6 +64,73 @@ afterEach(() => {
   host.remove();
 });
 
+describe('what the window closes on', () => {
+  /** Open a file, edit it, and leave a conflict standing over the edit. */
+  async function held() {
+    open({ '/a/one.md': 'one\ntwo\nthree\n' }, () => ({
+      changes: [],
+      conflicts: [{ from: 4, to: 9, ours: 'ours\n', theirs: 'THEIRS\n' }],
+    }));
+    await workspace.openPath('/a/one.md');
+    edit();
+    workspace.view?.dispatch({ changes: { from: 4, to: 7, insert: 'ours' } });
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\nTHEIRS\nthree\n'));
+  }
+
+  const versions = async (path: string) => {
+    const listed = await ipc.commands.listSnapshots(path);
+    return listed.status === 'ok' ? listed.data : [];
+  };
+
+  it('keeps a buffer the save was held for, rather than losing it with the window', async () => {
+    await held();
+    type('\nmore of it');
+    const buffer = workspace.view?.state.doc.toString() ?? '';
+    expect(writes('/a/one.md')).toBe(0);
+
+    await workspace.flushPending();
+
+    // Still not written -- the conflict is the reader's question to
+    // answer and a close is not an answer. But the work exists now.
+    expect(writes('/a/one.md')).toBe(0);
+    const newest = (await versions('/a/one.md'))[0];
+    expect(newest?.author).toBe('user');
+    const read = await ipc.commands.readSnapshot(newest?.id ?? '');
+    expect(read).toMatchObject({ status: 'ok', data: buffer });
+  });
+
+  it('keeps a dirty buffer that autosave was turned off for', async () => {
+    open();
+    await workspace.openPath('/a/one.md');
+    workspace.setAutosave(false);
+    edit();
+    type('\ntyped with autosave off');
+    const buffer = workspace.view?.state.doc.toString() ?? '';
+
+    await workspace.flushPending();
+
+    const newest = (await versions('/a/one.md'))[0];
+    expect(newest?.author).toBe('user');
+    expect(await ipc.commands.readSnapshot(newest?.id ?? '')).toMatchObject({
+      status: 'ok',
+      data: buffer,
+    });
+  });
+
+  it('takes no version of a document the disk already has', async () => {
+    open();
+    await workspace.openPath('/a/one.md');
+    edit();
+    type('\nsaved by the timer');
+    await pause();
+    const before = (await versions('/a/one.md')).length;
+
+    await workspace.flushPending();
+
+    expect((await versions('/a/one.md')).length).toBe(before);
+  });
+});
+
 describe('autosave', () => {
   it('writes the file once the typing stops', async () => {
     await workspace.openPath('/a/one.md');

@@ -65,6 +65,36 @@ afterEach(() => {
   host.remove();
 });
 
+describe('a tab with a question still open', () => {
+  it('does not leave the window while a conflict is unsettled', async () => {
+    ipc = createFakeIpc({ '/w/one.md': 'one\ntwo\nthree\n' });
+    here = new Workspace({
+      commands: {
+        ...ipc.commands,
+        merge3: () =>
+          Promise.resolve({
+            changes: [],
+            conflicts: [{ from: 4, to: 9, ours: 'ours\n', theirs: 'THEIRS\n' }],
+          }),
+      },
+    });
+    there = new Workspace({ commands: ipc.commands });
+    await here.openPath('/w/one.md');
+    edit(here);
+    here.view?.dispatch({ changes: { from: 4, to: 7, insert: 'ours' } });
+    await here.externalChange(ipc.externalWrite('/w/one.md', 'one\nTHEIRS\nthree\n'));
+
+    // The serialized state carries the buffer and the undo history and
+    // nothing else, so a window taking this tab in would see a dirty
+    // document with nothing held against it and autosave "mine" over the
+    // version the reader was still deciding about.
+    expect(await here.moveTab(only(here).id)).toBe(false);
+    expect(here.status).toContain('conflict');
+    expect(here.tabs).toHaveLength(1);
+    expect(ipc.moved).toHaveLength(0);
+  });
+});
+
 describe('a tab moved to another window', () => {
   it('arrives with the document, the mode and the cursor it left with', async () => {
     await here.openPath('/w/one.md');
