@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { Plugin } from 'vite';
@@ -14,8 +14,14 @@ import type { Plugin } from 'vite';
  * is copied at build time rather than committed — `public/pdfjs` is in
  * `.gitignore` for that reason.
  *
- * `buildStart` covers all three ways this app is run: `vite build`,
- * `vite dev`, and the browser test runner, which is a Vite server too.
+ * It runs from `config`, which is earlier than it looks like it needs
+ * to be. Vite decides how to serve `public/` when the server is made,
+ * and `buildStart` is after that: files written then are on disk and
+ * not reachable, which is a worker that never loads, a `getDocument`
+ * that never resolves, and a suite that times out saying nothing.
+ * `config` is before there is a server at all, and it covers the three
+ * ways this app is run — `vite build`, `vite dev`, and the browser test
+ * runner, which is a Vite server too.
  */
 
 /** What is copied, and where it lands under `public/pdfjs/`. */
@@ -50,6 +56,16 @@ const WASM_LICENCES = [
 ];
 
 /**
+ * What is written beside the copy to say which version it is of.
+ *
+ * The copy is skipped when it matches, which is almost always. Four and
+ * a half megabytes is a second of every start — and, worse, the old copy
+ * has to come out before the new one goes in, so doing it every time
+ * leaves a window with no files in it.
+ */
+const STAMP = '.version';
+
+/**
  * The worker, served rather than bundled; see `pdf/pdfjs.ts`.
  *
  * The `legacy` build, for the same reason the main thread takes it: the
@@ -62,13 +78,18 @@ const WORKER = 'legacy/build/pdf.worker.min.mjs';
 export function pdfjsAssets(): Plugin {
   return {
     name: 'markdown:pdfjs-assets',
-    buildStart() {
+    config() {
       const require = createRequire(import.meta.url);
-      const from = dirname(require.resolve('pdfjs-dist/package.json'));
+      const packaged = require.resolve('pdfjs-dist/package.json');
+      const from = dirname(packaged);
       const to = join(import.meta.dirname, 'public', 'pdfjs');
-      // Copied afresh every time: a stale file here is a version skew
-      // between the code and its data, which shows up as a font that
-      // silently fails to load rather than as an error.
+      // A stale copy is a version skew between the code and its data,
+      // and it shows up as a font that silently fails to load rather
+      // than as an error — so the version is written beside it and read
+      // back rather than trusted.
+      const version = String(JSON.parse(readFileSync(packaged, 'utf8')).version);
+      const stamp = join(to, STAMP);
+      if (existsSync(stamp) && readFileSync(stamp, 'utf8') === version) return;
       rmSync(to, { recursive: true, force: true });
       mkdirSync(join(to, 'wasm'), { recursive: true });
       for (const name of DIRECTORIES) {
@@ -80,8 +101,9 @@ export function pdfjsAssets(): Plugin {
       cpSync(join(from, WORKER), join(to, 'pdf.worker.min.mjs'));
       cpSync(join(from, 'LICENSE'), join(to, 'LICENSE'));
       if (!existsSync(join(to, 'cmaps'))) {
-        this.error('pdfjs-dist data did not copy; PDFs will not render');
+        throw new Error('pdfjs-dist data did not copy; PDFs will not render');
       }
+      writeFileSync(stamp, version);
     },
   };
 }
