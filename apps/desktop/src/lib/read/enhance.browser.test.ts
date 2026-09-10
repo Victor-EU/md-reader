@@ -121,3 +121,36 @@ describe('enhancers', () => {
     expect(code.innerHTML).toBe(html);
   });
 });
+
+describe('highlighting on a busy machine', () => {
+  /** A fence of its own, inside the host so the suite's cleanup takes it too. */
+  function mountFence(source: string): HTMLElement {
+    const root = document.createElement('div');
+    root.appendChild(toDom(renderDocument(parser.parse(source), source)).fragment);
+    host.appendChild(root);
+    return root;
+  }
+
+  it('colours a line the same however long it took to colour', async () => {
+    const fence = '```js\nconst answer = compute(everything); // and why\nlet n = 42;\n```\n';
+    // The first block through the grammar loads it and compiles it.
+    const calm = mountFence(fence);
+    await enhancer.run([calm]);
+    // Then the same block again, with every read of the clock a second
+    // later than the last: no line can be finished inside any time limit.
+    // Shiki's default limit hands back the rest of a line as one token
+    // in whatever it was in, which is a line in the wrong colour.
+    const hurried = mountFence(fence);
+    const real = Date.now;
+    let reads = 0;
+    Date.now = () => real.call(Date) + reads++ * 1000;
+    try {
+      await enhancer.run([hurried]);
+    } finally {
+      Date.now = real;
+    }
+    const code = (root: HTMLElement) => root.querySelector('pre code') as HTMLElement;
+    expect(code(calm).querySelectorAll('span').length).toBeGreaterThan(3);
+    expect(code(hurried).innerHTML).toBe(code(calm).innerHTML);
+  });
+});

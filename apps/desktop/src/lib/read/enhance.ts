@@ -100,6 +100,14 @@ function languageId(info: string): LanguageId | null {
   return ALIASES[name] ?? null;
 }
 
+/**
+ * The longest line Shiki is asked to tokenize; one longer stays plain.
+ * A fence of minified code can be a single line of hundreds of
+ * kilobytes, and colouring it is not worth holding the page for. VS
+ * Code stops at the same length.
+ */
+const LONGEST_TOKENIZED_LINE = 20_000;
+
 async function loadShiki() {
   const [core, engine] = await Promise.all([
     import('shiki/core'),
@@ -232,18 +240,24 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
       }
       if (!alive || !block.isConnected) continue;
       const source = block.textContent ?? '';
-      const render = () => highlighter.codeToTokens(source, { lang: id, theme: tokenThemeName });
       try {
-        // The first tokenization after a grammar is loaded sometimes
-        // carries the first line's end state into the second, which
-        // paints the whole of that line in the first one's colour: a
-        // fence whose first line is a comment comes out as a block of
-        // grey. It happens with Shiki's own bundled themes too, and
-        // only ever to the first call, so the first block through a new
-        // grammar is tokenized once and thrown away. That is one extra
-        // block per language per session.
-        if (fresh) render();
-        paint(block, render().tokens);
+        const { tokens } = highlighter.codeToTokens(source, {
+          lang: id,
+          theme: tokenThemeName,
+          // Without a clock. By default Shiki gives up on a line after
+          // 500 ms and hands the rest of it back as one token, still in
+          // whatever it was in -- a type annotation, a comment -- and
+          // starts the next line from there as well. The first block
+          // through a grammar is the one that pays for compiling its
+          // patterns, which takes WebKit most of a second on a quiet Mac,
+          // so it was that block which came out in its neighbour's
+          // colour, and it stayed that way: nothing renders it twice. A
+          // line too long to tokenize at all is what the limit was for,
+          // and a length says that without asking how busy the machine is.
+          tokenizeTimeLimit: 0,
+          tokenizeMaxLineLength: LONGEST_TOKENIZED_LINE,
+        });
+        paint(block, tokens);
       } catch {
         // A grammar the JavaScript engine cannot run leaves plain code,
         // which is what the block already shows.
