@@ -7,7 +7,9 @@
 //! them. One test shells out anyway, so that the claim is checked and not
 //! only reasoned about.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::Duration;
 
