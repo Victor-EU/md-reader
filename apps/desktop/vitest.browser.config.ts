@@ -23,6 +23,18 @@ export default defineConfig({
       'shiki/engine/javascript',
       'shiki/langs',
       'shiki/themes',
+      // And these five, which are not loaded on demand at all: they are
+      // what `update.ts` reaches for, and the runner finds them only
+      // when it reaches the file that does. Discovering a dependency
+      // mid-run makes Vite re-optimize and reload the page under
+      // whatever else is running, and the two files in flight die with
+      // `Failed to fetch dynamically imported module` — the flake that
+      // has taken one or two files out of every full run on CI.
+      '@tauri-apps/api/app',
+      '@tauri-apps/api/webview',
+      '@tauri-apps/api/window',
+      '@tauri-apps/plugin-dialog',
+      '@tauri-apps/plugin-opener',
     ],
     // pdf.js is the opposite case: it is one prebuilt file of two and a
     // half megabytes, so there is nothing to pre-bundle and the
