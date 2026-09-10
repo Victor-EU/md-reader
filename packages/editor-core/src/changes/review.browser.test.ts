@@ -133,6 +133,51 @@ describe('Review mode', () => {
     expect(above).toBeLessThanOrEqual(drawn + 1);
   });
 
+  /**
+   * A panel is a block widget, and the editor takes a block's height from
+   * the box of the element it was handed. A vertical margin is outside
+   * that box, so each panel would push the text below it down by an amount
+   * the height map never hears about, and down a document full of changes
+   * those add up until a click lands on the wrong line. The Phase 3 gate
+   * found and fixed exactly this in the preview block widgets; a panel is
+   * the same rule, and like that one this asserts the consequence rather
+   * than the rule.
+   */
+  it('puts a click below a run of panels on the line under the pointer', () => {
+    editor.destroy();
+    const words = ['one', 'two', 'three', 'four', 'five', 'six'];
+    const text = `${[...words, 'the sentence at the bottom'].join('\n\n')}\n`;
+    editor = createEditor(host, text);
+    editor.view.dispatch({ effects: setReviewEffect(true) });
+    show(
+      ...words.map((word) => {
+        const at = text.indexOf(word);
+        return {
+          id: `changed:${word}`,
+          kind: 'changed' as const,
+          from: at,
+          to: at + word.length,
+          parts: [{ kind: 'new' as const, text: word }],
+          revert: [],
+        };
+      }),
+    );
+    expect(panels()).toHaveLength(words.length);
+    const at = text.indexOf('the sentence at the bottom') + 1;
+    const box = editor.view.coordsAtPos(at);
+    expect(box).not.toBeNull();
+    if (!box) return;
+    const got = editor.view.posAtCoords({ x: box.left + 1, y: (box.top + box.bottom) / 2 });
+    const line = (pos: number) => editor.view.state.doc.lineAt(pos).number;
+    expect(line(got ?? 0)).toBe(line(at));
+    // `estimatedHeight` is 26 plus 21 a body line, which was the space a
+    // panel took up including its margins; the same space as padding keeps
+    // the estimate honest, which is what a block outside the viewport is
+    // drawn at.
+    const drawn = panels()[0]?.getBoundingClientRect().height ?? 0;
+    expect(Math.abs(drawn - 47)).toBeLessThan(2);
+  });
+
   it('marks the change the cursor is standing in', () => {
     editor.view.dispatch({ effects: setReviewEffect(true) });
     show(changed([{ kind: 'new', text: 'stood up' }]));

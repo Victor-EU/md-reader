@@ -43,7 +43,7 @@ describe('tableModel', () => {
     'after',
   ].join('\n');
 
-  it('reads rows, alignment, and pads or truncates ragged rows', () => {
+  it('reads rows and alignment, and pads a row the header outruns', () => {
     const state = parsedState(doc, doc.length);
     const node = tableNodeAt(state, doc.indexOf('| 1'));
     expect(node?.name).toBe('Table');
@@ -61,6 +61,24 @@ describe('tableModel', () => {
     ]);
     const missing = model.rows[1]?.cells[2];
     expect(missing?.from).toBe(model.rows[1]?.to);
+  });
+
+  /**
+   * A row wider than its header used to lose the cells past the header's
+   * last column, and `formatTable` writes rows back from this model, so
+   * what the model dropped the document lost with it.
+   */
+  it('keeps the cells a row has past the last column, out of the way', () => {
+    const state = parsedState(doc, doc.length);
+    const model = tableModelAt(state, tableNodeAt(state, doc.indexOf('| 1'))?.from ?? -1);
+    expect(model).not.toBeNull();
+    if (!model) return;
+    expect(model.rows.map((r) => r.cells.length)).toEqual([3, 3, 3]);
+    expect(model.rows.map((r) => r.extra.map((c) => cellText(state.doc, c)))).toEqual([
+      [],
+      [],
+      ['extra'],
+    ]);
   });
 
   it('returns null outside a table and for a wrong start', () => {

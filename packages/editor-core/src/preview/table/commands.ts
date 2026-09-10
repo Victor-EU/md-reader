@@ -56,10 +56,20 @@ export function insertColumnAfter(
   const table = tableModelAt(state, tableFrom);
   if (!table || col < 0 || col >= table.columns) return null;
   const changes: ChangeSpec[] = [];
+  /**
+   * The new cell goes after the pipe that closes the one we are inserting
+   * after, wherever on the line that pipe is. A row that runs off the end
+   * of its line without a closing pipe has none, and then the text needs a
+   * pipe of its own in front of it: appended straight onto the last cell it
+   * would lengthen that cell instead of starting a new one, and in the
+   * delimiter row it would leave `--- ---`, which is not a delimiter row,
+   * so the parse loses the whole table.
+   */
   const insertAfterCell = (cell: CellModel, text: string) => {
-    const after = state.doc.sliceString(cell.to, cell.to + 2);
-    const at = after.startsWith(' |') ? cell.to + 2 : after.startsWith('|') ? cell.to + 1 : cell.to;
-    changes.push({ from: at, insert: text });
+    const pipe = firstPipeAfter(state.doc, cell.to);
+    changes.push(
+      pipe === null ? { from: cell.to, insert: ` |${text}` } : { from: pipe + 1, insert: text },
+    );
   };
   for (const row of table.rows) {
     const cell = row.cells[col];
@@ -84,26 +94,59 @@ export function deleteColumn(
   const table = tableModelAt(state, tableFrom);
   if (!table || table.columns < 2 || col < 0 || col >= table.columns) return null;
   const changes: ChangeSpec[] = [];
-  const removeCell = (cells: CellModel[], index: number) => {
+  /**
+   * The cell goes, and with it exactly one of the two pipes beside it, so
+   * that the columns after it move up by one. Which one depends on what
+   * the row has: normally the pipe in front, leaving the pipe behind as
+   * the separator that follows the previous cell. A first cell on a row
+   * that opens without a pipe has nothing in front of it, and a last cell
+   * on a row that closes without one has nothing behind it; in both the
+   * pipe that is there has to stay, as a leading or a trailing pipe. A row
+   * left out here keeps a cell the header lost, which slides a column of
+   * the reader's data under the wrong heading. A row with no pipes at all
+   * is one cell on a line of its own, and what is left of it becomes a
+   * bare `|`: the empty line it would otherwise be ends the table.
+   *
+   * A pipe left opening a row has to be able to close it as well. `| ---`
+   * is not a delimiter row -- the parser wants a pipe after the dashes and
+   * not only in front of them -- so when the pipe we keep is the row's
+   * first and last, the row is closed with one of its own, and a table can
+   * lose its second-to-last column and still be a table.
+   */
+  const removeCell = (cells: CellModel[], index: number, from: number, to: number) => {
     const cell = cells[index];
     if (!cell || cell.missing) return;
     const prevPipe = lastPipeBefore(state.doc, cell.from);
     const nextPipe = firstPipeAfter(state.doc, cell.to);
-    if (prevPipe !== null && nextPipe !== null) changes.push({ from: prevPipe, to: nextPipe });
+    if (nextPipe !== null) {
+      const start = prevPipe ?? from;
+      changes.push({ from: start, to: nextPipe });
+      if (start === from && firstPipeAfter(state.doc, nextPipe + 1) === null)
+        changes.push({ from: to, insert: ' |' });
+    } else if (prevPipe !== null) changes.push({ from: prevPipe + 1, to });
+    else changes.push({ from, to, insert: '|' });
   };
-  for (const row of table.rows) removeCell(row.cells, col);
-  removeCell(rowCellsOf(state, table.delimiter.from, table.delimiter.to), col);
+  for (const row of table.rows) removeCell(row.cells, col, row.from, row.to);
+  const { from, to } = table.delimiter;
+  removeCell(rowCellsOf(state, from, to), col, from, to);
   return changes;
 }
 
 /**
  * Rewrite the whole table with padded cells and aligned pipes. The one
  * command that touches every row; cell contents are preserved exactly.
+ *
+ * That includes the cells of a row wider than the header, which go back
+ * after the last column, unpadded because they have no column to be as
+ * wide as. GFM does not draw them and neither does the widget, but they
+ * are what the file says, and formatting is not a licence to delete a
+ * reader's text on the way past.
  */
 export function formatTable(state: EditorState, tableFrom: number): ChangeSpec | null {
   const table = tableModelAt(state, tableFrom);
   if (!table) return null;
   const texts = table.rows.map((row) => row.cells.map((c) => cellText(state.doc, c)));
+  const extras = table.rows.map((row) => row.extra.map((c) => cellText(state.doc, c)));
   const widths = Array.from({ length: table.columns }, (_, c) =>
     Math.max(3, ...texts.map((row) => displayWidth(row[c] ?? ''))),
   );
@@ -115,7 +158,8 @@ export function formatTable(state: EditorState, tableFrom: number): ChangeSpec |
       return `${' '.repeat(Math.floor(extra / 2))}${text}${' '.repeat(Math.ceil(extra / 2))}`;
     return `${text}${' '.repeat(extra)}`;
   };
-  const line = (cells: string[]) => `| ${cells.map(pad).join(' | ')} |`;
+  const line = (cells: string[], extra: string[]) =>
+    `| ${[...cells.map(pad), ...extra].join(' | ')} |`;
   const delimiter = `| ${widths
     .map((w, c) => {
       const a = table.align[c];
@@ -131,7 +175,7 @@ export function formatTable(state: EditorState, tableFrom: number): ChangeSpec |
     .join(' | ')} |`;
   const changes: ChangeSpec[] = [];
   table.rows.forEach((row, i) => {
-    const next = line(texts[i] ?? []);
+    const next = line(texts[i] ?? [], extras[i] ?? []);
     if (state.doc.sliceString(row.from, row.to) !== next)
       changes.push({ from: row.from, to: row.to, insert: next });
   });
@@ -233,12 +277,30 @@ export function rebaseCellChanges(
   return out;
 }
 
-/** A literal `|` typed into a cell must not split it; it becomes `\|`. */
-export function escapePipes(text: string): string {
+/**
+ * A literal `|` going into a cell must not split it; it becomes `\|`.
+ *
+ * What decides whether a pipe is literal is the run of backslashes in
+ * front of it: an odd run escapes it, an even one leaves it a delimiter,
+ * which is how both `rowCells` and the parser read a row. So the run has
+ * to be counted over the text the pipe will actually sit in, and `before`
+ * is that text -- everything the insertion lands after. Escaping against
+ * the inserted string alone turns a `|` typed after a backslash the reader
+ * typed a moment ago into `\\|`, an escaped backslash followed by a live
+ * delimiter, and the cell splits in two.
+ */
+export function escapePipes(text: string, before = ''): string {
+  let run = 0;
+  while (run < before.length && before[before.length - 1 - run] === '\\') run++;
   let out = '';
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i] as string;
-    out += ch === '|' && (i === 0 || text[i - 1] !== '\\') ? '\\|' : ch;
+  for (const ch of text) {
+    if (ch === '|') {
+      out += run % 2 === 0 ? '\\|' : ch;
+      run = 0;
+    } else {
+      out += ch;
+      run = ch === '\\' ? run + 1 : 0;
+    }
   }
   return out;
 }

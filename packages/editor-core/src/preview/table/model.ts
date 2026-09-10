@@ -16,6 +16,16 @@ export interface RowModel {
   from: number;
   to: number;
   cells: CellModel[];
+  /**
+   * The cells past the header's width, on a row that has more of them
+   * than the header does. GFM renders a row as wide as the header and
+   * ignores whatever comes after, so nothing draws these and nothing
+   * indexes into them; they are kept apart from `cells` for that reason
+   * and kept at all because they are still in the file. A command that
+   * rewrites a row has to put them back, or it is deleting text the
+   * reader never asked it to touch.
+   */
+  extra: CellModel[];
 }
 
 export interface TableModel {
@@ -91,15 +101,15 @@ export function tableModel(node: SyntaxNode, doc: Text): TableModel | null {
   const delimiter = node.getChild('TableDelimiter');
   if (!header || !delimiter) return null;
   const rows: RowModel[] = [
-    { from: header.from, to: header.to, cells: rowCells(doc, header.from, header.to) },
+    { from: header.from, to: header.to, cells: rowCells(doc, header.from, header.to), extra: [] },
   ];
   const columns = rows[0]?.cells.length ?? 0;
   for (const row of node.getChildren('TableRow')) {
-    rows.push({ from: row.from, to: row.to, cells: rowCells(doc, row.from, row.to) });
+    rows.push({ from: row.from, to: row.to, cells: rowCells(doc, row.from, row.to), extra: [] });
   }
   for (const row of rows) {
     while (row.cells.length < columns) row.cells.push({ from: row.to, to: row.to, missing: true });
-    row.cells.length = columns;
+    if (row.cells.length > columns) row.extra = row.cells.splice(columns);
   }
   const align = alignments(doc, delimiter.from, delimiter.to);
   while (align.length < columns) align.push(null);

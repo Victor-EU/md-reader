@@ -148,13 +148,21 @@ function build(state: EditorState): DecorationSet {
 /**
  * Colours come from the same variables the margin marks use, so a change
  * is one colour wherever it is drawn and a theme restyles both at once.
+ *
+ * The room above and below the panel is padding, never a vertical margin.
+ * A panel is a block widget, and the editor takes a block's height from
+ * the box of the element it was handed: a margin sits outside that box, so
+ * every panel would push the text under it down by two pixels the height
+ * map never hears about, and over a document full of changes those add up
+ * until a click lands on the wrong line. That is the same defect the Phase
+ * 3 gate found in the four preview block widgets, in the one block widget
+ * that is not one of them.
  */
 const reviewTheme = EditorView.baseTheme({
   '.mdr-review': {
     fontSize: '0.85em',
     lineHeight: '1.6',
-    margin: '2px 0',
-    padding: '2px 8px',
+    padding: '4px 8px',
     borderRadius: '4px',
     borderLeft: '3px solid var(--mdr-review-tint, #2a6ad9)',
     background: 'color-mix(in srgb, var(--mdr-review-tint, #2a6ad9) 7%, transparent)',

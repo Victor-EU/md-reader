@@ -125,6 +125,75 @@ describe('table widget', () => {
     expect(inner.state.doc.toString()).toBe('a\\|');
   });
 
+  /**
+   * The backslash was typed a keystroke ago, so escaping the pipe against
+   * the keystroke alone writes `\\|` -- an escaped backslash and then a
+   * live delimiter, which gives the row a cell the header has no column
+   * for and pushes the note out of the table.
+   */
+  it('keeps the cell whole when a pipe is typed after a backslash', async () => {
+    await activate(1, 0);
+    const inner = getNested(cell(1, 0) as HTMLElement);
+    inner.dispatch({ selection: { anchor: 1 } });
+    typeInCell(inner, '\\|');
+    expect(inner.state.doc.toString()).toBe('a\\|');
+    expect(editor.view.state.doc.toString()).toBe(doc.replace('| a |', '| a\\| |'));
+    expect(cell(1, 1)?.textContent).toBe('b');
+  });
+
+  /**
+   * A write above the table that leaves the table's own block alone never
+   * rebuilds the widget: Lezer hands the block back and the decoration is
+   * only mapped. Nothing then tells the open cell that every offset below
+   * the write has moved, and the next letter used to be dropped on the
+   * floor as drift.
+   */
+  it('keeps taking keystrokes after a write lands above the table', async () => {
+    // The prose above the table is the point of it: the parser only hands a
+    // block back untouched when enough unchanged text sits between it and
+    // the write, and a rebuilt widget would refresh the offset by itself.
+    const above = `${'Prose above the table, of which there has to be a fair amount. '.repeat(6)}\n\n`;
+    editor.destroy();
+    editor = createEditor(host, above + doc);
+    editor.view.dispatch({ selection: { anchor: 0 } });
+    await activate(1, 0);
+    const inner = getNested(cell(1, 0) as HTMLElement);
+    inner.dispatch({ selection: { anchor: 1 } });
+    typeInCell(inner, 'x');
+    expect(editor.view.state.doc.toString()).toBe(above + doc.replace('| a |', '| ax |'));
+    editor.view.dispatch({
+      changes: { from: 0, insert: 'A line from elsewhere\n\n' },
+      userEvent: 'external.change',
+    });
+    await tick();
+    typeInCell(getNested(cell(1, 0) as HTMLElement), 'y');
+    expect(editor.view.state.doc.toString()).toBe(
+      `A line from elsewhere\n\n${above}${doc.replace('| a |', '| axy |')}`,
+    );
+  });
+
+  /**
+   * A row arriving from elsewhere rebuilds the table element, and the cell
+   * that comes back with it is not a cell anyone asked for. Taking the
+   * focus on that mount takes it out of wherever the reader actually is --
+   * the find bar, the palette -- in the middle of them typing there.
+   */
+  it('leaves the focus alone when a write rebuilds the table', async () => {
+    await activate(1, 0);
+    const elsewhere = document.createElement('input');
+    document.body.appendChild(elsewhere);
+    elsewhere.focus();
+    expect(document.activeElement).toBe(elsewhere);
+    editor.view.dispatch({
+      changes: { from: doc.indexOf('\n\nAfter line'), insert: '\n| z | z |' },
+      userEvent: 'external.change',
+    });
+    await tick();
+    expect(host.querySelector('.mdr-cell-active')).not.toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+    elsewhere.remove();
+  });
+
   it('undoes a cell edit from inside the cell and resyncs', async () => {
     await activate(1, 0);
     const inner = getNested(cell(1, 0) as HTMLElement);

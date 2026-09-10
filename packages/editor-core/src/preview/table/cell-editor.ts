@@ -2,13 +2,14 @@ import { defaultKeymap, redo, undo } from '@codemirror/commands';
 import { commonmarkLanguage, markdown } from '@codemirror/lang-markdown';
 import { syntaxHighlighting } from '@codemirror/language';
 import {
+  type ChangeDesc,
   ChangeSet,
   EditorSelection,
   EditorState,
   Transaction,
   type TransactionSpec,
 } from '@codemirror/state';
-import { EditorView, keymap, ViewPlugin } from '@codemirror/view';
+import { EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import { extensions as dialect } from '@mdreader/markdown';
 import { markdownHighlightStyle } from '../theme.ts';
 import { escapePipes, insertRowBelow, materializeCell, rebaseCellChanges } from './commands.ts';
@@ -44,11 +45,20 @@ function cellTransactionFilter(tr: Transaction): TransactionSpec | readonly Tran
   let touched = false;
   const changes: { from: number; to: number; insert: string }[] = [];
   let lastFrom = 0;
+  // Each insertion is escaped against the cell as it will read once every
+  // change in front of it has landed, never against the keystroke on its
+  // own: whether a pipe is a delimiter is decided by the backslashes
+  // before it, and those are usually text the reader typed earlier.
+  let before = '';
+  let prevTo = 0;
   tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    before += tr.startState.doc.sliceString(prevTo, fromA);
     const text = inserted.toString();
-    const escaped = escapePipes(text);
+    const escaped = escapePipes(text, before);
     if (escaped !== text) touched = true;
     changes.push({ from: fromA, to: toA, insert: escaped });
+    before += escaped;
+    prevTo = toA;
     lastFrom = fromA;
   });
   if (!touched) return tr;
@@ -84,6 +94,26 @@ export class CellEditorManager {
   private td: HTMLElement | null = null;
   /** Click coordinates from the activation, consumed on mount to place the cursor. */
   pendingCoords: { x: number; y: number } | null = null;
+  /**
+   * Set by an activation and consumed by the next mount: the reader asked
+   * for this cell, so the cell takes the focus and is scrolled to. A mount
+   * nobody asked for must do neither. The widget is rebuilt whenever the
+   * table gains or loses a row, which an agent writing to the document can
+   * do at any moment, and it is built again every time the table scrolls
+   * back into the viewport; a cell that grabbed the focus on those would
+   * take it out of the find bar or the palette while the reader was typing
+   * there.
+   */
+  pendingFocus = false;
+  /**
+   * Whether the reader is in the nested view. Kept by its own focus and
+   * blur, because a mount cannot ask the DOM about a view that has just
+   * been destroyed, and the rebuilds above happen under the reader's
+   * fingers: the cell has to come back focused if that is where they were.
+   */
+  private focused = false;
+  /** True while we are tearing the nested view down, whose blur means nothing. */
+  private unmounting = false;
   private syncing = false;
   /**
    * Where the nested document starts in the outer one. It is the cell's
@@ -117,6 +147,8 @@ export class CellEditorManager {
       this.cellStart = cell?.from ?? null;
       return;
     }
+    const takeFocus = this.pendingFocus || (this.focused && !this.focusIsAway());
+    this.pendingFocus = false;
     if (this.nested) this.unmount();
     this.td = td;
     this.cellStart = cell?.from ?? null;
@@ -142,9 +174,15 @@ export class CellEditorManager {
       dispatchTransactions: (trs) => this.onNested(trs),
     });
     this.nested = nested;
+    nested.contentDOM.addEventListener('focus', () => {
+      this.focused = true;
+    });
+    nested.contentDOM.addEventListener('blur', () => {
+      if (!this.unmounting) this.focused = false;
+    });
     queueMicrotask(() => {
       if (this.nested !== nested) return;
-      nested.focus();
+      if (takeFocus) nested.focus();
       if (coords) {
         const pos = nested.posAtCoords(coords);
         if (pos !== null) nested.dispatch({ selection: { anchor: pos } });
@@ -152,16 +190,43 @@ export class CellEditorManager {
       // A clicked cell is on screen already; one reached by Tab or an arrow
       // key from a line above the fold is not, and the outer view does not
       // scroll for a cursor it no longer owns.
-      td.scrollIntoView({ block: 'nearest' });
+      if (takeFocus) td.scrollIntoView({ block: 'nearest' });
     });
   }
 
   unmount(): void {
     this.td?.classList.remove('mdr-cell-active');
+    this.unmounting = true;
     this.nested?.destroy();
+    this.unmounting = false;
     this.nested = null;
     this.td = null;
     this.cellStart = null;
+  }
+
+  /**
+   * True when the focus is somewhere the reader put it that is not this
+   * editor's text: the find bar, the palette, a dialog. A view destroyed
+   * out from under a reader who was typing in it leaves the focus on the
+   * body instead, and that much is ours to take back; nothing else is.
+   */
+  private focusIsAway(): boolean {
+    const root = this.outer.dom.ownerDocument;
+    const active = root.activeElement;
+    return !!active && active !== root.body && !this.outer.contentDOM.contains(active);
+  }
+
+  /**
+   * Move the nested document's start along with the outer document. A
+   * write that lands above the table without disturbing the table's own
+   * block never rebuilds the widget -- Lezer hands the same block back and
+   * the decoration is only mapped -- so nothing else here would notice
+   * that every offset below it has moved. The next keystroke would then
+   * read the wrong span, fail the check in `onNested`, and be thrown away
+   * as drift while the reader watched their letter not arrive.
+   */
+  mapCellStart(changes: ChangeDesc): void {
+    if (this.cellStart !== null) this.cellStart = changes.mapPos(this.cellStart, -1);
   }
 
   /**
@@ -319,6 +384,7 @@ export function activateCell(
   if (!cell) return;
   const manager = cellManager(view);
   manager.pendingCoords = coords;
+  manager.pendingFocus = true;
   const changes = cell.missing ? materializeCell(view.state, model.from, row, col) : null;
   view.dispatch({
     ...(changes ? { changes } : {}),
@@ -467,8 +533,11 @@ export const tableKeymap = [
   { key: 'Backspace', run: backspaceIntoTable },
 ];
 
-/** Tears the nested view down with the outer one. */
+/** Keeps the open cell's offset in step with the document, and tears the nested view down with it. */
 export const cellEditorPlugin = ViewPlugin.define((view) => ({
+  update(update: ViewUpdate) {
+    if (update.docChanged) managers.get(view)?.mapCellStart(update.changes);
+  },
   destroy() {
     managers.get(view)?.destroy();
     managers.delete(view);
