@@ -33,8 +33,6 @@ function edit() {
  */
 const drawn = () => new Promise((resolve) => requestAnimationFrame(resolve));
 
-const commandsCalled = () => ipc.calls.map((call) => call.command);
-
 beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -51,11 +49,20 @@ describe('watching an open file', () => {
     open({ '/a/one.md': '# One\n' });
     await workspace.openPath('/a/one.md');
     expect(ipc.watching.has('/a/one.md')).toBe(true);
-    expect(commandsCalled()).toContain('snapshot');
     expect(await ipc.commands.listSnapshots('/a/one.md')).toMatchObject({
       status: 'ok',
       data: [{ author: 'user' }],
     });
+  });
+
+  it('counts the document again when a write lands while it is being read', async () => {
+    open({ '/a/one.md': 'one two three\n' });
+    await workspace.openPath('/a/one.md');
+    expect(workspace.words).toBe(3);
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one two three four five\n'));
+    // Long enough for the count's own pause to have passed.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(workspace.words).toBe(5);
   });
 
   it('stops watching when the last tab on a document closes', async () => {

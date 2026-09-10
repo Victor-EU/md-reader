@@ -48,6 +48,33 @@ jobs:
       - run: pnpm test
       - run: cargo test --workspace --locked
 
+  bench:
+    name: bench (macos-14)
+    # One platform. These are measurements, and a number is only worth
+    # comparing with itself: the same harness on three different runners
+    # would be three sets of numbers with one set of thresholds over
+    # them. macOS is the platform the app is developed and released on
+    # first, so it is the one whose numbers mean something here.
+    #
+    # The thresholds in `tools/bench/src` are set from what the harness
+    # measures with room over the top, which is what plan 7.4 asks of a
+    # shared runner: catch a disaster, do not flake on a busy machine.
+    # The results are kept as an artifact because the numbers are worth
+    # more over time than any one run of them.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium webkit
+      - run: pnpm bench
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench-results
+          path: tools/bench/results/*.json
+          if-no-files-found: warn
+
   build:
     name: build (${{ matrix.os }})
     # A cold Rust build on three runners is too slow for the pull-request

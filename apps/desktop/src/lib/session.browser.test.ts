@@ -181,7 +181,33 @@ describe('what a window remembers', () => {
     await next.restore(saved);
 
     expect(ipc.watching.has('/a/one.md')).toBe(true);
-    expect(ipc.calls.map((call) => call.command)).toContain('snapshot');
+    // Both are `open_document`'s doing, where the bytes are, so what is
+    // asserted is that they happened rather than who asked for them.
+    expect(await ipc.commands.listSnapshots('/a/one.md')).toMatchObject({
+      status: 'ok',
+      data: [{ author: 'user' }],
+    });
+  });
+
+  it('counts the document it ends on, not every one it puts back', async () => {
+    await workspace.openPath('/a/one.md');
+    await workspace.openPath('/a/two.md');
+    await workspace.openPath('/a/three.md');
+    workspace.activate(
+      workspace.tabs.find((tab) => workspace.doc(tab).path === '/a/three.md')?.id ?? null,
+    );
+    const saved = workspace.sessionState();
+
+    const next = relaunch();
+    await next.restore(saved);
+
+    // A restore builds the strip rather than walking it: the tabs behind
+    // the one in front are not visited, so nothing counts their words or
+    // walks them for an outline nobody asked for (plan WP 3.3). The one
+    // in front is a heading and nothing else; the other two are three
+    // words each.
+    expect(next.activeDoc?.path).toBe('/a/three.md');
+    expect(next.words).toBe(1);
   });
 
   it('leaves out a file that is no longer there, and says which', async () => {

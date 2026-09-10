@@ -23,14 +23,20 @@ import { ReadView } from '../../../apps/desktop/src/lib/read/view.ts';
  * what the page costs and must not grow with the file, and `jump`, the
  * worst screenful-sized scroll, which is what the reader feels.
  */
-const BUDGET_MS = 100;
-/** What one screenful of scrolling may take: a frame, at 60 Hz. */
-const JUMP_BUDGET_MS = 16;
+/**
+ * The design's promise is a tenth of a second at a megabyte. What the
+ * two smaller sizes are held to is what they measure with room for a
+ * slower machine, so that a regression fails the build rather than
+ * quietly using up the promise's headroom (plan WP 3.3).
+ */
 const sizes: [string, number][] = [
   ['100KB', 100_000],
   ['1MB', 1_000_000],
   ['10MB', 10_000_000],
 ];
+const budgets: Record<string, number> = { '100KB': 50, '1MB': 60, '10MB': 100 };
+/** What one screenful of scrolling may take. Measured at 1 to 3 ms. */
+const JUMP_BUDGET_MS = 8;
 
 const round = (n: number) => Math.round(n * 10) / 10;
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -61,13 +67,14 @@ describe('read mode first paint', () => {
   afterEach(async () => {
     host.remove();
     await server.commands.writeFile(
-      `tools/bench/results/read-paint-${server.browser}.json`,
+      `results/read-paint-${server.browser}.json`,
       `${JSON.stringify({ browser: server.browser, at: new Date().toISOString(), results }, null, 2)}\n`,
     );
   });
 
   for (const [label, bytes] of sizes) {
-    it(`${label}: first paint under ${BUDGET_MS} ms`, async () => {
+    const budget = budgets[label] ?? 100;
+    it(`${label}: first paint under ${budget} ms`, async () => {
       const doc = generateDocument(bytes, 11);
       let complete = false;
       const t0 = performance.now();
@@ -122,12 +129,16 @@ describe('read mode first paint', () => {
       results.push(row);
       console.log(JSON.stringify(row));
       view.destroy();
-      expect(row.firstPaint, `${label} first paint`).toBeLessThan(BUDGET_MS);
+      expect(row.firstPaint, `${label} first paint`).toBeLessThan(budget);
       expect(complete, `${label} reached the end`).toBe(true);
       // The page holds a window onto the document, not the document.
       expect(row.blocks, `${label} blocks in the page`).toBeLessThan(200);
       expect(row.jump, `${label} scroll`).toBeLessThan(JUMP_BUDGET_MS);
       expect(row.jumpMax, `${label} worst scroll`).toBeLessThan(JUMP_BUDGET_MS * 3);
+      // A document nothing has parsed is what a launch has; a window
+      // that took a minute to find the end of one would be a problem the
+      // first paint alone would not show.
+      expect(row.walk, `${label} reaching the end`).toBeLessThan(bytes < 5_000_000 ? 2_000 : 8_000);
     });
   }
 });

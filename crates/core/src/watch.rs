@@ -274,11 +274,26 @@ impl Watcher {
     /// # Errors
     /// Fails when the file cannot be read or its folder cannot be watched.
     pub fn watch(&mut self, path: &Path) -> Result<(), Error> {
+        let document = read_document(path)?;
+        self.watch_known(path, &document.content, document.meta.hash)
+    }
+
+    /// The same, for a caller that has just read the file itself.
+    ///
+    /// Two reads of one file are not only a read too many; they are two
+    /// different moments. A window opening a document read it, and the
+    /// watch that followed read it again — so a writer landing in
+    /// between left the window holding one version and the watcher
+    /// calling the next one the baseline, and the difference between
+    /// them was never reported to anybody (plan WP 3.3).
+    ///
+    /// # Errors
+    /// Fails when the folder cannot be watched.
+    pub fn watch_known(&mut self, path: &Path, content: &str, hash: String) -> Result<(), Error> {
         let dir = folder(path).ok_or_else(|| Error::Read {
             path: path.to_path_buf(),
             message: "no folder to watch".to_owned(),
         })?;
-        let document = read_document(path)?;
         let key = resolved(path);
         let dir = folder(&key).unwrap_or(dir);
         let mut watched = self.lock()?;
@@ -287,8 +302,8 @@ impl Watcher {
             key,
             Known {
                 given: path.to_path_buf(),
-                text: eol::normalize_lf(&document.content),
-                hash: document.meta.hash,
+                text: eol::normalize_lf(content),
+                hash,
                 gone: false,
                 id: get_file_id(path).ok(),
             },

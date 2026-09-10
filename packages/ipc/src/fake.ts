@@ -343,6 +343,28 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     if (root === null || !dir.startsWith(root)) return;
     for (const cb of folderListeners) cb({ root, dirs: [dir] });
   };
+  /**
+   * Store a version, as `History::snapshot` does: the same content twice
+   * running is the same version, not a second one.
+   */
+  const take = (path: string, content: string, author: string): SnapshotInfo => {
+    const taken = history.get(path) ?? [];
+    const latest = taken[taken.length - 1];
+    if (latest?.content === content) return latest.info;
+    snapshots += 1;
+    const info: SnapshotInfo = {
+      id: `snapshot-${snapshots}`,
+      path,
+      author: author as SnapshotAuthor,
+      agent: null,
+      timestamp_ms: Date.now(),
+      hash: fakeHash(content),
+      byte_len: new TextEncoder().encode(content).length,
+    };
+    taken.push({ info, content });
+    history.set(path, taken);
+    return info;
+  };
   const read = (path: string): Result<Document, IpcError> => {
     const file = files.get(path);
     if (!file) return err({ kind: 'read', path, message: 'No such file or directory' });
@@ -428,7 +450,17 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
   };
 
   const commands: Commands = {
-    openDocument: (path) => record('open_document', [path], read(path)),
+    openDocument: (path) => {
+      const result = read(path);
+      // Rust records the version it found the file in and starts watching
+      // it, inside the same command: the bytes are already there, so
+      // nothing crosses the bridge to say so (plan WP 3.3).
+      if (result.status === 'ok') {
+        if (result.data.meta.read_only !== 'size') take(path, result.data.content, 'user');
+        watching.add(path);
+      }
+      return record('open_document', [path], result);
+    },
     saveDocument: (path, content, expectedHash, format) => {
       const args = [path, content, expectedHash, format];
       if (format.encoding !== 'utf-8') {
@@ -519,25 +551,8 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       calls.push({ command: 'merge3', args: [base, ours, theirs] });
       return Promise.resolve(result);
     },
-    snapshot: (path, content, author) => {
-      const taken = history.get(path) ?? [];
-      const latest = taken[taken.length - 1];
-      if (latest?.content === content)
-        return record('snapshot', [path, content, author], ok(latest.info));
-      snapshots += 1;
-      const info: SnapshotInfo = {
-        id: `snapshot-${snapshots}`,
-        path,
-        author: author as SnapshotAuthor,
-        agent: null,
-        timestamp_ms: Date.now(),
-        hash: fakeHash(content),
-        byte_len: new TextEncoder().encode(content).length,
-      };
-      taken.push({ info, content });
-      history.set(path, taken);
-      return record('snapshot', [path, content, author], ok(info));
-    },
+    snapshot: (path, content, author) =>
+      record('snapshot', [path, content, author], ok(take(path, content, author))),
     listSnapshots: (path) =>
       record(
         'list_snapshots',

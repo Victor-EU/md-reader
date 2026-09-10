@@ -23,7 +23,13 @@ import { server } from 'vitest/browser';
  * `payloadBytes` is what `JSON.stringify` makes of the two block lists,
  * which is what the bridge carries. On this path the size is the cost.
  */
-const BUDGET_MS = 75;
+/**
+ * Was seventy-five, which is what was left of the two hundred after the
+ * alignment and the bridge. It measures at three milliseconds at a
+ * hundred kilobytes and twenty at a megabyte, so the guard is set from
+ * that with room for a slower machine (plan WP 3.3).
+ */
+const BUDGET_MS = 45;
 const sizes: [string, number][] = [
   ['100KB', 100_000],
   ['1MB', 1_000_000],
@@ -54,7 +60,7 @@ describe('the semantic diff, frontend half', () => {
 
   afterEach(async () => {
     await server.commands.writeFile(
-      `tools/bench/results/blockdiff-${server.browser}.json`,
+      `results/blockdiff-${server.browser}.json`,
       `${JSON.stringify({ browser: server.browser, at: new Date().toISOString(), results }, null, 2)}\n`,
     );
   });

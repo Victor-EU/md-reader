@@ -12,9 +12,13 @@
     "@codemirror/state": "~6.7.4",
     "@codemirror/view": "~6.43.11",
     "@mdreader/editor-core": "workspace:*",
-    "@mdreader/markdown": "workspace:*"
+    "@mdreader/ipc": "workspace:*",
+    "@mdreader/markdown": "workspace:*",
+    "svelte": "^5.57.0"
   },
   "devDependencies": {
-    "typescript": "~5.9.3"
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.2.2"
   }
 }

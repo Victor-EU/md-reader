@@ -116,6 +116,45 @@ fn writing_the_same_bytes_is_not_a_change() {
     fixture.quiet();
 }
 
+/// The baseline is what the caller was given, not what the disk says a
+/// moment later (plan WP 3.3).
+///
+/// A window reads a file and then takes it up here in the same breath.
+/// Reading it a second time to find the baseline would make a writer who
+/// landed in between invisible: the window would hold one version, the
+/// watcher would call the next one the baseline, and the difference
+/// between the two would never be reported to anybody.
+#[test]
+fn a_watch_takes_the_version_it_was_handed_as_the_baseline() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("notes.md");
+    std::fs::write(&file, "what the window read\n").expect("seed the file");
+    let document = read_document(&file).expect("read");
+    let (sender, events) = channel();
+    let mut watcher = Watcher::new(move |event| {
+        let _ = sender.send(event);
+    })
+    .expect("start the watcher");
+    // Somebody writes between the window's read and the watch.
+    std::fs::write(&file, "and what somebody else wrote\n").expect("write");
+    watcher
+        .watch_known(&file, &document.content, document.meta.hash)
+        .expect("watch");
+
+    std::fs::write(&file, "later still\n").expect("write");
+    let change = match events.recv_timeout(WAIT).expect("an event") {
+        WatchEvent::Changed(change) => change,
+        other => panic!("expected a change, got {other:?}"),
+    };
+    assert_eq!(change.content, "later still\n");
+    // The write that landed in the gap is part of what changed, rather
+    // than having quietly become the baseline.
+    assert_eq!(
+        apply("what the window read\n", &change.changes),
+        "later still\n"
+    );
+}
+
 /// The file is deleted under an open tab. The buffer is the frontend's
 /// to keep; all the watcher owes is the news, once, and then the news
 /// when it comes back.

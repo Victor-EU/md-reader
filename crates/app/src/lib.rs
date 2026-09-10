@@ -20,11 +20,10 @@ use base64::Engine as _;
 use mdreader_core::{
     AgentAnswer, AgentAsk, AgentDocument, AgentRequest, AgentStatus, AssetWrite, Block, BlockOp,
     Bounds, DirEntry, Document, Error, ExportWrite, ExternalChange, FileFormat, FileMatches,
-    FileRemoved,
-    FileRenamed, Folder, FolderChange, History, MergeResult, Override, Overrides, Restore,
-    SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session, Settings,
-    SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher, WindowContent,
-    WindowState,
+    FileRemoved, FileRenamed, Folder, FolderChange, History, MergeResult, Override, Overrides,
+    ReadOnly, Restore, SaveResult, SearchDone, SearchHit, SearchOptions, SearchProgress, Session,
+    Settings, SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher,
+    WindowContent, WindowState,
 };
 use specta_typescript::Typescript;
 use tauri::Manager;
@@ -157,11 +156,36 @@ impl Services {
     }
 }
 
-/// Read a document from disk and return its content and metadata.
+/// Read a document for a window: its bytes, the version it was found in,
+/// and a watch on it.
+///
+/// Three things that all need the file, done where the file is. Asking
+/// for them afterwards meant the window sending every document back
+/// across the bridge to say what this side had just read, and the
+/// watcher reading each one a second time — which on a session of two
+/// hundred tabs was two hundred files read twice and five megabytes sent
+/// nowhere (plan WP 3.3). It also closed a gap: a writer landing between
+/// the read and the watch used to leave the window holding one version
+/// and the watcher calling the next one the baseline.
+///
+/// Neither the record nor the watch is a reason to refuse a file, so
+/// both failures are dropped rather than returned. A file too large to
+/// edit is not recorded at all: nothing in the app can change it, so
+/// there would never be a second version for the first to be compared
+/// with, and storing it would double what a very large file costs.
 #[tauri::command]
 #[specta::specta]
-fn open_document(path: PathBuf) -> Result<Document, Error> {
-    mdreader_core::read_document(&path)
+fn open_document(services: tauri::State<'_, Services>, path: PathBuf) -> Result<Document, Error> {
+    let document = mdreader_core::read_document(&path)?;
+    if document.meta.read_only != Some(ReadOnly::Size)
+        && let Ok(mut history) = services.history()
+    {
+        let _ = history.snapshot(&path, &document.content, SnapshotAuthor::User);
+    }
+    if let Ok(mut watcher) = services.watcher() {
+        let _ = watcher.watch_known(&path, &document.content, document.meta.hash.clone());
+    }
+    Ok(document)
 }
 
 /// Save the buffer in the file's stored form, refusing when the file on

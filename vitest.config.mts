@@ -88,20 +88,10 @@ export default defineConfig({
           include: ['tools/release/**/*.test.mjs'],
         },
       },
-      {
-        // Excluded from `pnpm test`; run with `pnpm bench`. Writes JSON to tools/bench/results.
-        test: {
-          name: 'bench',
-          include: ['tools/bench/src/**/*.bench.test.ts'],
-          testTimeout: 300_000,
-          browser: {
-            enabled: true,
-            headless: true,
-            provider: playwright(),
-            instances: [{ browser: 'chromium' }, { browser: 'webkit' }],
-          },
-        },
-      },
+      // The performance harness, excluded from `pnpm test` and run with
+      // `pnpm bench`. Its own file, because measuring what a session of
+      // two hundred tabs costs means compiling the shell.
+      './tools/bench/vitest.config.ts',
     ],
   },
 });

@@ -1,4 +1,3 @@
-import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import {
   ChangeSet,
   EditorSelection,
@@ -82,19 +81,16 @@ import type {
 } from '@mdreader/ipc';
 import {
   type AnnotationKind,
-  commentSpans,
   commonBlocks,
   copyForAi,
   type DocBlock,
   extractAnnotations,
   flattenBlocks,
-  headings,
   type ImageResolver,
   type OutlineEntry,
   type PaletteMeaning,
   parser,
   renderDocument,
-  type Span,
   toHtml,
 } from '@mdreader/markdown';
 import { agentAnnotation, agentDocument } from './agent.ts';
@@ -122,7 +118,7 @@ import { basename, dirname, inside, resolvePath, shortenDir, tabLabels } from '.
 import type { Enhancer } from './read/enhance.ts';
 import { ReadView } from './read/view.ts';
 import { FolderSearch } from './search.svelte.ts';
-import { count, countWords, describeError, describeFormat, describeReadOnly } from './text.ts';
+import { count, describeError, describeFormat, describeReadOnly } from './text.ts';
 import {
   CHECK_INTERVAL_MS,
   FIRST_CHECK_DELAY_MS,
@@ -272,13 +268,29 @@ const AUTOSAVE_DELAY = 800;
 /** Long enough that a fast typist counts once per pause, not once per key. */
 const WORD_COUNT_DELAY = 250;
 /**
+ * How much of the time the word count may have on a document long enough
+ * for the counting to be felt (plan WP 3.3).
+ *
+ * A word count is a walk of the whole document, so on a ten megabyte one
+ * it costs about as long as two frames however it is written. A fifth is
+ * the share it gets: the pause after each count is the last one's cost
+ * times this, so an ordinary document is counted a quarter of a second
+ * after the last keystroke as before, and a very long one is counted
+ * less often rather than the window stopping for it every quarter second.
+ */
+const COUNT_SHARE = 5;
+/**
+ * And never longer than this, so one slow count — a machine that
+ * hiccuped, a document briefly enormous — does not leave the number in
+ * the status bar stale for ten seconds afterwards.
+ */
+const COUNT_DELAY_MAX = 2_000;
+/**
  * The same idea for the change gutter. The markers are mapped through
  * every edit as it happens, so what waits here is only the diff that
  * decides which runs there are.
  */
 const CHANGE_SCAN_DELAY = 300;
-/** How long the outline may wait for the parser before showing what there is. */
-const OUTLINE_TIMEOUT = 30;
 /**
  * How long the session waits when what changed was typing into an
  * untitled document, whose whole text it has to carry. Long enough that
@@ -455,6 +467,10 @@ export class Workspace {
   private sessionTimer: ReturnType<typeof setTimeout> | null = null;
   private updateTimer: ReturnType<typeof setInterval> | null = null;
   private sessionDelay = 0;
+  /** What the last word count cost, which is what the next one waits on. */
+  private countCost = 0;
+  /** Folders this window has already had the asset scope widened to. */
+  private readonly allowed = new Set<string>();
   /** Which Cmd+P keystroke is waiting on Rust, so stale answers are dropped. */
   private paletteQuery = 0;
   /** The file "New file" just made, which opens once it has its name. */
@@ -601,10 +617,15 @@ export class Workspace {
   }
 
   /**
-   * Read a file and take charge of it: images from its folder, a watch
-   * on it, and a snapshot of what it held when we found it, which is the
-   * version a restore goes back to (design 4.4). Opening a file and
-   * putting one back at launch both start here.
+   * Read a file and take charge of it. Opening a file and putting one
+   * back at launch both start here.
+   *
+   * The watch on it and the snapshot of what it held when we found it —
+   * the version a restore goes back to (design 4.4) — are taken by
+   * `open_document` itself, where the bytes already are. Asking for them
+   * from here meant every document crossing the bridge again to say what
+   * that side had just read, and every file being read twice (plan WP
+   * 3.3).
    */
   private async load(path: string): Promise<{ doc: Doc; meta: DocumentMeta } | null> {
     const result = await this.options.commands.openDocument(path);
@@ -615,15 +636,22 @@ export class Workspace {
     const { content, meta } = result.data;
     const doc = this.newDoc(content, { path, meta });
     // Images in this document resolve against its folder, so Rust is told
-    // to let the webview read that folder and below (design 8).
-    void this.options.commands.allowDocumentImages(path);
-    void this.options.commands.watch(path);
-    // A file too large to edit gets no history: nothing in the app can
-    // change it, so there would never be a second version to compare the
-    // first with -- and taking one would send the whole of a very large
-    // document over the IPC and into the store, on every open.
-    if (meta.read_only !== 'size') void this.options.commands.snapshot(path, content, 'user');
+    // to let the webview read that folder and below (design 8). One call
+    // per folder, not per document: a session of two hundred tabs is
+    // usually a handful of folders.
+    this.allowImagesIn(path);
     return { doc, meta };
+  }
+
+  /**
+   * Widen the asset scope to a document's folder, unless this window has
+   * already asked for that folder.
+   */
+  private allowImagesIn(path: string): void {
+    const dir = dirname(path);
+    if (dir === '' || this.allowed.has(dir)) return;
+    this.allowed.add(dir);
+    void this.options.commands.allowDocumentImages(path);
   }
 
   async pickAndOpen(): Promise<void> {
@@ -712,8 +740,8 @@ export class Workspace {
     copy.selection = tab.selection;
   }
 
-  private addTab(doc: Doc, mode: ViewMode = 'read', at?: number): Tab {
-    return this.insert(Workspace.blankTab('document', doc.id, mode), at);
+  private addTab(doc: Doc, mode: ViewMode = 'read', at?: number, focus = true): Tab {
+    return this.insert(Workspace.blankTab('document', doc.id, mode), at, focus);
   }
 
   /**
@@ -745,12 +773,19 @@ export class Workspace {
     };
   }
 
-  /** Put a tab in the strip, after the pinned block, and go to it. */
-  private insert(tab: Tab, at?: number): Tab {
+  /**
+   * Put a tab in the strip, after the pinned block, and go to it.
+   *
+   * `focus` is false only where the tab is being built rather than
+   * visited: a restore puts two hundred of them up and the reader ends
+   * in one, and going to each on the way meant counting the words of
+   * every document in the session (plan WP 3.3).
+   */
+  private insert(tab: Tab, at?: number, focus = true): Tab {
     const pinned = this.pinnedCount();
     const index = Math.min(Math.max(at ?? this.tabs.length, pinned), this.tabs.length);
     this.tabs.splice(index, 0, tab);
-    this.activate(tab.id);
+    if (focus) this.activate(tab.id);
     this.touch();
     return this.tabs[index] as Tab;
   }
@@ -1433,9 +1468,7 @@ export class Workspace {
   }
 
   private firstHeading(doc: Doc): string | null {
-    const length = doc.state.doc.length;
-    const tree = ensureSyntaxTree(doc.state, length, OUTLINE_TIMEOUT) ?? syntaxTree(doc.state);
-    return headings(tree, doc.text)[0]?.text ?? null;
+    return doc.headingList().entries[0]?.text ?? null;
   }
 
   private saveFolder(): string {
@@ -1803,6 +1836,10 @@ export class Workspace {
         tab.anchor = { ...tab.anchor, offset: transaction.changes.mapPos(tab.anchor.offset) };
       }
     }
+    // The editor's own dispatch schedules this; a document being read has
+    // no editor, and a write that arrived while somebody was reading it
+    // was leaving the number in the bar describing the version before.
+    if (transaction.docChanged && this.activeDoc?.id === doc.id) this.scheduleWordCount();
     if (reading) this.epoch += 1;
   }
 
@@ -2078,9 +2115,8 @@ export class Workspace {
    * is the same thing the field does between the keystroke and the diff.
    */
   private blocksOf(doc: Doc): DocBlock[] | null {
-    const length = doc.state.doc.length;
-    const tree = ensureSyntaxTree(doc.state, length, OUTLINE_TIMEOUT) ?? syntaxTree(doc.state);
-    if (tree.length < length) return null;
+    const { tree, complete } = doc.parseTree();
+    if (!complete) return null;
     return doc.blocksFor(doc.state.doc, (source) => flattenBlocks(tree, source));
   }
 
@@ -2854,10 +2890,9 @@ export class Workspace {
       this.outlineComplete = true;
       return;
     }
-    const length = doc.state.doc.length;
-    const tree = ensureSyntaxTree(doc.state, length, OUTLINE_TIMEOUT) ?? syntaxTree(doc.state);
-    this.outline = headings(tree, doc.text);
-    this.outlineComplete = tree.length >= length;
+    const { entries, complete } = doc.headingList();
+    this.outline = entries;
+    this.outlineComplete = complete;
   }
 
   /** Click an outline entry: scroll in Read, move the cursor in the others. */
@@ -2988,7 +3023,7 @@ export class Workspace {
       } else {
         const doc = docs[saved.document ?? 0];
         if (!doc) continue;
-        tab = this.addTab(doc, saved.mode ?? 'read');
+        tab = this.addTab(doc, saved.mode ?? 'read', undefined, false);
         // The file may have changed since; a position past its end is
         // not a reason to lose the tab.
         const grip = (n: number) => Math.max(0, Math.min(n, doc.state.doc.length));
@@ -3303,37 +3338,23 @@ export class Workspace {
 
   private scheduleWordCount(): void {
     if (this.countTimer !== null) return;
-    this.countTimer = setTimeout(() => {
-      this.countTimer = null;
-      this.recount();
-    }, WORD_COUNT_DELAY);
+    this.countTimer = setTimeout(
+      () => {
+        this.countTimer = null;
+        this.recount();
+      },
+      Math.min(COUNT_DELAY_MAX, Math.max(WORD_COUNT_DELAY, this.countCost * COUNT_SHARE)),
+    );
   }
 
   /** The count the status bar shows, with the reader's notes left out. */
   private recount(): void {
+    const started = performance.now();
     const doc = this.activeDoc;
-    this.words = doc ? countWords(doc.text, this.hiddenSpans(doc)) : 0;
+    this.words = doc ? doc.wordCount() : 0;
     if (this.sidebar) this.refreshOutline();
-  }
-
-  /**
-   * The ranges the count has to skip, which is the comments: only the
-   * parser can tell one from a `<!--` inside a fenced block, and that one
-   * is shown to the reader, so it counts. Hence a walk of the tree and not
-   * a search of the text.
-   *
-   * A document with no `<!--` in it has nothing to walk for, and most
-   * documents are that. Finding out costs 0.017 ms at a megabyte against
-   * the 3.7 ms of the walk, so annotating is what pays for annotations.
-   *
-   * The tree is the outline's, asked for the same way; where the sidebar
-   * wants it too, the second call finds the parse already done.
-   */
-  private hiddenSpans(doc: Doc): Span[] {
-    if (!doc.text.includes('<!--')) return [];
-    const length = doc.state.doc.length;
-    const tree = ensureSyntaxTree(doc.state, length, OUTLINE_TIMEOUT) ?? syntaxTree(doc.state);
-    return commentSpans(tree, doc.text);
+    // What this one cost is what the next one waits on.
+    this.countCost = performance.now() - started;
   }
 
   destroy(): void {

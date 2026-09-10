@@ -14,7 +14,8 @@ apps/desktop      Tauri 2 app: src-tauri/ (thin Rust binary) and src/ (Svelte sh
 packages/markdown Lezer grammar extensions, the read renderer, extraction. Pure TypeScript.
 packages/editor-core  CodeMirror 6 extensions: live preview, reveal rule, widgets. Framework free.
 packages/ipc      Generated bindings for the Rust commands, plus an in-memory fake for tests
-tools/bench       Keystroke and first-paint harness (browser runner); results under tools/bench/results
+tools/bench       Performance harness (browser runner): first paint, keystrokes, the diff scan,
+                  a 200-tab session, and what a tab switch costs; results under tools/bench/results
 tools/corpus-gen  Corpus generator script and manifest writer
 corpus/           Round-trip corpus: adversarial (hand-written), generated (from models), goldens
 crates/core       File IO, watcher, history, diff, search. No Tauri types.
@@ -82,7 +83,7 @@ pnpm tauri dev      # the app, with hot reload
 pnpm tauri build    # unsigned bundle under target/release/bundle
 pnpm check          # Biome, tsc, svelte-check
 pnpm test           # Vitest: node projects and browser projects (Chromium, WebKit)
-pnpm bench          # keystroke latency on 100 KB and 1 MB documents, both browsers
+pnpm bench          # the performance harness, both browsers, one file at a time (also a CI job)
 pnpm corpus:gen     # generate corpus files from a model API (needs a key; see tools/corpus-gen)
 cargo clippy --workspace --all-targets
 cargo test --workspace

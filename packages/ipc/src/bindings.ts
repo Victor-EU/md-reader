@@ -6,7 +6,25 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	/**  Read a document from disk and return its content and metadata. */
+	/**
+	 *  Read a document for a window: its bytes, the version it was found in,
+	 *  and a watch on it.
+	 * 
+	 *  Three things that all need the file, done where the file is. Asking
+	 *  for them afterwards meant the window sending every document back
+	 *  across the bridge to say what this side had just read, and the
+	 *  watcher reading each one a second time — which on a session of two
+	 *  hundred tabs was two hundred files read twice and five megabytes sent
+	 *  nowhere (plan WP 3.3). It also closed a gap: a writer landing between
+	 *  the read and the watch used to leave the window holding one version
+	 *  and the watcher calling the next one the baseline.
+	 * 
+	 *  Neither the record nor the watch is a reason to refuse a file, so
+	 *  both failures are dropped rather than returned. A file too large to
+	 *  edit is not recorded at all: nothing in the app can change it, so
+	 *  there would never be a second version for the first to be compared
+	 *  with, and storing it would double what a very large file costs.
+	 */
 	openDocument: (path: string) => typedError<Document, Error>(__TAURI_INVOKE("open_document", { path })),
 	/**
 	 *  Save the buffer in the file's stored form, refusing when the file on

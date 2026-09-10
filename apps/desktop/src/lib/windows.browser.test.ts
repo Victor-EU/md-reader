@@ -143,12 +143,13 @@ describe('a tab moved to another window', () => {
     expect(await here.moveTab(only(here).id)).toBe(true);
     there.adoptTab(handed());
     // One entry per path in Rust: watched again after it is let go of,
-    // never the other way round.
+    // never the other way round. The first watch is `open_document`'s,
+    // taken where the file was read.
     expect(commands().filter((name) => name === 'watch' || name === 'unwatch')).toEqual([
-      'watch',
       'unwatch',
       'watch',
     ]);
+    expect(ipc.watching.has('/w/one.md')).toBe(true);
   });
 
   it('an untitled document keeps its name and its unsaved dot', async () => {
@@ -211,7 +212,6 @@ describe('a tab moved to another window', () => {
     expect(here.status).toContain('the other window');
     // And the file it holds is watched again, not left to nobody.
     expect(commands().filter((name) => name === 'watch' || name === 'unwatch')).toEqual([
-      'watch',
       'unwatch',
       'watch',
     ]);

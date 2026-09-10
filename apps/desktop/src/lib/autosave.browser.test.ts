@@ -272,11 +272,14 @@ describe('autosave', () => {
     edit();
     type('typed\n');
     await pause();
+    // Something of its own for the save by hand to record: a version is
+    // its content, so saving what the timer already stored stores nothing.
+    type('and more\n');
     await workspace.save();
 
-    const authors = ipc.calls
-      .filter((call) => call.command === 'snapshot')
-      .map((call) => call.args[2]);
+    const listed = await ipc.commands.listSnapshots('/a/one.md');
+    const authors =
+      listed.status === 'ok' ? listed.data.map((snapshot) => snapshot.author).reverse() : [];
     // Opening the file, the autosave, and the save by hand.
     expect(authors).toEqual(['user', 'autosave', 'user']);
   });

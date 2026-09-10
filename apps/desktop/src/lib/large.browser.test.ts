@@ -104,11 +104,16 @@ describe('a file the app will not edit', () => {
     await workspace.openPath('/w/small.md');
     await workspace.openPath('/w/big.md');
     await settled();
-    const snapshots = ipc.calls
-      .filter((call) => call.command === 'snapshot')
-      .map((call) => call.args[0]);
-    expect(snapshots).toContain('/w/small.md');
-    expect(snapshots).not.toContain('/w/big.md');
+    // The version a file was found in is recorded by `open_document`
+    // itself, so what says whether one was taken is the history.
+    expect(await ipc.commands.listSnapshots('/w/small.md')).toMatchObject({
+      status: 'ok',
+      data: [{ author: 'user' }],
+    });
+    expect(await ipc.commands.listSnapshots('/w/big.md')).toMatchObject({
+      status: 'ok',
+      data: [],
+    });
   });
 
   it('says so over the page, and offers the way out where there is one', async () => {

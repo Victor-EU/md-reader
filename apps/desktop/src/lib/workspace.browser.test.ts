@@ -269,6 +269,34 @@ describe('the file palette', () => {
     expect(workspace.words).toBe(4);
   });
 
+  it('counts the document in front, and has the count in hand on the way back', async () => {
+    open({ '/a.md': 'one two three\n', '/b.md': 'four\n' });
+    await workspace.openPath('/a.md');
+    await workspace.openPath('/b.md');
+    expect(workspace.words).toBe(1);
+    // A count belongs to the buffer it was taken from, so going back to a
+    // document is not a reason to count it again -- and going to another
+    // one must not show the first one's number (plan WP 3.3).
+    workspace.activate(workspace.tabs[0]?.id ?? null);
+    expect(workspace.words).toBe(3);
+    workspace.activate(workspace.tabs[1]?.id ?? null);
+    expect(workspace.words).toBe(1);
+  });
+
+  it('asks for a folder once, however many of its files are open', async () => {
+    open({ '/w/a.md': 'a\n', '/w/b.md': 'b\n', '/other/c.md': 'c\n' });
+    await workspace.openPath('/w/a.md');
+    await workspace.openPath('/w/b.md');
+    await workspace.openPath('/other/c.md');
+    // The scope design 8 widens is a folder, so a second file in one is
+    // not a second thing to ask for.
+    expect(
+      ipc.calls
+        .filter((call) => call.command === 'allow_document_images')
+        .map((call) => call.args[0]),
+    ).toEqual(['/w/a.md', '/other/c.md']);
+  });
+
   it('does not count a note as words the reader wrote', async () => {
     open({ '/a.md': 'one two three\n' });
     await workspace.openPath('/a.md');
