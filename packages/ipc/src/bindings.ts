@@ -274,6 +274,19 @@ export const commands = {
 	 *  copies one.
 	 */
 	agentClientConfig: () => typedError<string, Error>(__TAURI_INVOKE("agent_client_config")),
+	/**
+	 *  Draw the menu bar the window has described.
+	 * 
+	 *  On macOS the bar belongs to the application and not to a window, so
+	 *  what it shows is the window in front's: each window sends its own when
+	 *  it is given the keyboard, and a window that is not in front does not
+	 *  send at all. Nothing here decides what is in it — see `menu`.
+	 * 
+	 *  A menu that cannot be built is said so and let go. It is the one part
+	 *  of the app whose absence costs a reader nothing they cannot do another
+	 *  way, and refusing to open would be the worse answer.
+	 */
+	setMenu: (sections: MenuSection[]) => __TAURI_INVOKE<void>("set_menu", { sections }),
 };
 
 /** Events */
@@ -285,6 +298,7 @@ export const events = {
 	fileRemovedEvent: makeEvent<FileRemovedEvent>("file-removed-event"),
 	fileRenamedEvent: makeEvent<FileRenamedEvent>("file-renamed-event"),
 	folderChangedEvent: makeEvent<FolderChangedEvent>("folder-changed-event"),
+	menuCommandEvent: makeEvent<MenuCommandEvent>("menu-command-event"),
 	openPathsEvent: makeEvent<OpenPathsEvent>("open-paths-event"),
 	searchDoneEvent: makeEvent<SearchDoneEvent>("search-done-event"),
 	searchProgressEvent: makeEvent<SearchProgressEvent>("search-progress-event"),
@@ -657,6 +671,32 @@ export type FolderChange = {
 
 /**  Something under the open folder was written (plan WP 2.4). */
 export type FolderChangedEvent = FolderChange;
+
+/**  A menu item was chosen in the window that has the keyboard. */
+export type MenuCommandEvent = string;
+
+/**  One line of a menu. */
+export type MenuEntry = 
+/**
+ *  One of the app's own commands, by the id its registry knows it by.
+ *  That id is what comes back when the item is chosen, so the window
+ *  runs the command the same way the palette and a key run it.
+ */
+{ kind: "command"; id: string; title: string; 
+/**  Tauri's accelerator spelling, absent for a command with no key. */
+accelerator: string | null; enabled: boolean } | { kind: "standard"; role: MenuRole } | { kind: "separator" };
+
+/**
+ *  One of the standard items: what it does belongs to `AppKit` rather than
+ *  to this app, so the window can only say where it goes.
+ */
+export type MenuRole = "about" | "services" | "hide" | "hide_others" | "show_all" | "quit" | "cut" | "copy" | "paste" | "select_all" | "minimize" | "zoom" | "fullscreen" | "bring_all_to_front";
+
+/**  One menu of the bar, named as the registry's groups are named. */
+export type MenuSection = {
+	title: string,
+	items: MenuEntry[],
+};
 
 export type MergeResult = {
 	changes: PositionEdit[],

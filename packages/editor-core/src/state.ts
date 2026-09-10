@@ -254,3 +254,15 @@ export function editorStateFromJSON(json: string, options: StateOptions = {}): E
     return null;
   }
 }
+
+/**
+ * The editor's own undo, for a shell that has to reach it by name.
+ *
+ * `history()` above is the only history an editor of this app has, and
+ * WebKit's is not it: the standard macOS Undo item sends `undo:` down the
+ * responder chain, which would put the DOM back underneath CodeMirror and
+ * leave the document saying something nobody typed. So the menu bar
+ * (build plan section 8) carries a command instead of the standard item,
+ * and this is what that command runs.
+ */
+export { redo, undo } from '@codemirror/commands';

@@ -118,6 +118,23 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       key: 'Mod+,',
       run: () => workspace.openSettings(),
     },
+    // Undo and redo are the app's rather than the standard menu items;
+    // `Workspace.undo` says why, and why they have to answer for a plain
+    // text field as well as for the document.
+    {
+      id: 'edit.undo',
+      title: 'Undo',
+      group: 'Edit',
+      key: 'Mod+Z',
+      run: () => workspace.undo(),
+    },
+    {
+      id: 'edit.redo',
+      title: 'Redo',
+      group: 'Edit',
+      key: 'Mod+Shift+Z',
+      run: () => workspace.redo(),
+    },
     // The four inline marks (design 4.5). Cmd+B, Cmd+I, Cmd+K, Cmd+E are
     // the shortcuts every editor has; the palette lists them by name.
     {
@@ -457,6 +474,16 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       group: 'Go',
       key: 'Mod+Shift+P',
       run: () => workspace.openPalette('commands'),
+    },
+    // Pinning has been a double-click on a tab since WP 2.8 and nothing
+    // else; this is the name of it, for the palette and the menu bar.
+    {
+      id: 'go.pin',
+      title: 'Pin Tab',
+      label: () => (workspace.activePinned ? 'Unpin Tab' : 'Pin Tab'),
+      group: 'Go',
+      enabled: hasTab,
+      run: () => workspace.togglePinActive(),
     },
     {
       id: 'go.next',

@@ -1,6 +1,6 @@
 <script lang="ts">
 import { palette } from '@mdreader/markdown';
-import type { CommandRegistry } from '../lib/commands.ts';
+import { type CommandRegistry, titleOf } from '../lib/commands.ts';
 import { segments } from '../lib/paths.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 import Reading from './Reading.svelte';
@@ -30,7 +30,8 @@ function hold(event: MouseEvent): void {
 /** The command's own title and shortcut, so the toolbar cannot drift from the palette. */
 function tip(id: string): string {
   const command = registry.get(id);
-  return command.shortcut === '' ? command.title : `${command.title} (${command.shortcut})`;
+  const title = titleOf(command);
+  return command.shortcut === '' ? title : `${title} (${command.shortcut})`;
 }
 </script>
 

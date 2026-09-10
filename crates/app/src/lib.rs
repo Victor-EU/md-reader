@@ -8,6 +8,7 @@
 #![allow(clippy::needless_pass_by_value)]
 
 pub mod mcp;
+pub mod menu;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -25,6 +26,7 @@ use mdreader_core::{
     Settings, SnapshotAuthor, SnapshotInfo, Store, TabMove, TabMoved, WatchEvent, Watcher,
     WindowContent, WindowState,
 };
+use menu::{MenuCommandEvent, MenuSection};
 use specta_typescript::Typescript;
 use tauri::Manager;
 use tauri_specta::{Builder, Event, collect_commands, collect_events};
@@ -71,6 +73,8 @@ struct Services {
     /// because rotating one replaces it while the server is running.
     agent_token: Mutex<String>,
     agent_status: Mutex<AgentStatus>,
+    /// The macOS menu bar as it currently stands (section 8).
+    menu: Mutex<menu::Bar>,
 }
 
 /// The content search that is running, and the number the window knows
@@ -1183,14 +1187,15 @@ fn before_close(window: &tauri::Window, api: &tauri::CloseRequestApi) {
 /// quit is held until they answer. Closing the last one brings this
 /// round again with nothing left to ask, and the quit goes through.
 ///
-/// This is not the whole story of quitting. macOS Cmd+Q goes through
-/// `NSApplication.terminate:`, which reaches the app only as
-/// `RunEvent::Exit` — no window close, no exit request, and far too late
-/// to ask a webview for anything. What the window has already told us is
-/// what survives that, which is why the shell records a tab change at
-/// the end of the turn rather than after a pause. Giving Cmd+Q the same
-/// round trip means owning the macOS menu, which is the platform work of
-/// build plan section 8.
+/// macOS Cmd+Q comes through here too, which it did not always. The
+/// standard Quit is `NSApplication.terminate:`, and that reaches the app
+/// only as `RunEvent::Exit` — no window close, no exit request, and far
+/// too late to ask a webview for anything. The menu bar's Quit is an item
+/// of the app's own for exactly that reason (see `menu`): it calls
+/// `AppHandle::exit`, which raises the exit request this function
+/// answers. Recording a tab change at the end of the turn rather than
+/// after a pause is from when that was not so, and is still worth having:
+/// it is what survives a kill.
 fn before_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
     let Some(services) = app.try_state::<Services>() else {
         return;
@@ -1204,6 +1209,30 @@ fn before_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
     api.prevent_exit();
     for label in &labels {
         ask_to_close(app, label);
+    }
+}
+
+// --- the menu bar (build plan section 8) --------------------------------
+
+/// Draw the menu bar the window has described.
+///
+/// On macOS the bar belongs to the application and not to a window, so
+/// what it shows is the window in front's: each window sends its own when
+/// it is given the keyboard, and a window that is not in front does not
+/// send at all. Nothing here decides what is in it — see `menu`.
+///
+/// A menu that cannot be built is said so and let go. It is the one part
+/// of the app whose absence costs a reader nothing they cannot do another
+/// way, and refusing to open would be the worse answer.
+#[tauri::command]
+#[specta::specta]
+fn set_menu(
+    app: tauri::AppHandle,
+    services: tauri::State<'_, Services>,
+    sections: Vec<MenuSection>,
+) {
+    if let Err(error) = menu::apply(&app, &mut locked(&services.menu), &sections) {
+        eprintln!("could not draw the menu bar: {error}");
     }
 }
 
@@ -1708,6 +1737,7 @@ fn services(app: &tauri::AppHandle) -> Services {
         agent_running: Arc::new(mcp::serve::Running::default()),
         agent_token: Mutex::new(String::new()),
         agent_status: Mutex::new(AgentStatus::default()),
+        menu: Mutex::new(menu::Bar::default()),
     }
 }
 
@@ -1754,6 +1784,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             agent_status,
             rotate_agent_token,
             agent_client_config,
+            set_menu,
         ])
         .events(collect_events![
             ExternalChangeEvent,
@@ -1767,7 +1798,8 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             SettingsChangedEvent,
             BeforeCloseEvent,
             AgentAskEvent,
-            AgentStatusEvent
+            AgentStatusEvent,
+            MenuCommandEvent
         ])
 }
 
@@ -1898,6 +1930,7 @@ pub fn run(context: tauri::Context) {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
+        .on_menu_event(|app, event| menu::chosen(app, &event))
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => before_close(window, api),
             // A window that has gone takes its workspace with it, and its

@@ -139,3 +139,22 @@ export function formatBinding(binding: Binding, mac: boolean): string {
   parts.push(key);
   return parts.join('+');
 }
+
+/**
+ * The shortcut as the menu bar wants it: Tauri's accelerator spelling,
+ * whose key names are the `code` names a binding already carries, so
+ * Cmd+Shift+[ is the same physical key in the menu as in the keymap.
+ *
+ * A binding with no code — a named key like Escape — gives its key name,
+ * which is the same word in both vocabularies.
+ */
+export function acceleratorFor(binding: Binding, mac: boolean): string {
+  const want = wanted(binding, mac);
+  const parts: string[] = [];
+  if (want.meta) parts.push('Command');
+  if (want.ctrl) parts.push('Control');
+  if (want.alt) parts.push('Alt');
+  if (want.shift) parts.push('Shift');
+  parts.push(binding.code ?? binding.key);
+  return parts.join('+');
+}

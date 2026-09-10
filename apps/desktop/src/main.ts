@@ -1,4 +1,4 @@
-import { commands, events } from '@mdreader/ipc';
+import { commands, events, type MenuSection } from '@mdreader/ipc';
 import { getVersion } from '@tauri-apps/api/app';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -9,6 +9,7 @@ import { mount } from 'svelte';
 import App from './App.svelte';
 // Which pulls in every theme's colours and the bundled faces.
 import './app.css';
+import { watchMenu } from './lib/menu.svelte.ts';
 import { isMac } from './lib/platform.ts';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
@@ -75,6 +76,29 @@ if (isTauri() && isMac) {
   );
 }
 
+/*
+ * The menu bar (build plan section 8). Only macOS has one; elsewhere a
+ * menu is drawn inside the window, and this window's top edge is the tab
+ * strip.
+ *
+ * The bar belongs to the application rather than to a window, so what it
+ * shows is the window in front's: this one describes its menus whenever
+ * they change, and sends only while it has the keyboard. Coming back to
+ * the front is the other moment a window has something to say, because
+ * the bar is still showing the other window's state.
+ */
+if (isTauri() && isMac) {
+  let latest: MenuSection[] = [];
+  const draw = () => {
+    if (document.hasFocus()) void commands.setMenu(latest);
+  };
+  watchMenu(shell.registry, (sections) => {
+    latest = sections;
+    draw();
+  });
+  window.addEventListener('focus', draw);
+}
+
 // The system's light and dark, kept current for the settings that follow
 // it. The paper is what decides whether the page is dark, but "system" is
 // the appearance the app starts with and most readers leave it there.
@@ -139,6 +163,12 @@ if (isTauri()) {
       void events.agentStatusEvent.listen((event) => show(event.payload));
     },
   );
+  // A menu item was chosen in this window (build plan section 8). The id
+  // is the registry's, so it runs by exactly the path the palette and a
+  // key run it by.
+  void events.menuCommandEvent(self).listen((event) => {
+    shell.registry.run(event.payload);
+  });
   // The window is closing and Rust is holding the close open for us.
   // Answering is in a `finally` because a window that cannot write its
   // session should still close now rather than wait out Rust's grace.

@@ -116,10 +116,12 @@ export {
   editorStateFromJSON,
   markdownKeymap,
   markdownSupport,
+  redo,
   type StateOptions,
   serializeEditorState,
   setDarkEffect,
   setModeEffect,
   setReviewEffect,
+  undo,
 } from './state.ts';
 export { createEditor, type Editor, type EditorOptions } from './view.ts';

@@ -112,11 +112,27 @@ describe('the two keymaps', () => {
     };
   }
 
-  it('never claim the same shortcut', () => {
+  /**
+   * Undo and redo are the one place the shell claims a key the editor
+   * already has, and it is deliberate. The menu bar has to have them —
+   * they are the two items every macOS Edit menu opens with — and a menu
+   * item's accelerator is taken before the webview sees the key at all
+   * (build plan section 8), so there has to be a command behind it. Where
+   * there is no menu the editor still wins: `App.svelte` leaves alone an
+   * event the editor has already handled, so the shell's copy runs only
+   * where the editor's would not have.
+   */
+  const SHARED: Record<string, string> = {
+    'Mod-z': 'edit.undo',
+    'Mod-Shift-z': 'edit.redo',
+  };
+
+  it('never claim the same shortcut, but for the two the menu bar must have', () => {
     const workspace = { activeTab: null, activeDoc: null, find: { query: '' } };
     const shell = new CommandRegistry(true);
     shell.register(...appCommands(workspace as never));
     const clashes: string[] = [];
+    const shared: Record<string, string> = {};
     for (const binding of editorKeys()) {
       // `mac` overrides `key` on this platform, and a binding with
       // neither is a `any`-style handler with no shortcut at all.
@@ -133,8 +149,14 @@ describe('the two keymaps', () => {
           altKey: want.alt,
         }),
       );
-      if (command) clashes.push(`${spec} is both the editor's and ${command.id}`);
+      if (!command) continue;
+      if (SHARED[spec] === command.id) shared[spec] = command.id;
+      else clashes.push(`${spec} is both the editor's and ${command.id}`);
     }
     expect(clashes).toEqual([]);
+    // The exceptions have to still be exceptions: a key renamed on either
+    // side would otherwise pass this by no longer overlapping at all, and
+    // the menu bar would quietly lose its Undo.
+    expect(shared).toEqual(SHARED);
   });
 });

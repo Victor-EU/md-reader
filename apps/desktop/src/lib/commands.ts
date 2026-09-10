@@ -1,4 +1,10 @@
-import { type Binding, bindingMatches, formatBinding, parseBinding } from './keys.ts';
+import {
+  acceleratorFor,
+  type Binding,
+  bindingMatches,
+  formatBinding,
+  parseBinding,
+} from './keys.ts';
 
 /**
  * Every action the shell can take is registered once, with an id, a title,
@@ -18,6 +24,12 @@ export interface CommandSpec {
   key?: string;
   /** Overrides `key` on macOS, for the few shortcuts that differ. */
   macKey?: string;
+  /**
+   * What the command is called now, for the few whose name depends on
+   * what they would do: a pin is Pin Tab or Unpin Tab, and a menu bar
+   * that said only one of them would be wrong half the time.
+   */
+  label?: () => string;
   /** False greys the command out in the palette and makes the key a no-op. */
   enabled?: () => boolean;
   /** Bound but not listed: the nine tab jumps would drown the palette. */
@@ -27,13 +39,20 @@ export interface CommandSpec {
 
 export interface Command extends CommandSpec {
   binding: Binding | null;
-  /** The shortcut as this platform writes it, for the palette and the menus. */
+  /** The shortcut as this platform writes it, for the palette and the toolbar. */
   shortcut: string;
+  /** The same key in the spelling the menu bar wants. Empty for no key. */
+  accelerator: string;
 }
 
 export interface Menu {
   group: MenuGroup;
   items: Command[];
+}
+
+/** What a command is called right now. Every surface that names one asks. */
+export function titleOf(command: Command): string {
+  return command.label?.() ?? command.title;
 }
 
 export class CommandRegistry {
@@ -47,7 +66,8 @@ export class CommandRegistry {
       const key = (this.mac ? spec.macKey : undefined) ?? spec.key;
       const binding = key ? parseBinding(key) : null;
       const shortcut = binding ? formatBinding(binding, this.mac) : '';
-      this.commands.set(spec.id, { ...spec, binding, shortcut });
+      const accelerator = binding ? acceleratorFor(binding, this.mac) : '';
+      this.commands.set(spec.id, { ...spec, binding, shortcut, accelerator });
     }
   }
 

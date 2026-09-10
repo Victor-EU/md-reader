@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Command, CommandRegistry } from '../lib/commands.ts';
+import { type Command, type CommandRegistry, titleOf } from '../lib/commands.ts';
 import { rank } from '../lib/fuzzy.ts';
 import type { FileChoice, Workspace } from '../lib/workspace.svelte.ts';
 
@@ -68,10 +68,10 @@ const rows: Row[] = $derived.by(() => {
       }));
     return [...near, ...folder].slice(0, SHOWN);
   }
-  return rank(palette.query, registry.listed(), (command) => command.title).map(
+  return rank(palette.query, registry.listed(), titleOf).map(
     ({ item, positions }: { item: Command; positions: number[] }) => ({
       key: item.id,
-      label: item.title,
+      label: titleOf(item),
       detail: item.group,
       shortcut: item.shortcut,
       enabled: registry.isEnabled(item),

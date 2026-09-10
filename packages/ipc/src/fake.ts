@@ -18,6 +18,7 @@ import type {
   FileRenamed,
   FolderChange,
   Error as IpcError,
+  MenuSection,
   MergeResult,
   Override,
   PositionEdit,
@@ -129,6 +130,8 @@ export interface FakeIpc {
   agentStatus: AgentStatus;
   /** How many times the reader has asked for a fresh token. */
   rotations: number;
+  /** The menu bar the window last described (build plan section 8). */
+  menu: MenuSection[];
 }
 
 /**
@@ -326,6 +329,7 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       clients: 0,
     } as AgentStatus,
     rotations: 0,
+    menu: [] as MenuSection[],
   };
   /** The search that has been started and not yet replaced or cancelled. */
   let search = 0;
@@ -842,6 +846,10 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
           '{\n  "mcpServers": {\n    "md-reader": {\n      "command": "mdreader-desktop",\n      "args": ["--mcp-stdio"]\n    }\n  }\n}\n',
         ),
       ),
+    setMenu: (sections) => {
+      state.menu = sections;
+      return record('set_menu', [sections], undefined);
+    },
   };
   return {
     commands,
@@ -940,6 +948,9 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
     },
     get agentStatus() {
       return state.agentStatus;
+    },
+    get menu() {
+      return state.menu;
     },
     get rotations() {
       return state.rotations;

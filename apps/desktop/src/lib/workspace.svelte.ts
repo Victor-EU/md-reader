@@ -36,6 +36,7 @@ import {
   nextChange,
   nextConflict,
   previousChange,
+  redo,
   replaceAll,
   replaceNext,
   revertChangeAtCursor,
@@ -50,6 +51,7 @@ import {
   strikethroughEdit,
   takeTheirsHere,
   toggleTaskAt,
+  undo,
 } from '@mdreader/editor-core';
 import type {
   AgentAnswer,
@@ -303,6 +305,20 @@ const CHANGE_SCAN_DELAY = 300;
  * as close to the truth as it can cheaply be.
  */
 const SESSION_DELAY = 500;
+
+/**
+ * Whether the keyboard is in one of the shell's own text fields rather
+ * than in the document: the find bar, a settings box, the rename row.
+ *
+ * The frontmatter panel's fields are inputs too, and they are not one of
+ * these: they are inside the editor and what they change is the
+ * document, so undoing there is the document's undo and not the field's.
+ */
+function inPlainField(view: EditorView | null): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement)) return false;
+  return !view?.dom.contains(active);
+}
 
 /** `Untitled 3` -> 3, so a new document does not reuse a restored name. */
 function untitledNumber(name: string): number {
@@ -921,6 +937,20 @@ export class Workspace {
     // the start of the rest. Both are the same index.
     this.tabs.splice(this.pinnedCount(), 0, tab);
     this.touch();
+  }
+
+  /**
+   * The same for the tab in front, which is what the palette, a key and
+   * the menu bar reach it by. Double-clicking a tab is the gesture for
+   * it; a gesture nothing names is a feature only its author knows about.
+   */
+  togglePinActive(): void {
+    if (this.activeId !== null) this.togglePin(this.activeId);
+  }
+
+  /** Whether the tab in front is pinned, for what that command is called. */
+  get activePinned(): boolean {
+    return this.activeTab?.pinned ?? false;
   }
 
   private pinnedCount(): number {
@@ -2307,6 +2337,30 @@ export class Workspace {
     }
     this.epoch += 1;
     return true;
+  }
+
+  /**
+   * Undo, and redo beside it.
+   *
+   * These are commands of the app's rather than the standard menu items,
+   * because the editor's history is CodeMirror's and the standard item is
+   * WebKit's: `undo:` down the responder chain would put the DOM back
+   * underneath the editor, which would read it as something typed. Being
+   * a command means the key belongs to the shell now — the menu bar takes
+   * Cmd+Z before the webview sees it — so the plain fields the shell has
+   * of its own, the find bar and the settings, have to be handed back the
+   * undo the browser keeps for them.
+   */
+  undo(): boolean {
+    const view = this.view;
+    if (inPlainField(view)) return document.execCommand('undo');
+    return view === null ? false : undo(view);
+  }
+
+  redo(): boolean {
+    const view = this.view;
+    if (inPlainField(view)) return document.execCommand('redo');
+    return view === null ? false : redo(view);
   }
 
   highlight(): boolean {
