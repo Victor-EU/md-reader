@@ -9,7 +9,7 @@ use std::fs;
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// How open a file should be when this call is the one that creates it.
 ///
@@ -34,6 +34,15 @@ pub enum Create {
 /// Windows, a sharing violation from an indexer or sync client holding the
 /// file is retried with backoff before it is reported.
 pub fn replace(path: &Path, bytes: &[u8], create: Create) -> io::Result<()> {
+    // The link is not the file. Everything below writes beside the target
+    // and renames over it, and a rename over a symlink replaces the link
+    // itself -- so a reader whose `~/notes/todo.md` points into a synced
+    // folder would find the link gone, a plain file in its place, and
+    // yesterday's text still in the folder they thought they were writing
+    // to. Nothing would tell them: the watcher is on the directory holding
+    // the link, and the hash it reads back is the one it expects.
+    let followed = target_of(path)?;
+    let path = followed.as_deref().unwrap_or(path);
     let dir = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
@@ -77,6 +86,57 @@ pub fn replace(path: &Path, bytes: &[u8], create: Create) -> io::Result<()> {
     Ok(())
 }
 
+/// How far a link is followed before the chain is called a loop. The
+/// kernel gives up somewhere between eight and forty; a note behind more
+/// than a handful of links is not a thing that happens.
+const LINK_HOPS: u32 = 16;
+
+/// The file a path really names, when the path is a symlink.
+///
+/// `None` for everything else, which is the ordinary case and the one
+/// that must cost nothing: a path that is not a link is the file.
+///
+/// `canonicalize` answers this whenever it can, and it does the whole
+/// path rather than the last component, which is what a link to a
+/// directory needs. It cannot answer for a link whose target does not
+/// exist yet -- a link into a folder that has not been made, or one
+/// pointing at a file the reader is about to create -- and that is a
+/// path this function must still resolve rather than replace, so the
+/// chain is walked by hand instead.
+fn target_of(path: &Path) -> io::Result<Option<PathBuf>> {
+    if !is_link(path) {
+        return Ok(None);
+    }
+    if let Ok(real) = fs::canonicalize(path) {
+        return Ok(Some(real));
+    }
+    let mut current = path.to_path_buf();
+    for _ in 0..LINK_HOPS {
+        let link = fs::read_link(&current)?;
+        current = if link.is_absolute() {
+            link
+        } else {
+            current.parent().unwrap_or(Path::new(".")).join(link)
+        };
+        if !is_link(&current) {
+            return Ok(Some(current));
+        }
+    }
+    // A cycle, or a chain longer than any real one. There is no file at
+    // the end of it, and the one thing this must not do is give up and
+    // write over the link -- that is the defect, not the fallback. So it
+    // fails where every other unwritable path fails, and the reader is
+    // told their document did not save.
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "too many levels of symbolic links",
+    ))
+}
+
+fn is_link(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
 /// Flush the directory entry so the rename itself is durable. Best effort.
 fn sync_dir(dir: &Path) {
     if let Ok(handle) = fs::File::open(dir) {
@@ -114,6 +174,7 @@ mod platform {
     use tempfile::NamedTempFile;
     use windows_sys::Win32::Foundation::{
         ERROR_FILE_NOT_FOUND, ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION,
+        ERROR_UNABLE_TO_MOVE_REPLACEMENT, ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
     };
     use windows_sys::Win32::Storage::FileSystem::{REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW};
 
@@ -148,10 +209,23 @@ mod platform {
             let err = io::Error::last_os_error();
             let code = err.raw_os_error().and_then(|c| u32::try_from(c).ok());
             match code {
-                Some(ERROR_FILE_NOT_FOUND) => {
-                    return std::fs::rename(&tmp_path, path).map_err(|e| {
+                // Nothing to replace, which is a file being created.
+                // And the two ways `ReplaceFile` half-finishes: with no
+                // backup name asked for -- and none is, above -- 1176
+                // and 1177 both mean the target is already gone and what
+                // we wrote is still there under its temporary name. That
+                // makes the temporary file the only copy of the document
+                // on disk, and the catch-all below used to delete it,
+                // leaving the reader's file missing until the next save.
+                // Renaming it into place is the recovery the contract
+                // describes, and the same one a missing target takes.
+                Some(
+                    ERROR_FILE_NOT_FOUND
+                    | ERROR_UNABLE_TO_MOVE_REPLACEMENT
+                    | ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
+                ) => {
+                    return std::fs::rename(&tmp_path, path).inspect_err(|_| {
                         let _ = std::fs::remove_file(&tmp_path);
-                        e
                     });
                 }
                 Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION) if attempt + 1 < ATTEMPTS => {
@@ -182,9 +256,22 @@ mod tests {
         dir.join(name)
     }
 
+    /// A directory this test has to itself.
+    ///
+    /// Tests run at once and `replace` writes a temporary file beside its
+    /// target, so a test that looks at what is in a directory has to be
+    /// the only one writing there -- otherwise it reads another test's
+    /// half-finished save and calls it a leak.
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("mdreader-atomic-{}-{name}", std::process::id()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
     #[test]
     fn replaces_content_and_leaves_no_temp_file() {
-        let path = temp_path("a.md");
+        let path = temp_dir("leftovers").join("a.md");
         fs::write(&path, b"old").expect("fixture");
         replace(&path, b"new", Create::AsUser).expect("replace");
         assert_eq!(fs::read(&path).expect("read"), b"new");
@@ -247,6 +334,88 @@ mod tests {
             fs::metadata(&path).expect("meta").permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    /// A note reached through a symlink -- the dotfile and vault setups
+    /// this app is for are full of them -- is the file at the other end,
+    /// not the link. Writing the link away is silent: the reader sees a
+    /// saved document and the folder they sync still holds the old text.
+    #[cfg(unix)]
+    #[test]
+    fn writes_through_a_symlink_and_leaves_the_link_alone() {
+        let target = temp_dir("symlink").join("linked-target.md");
+        let link = temp_dir("symlink").join("linked.md");
+        let _ = fs::remove_file(&link);
+        fs::write(&target, b"old").expect("fixture");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        replace(&link, b"new", Create::AsUser).expect("replace");
+        assert!(
+            fs::symlink_metadata(&link)
+                .expect("meta")
+                .file_type()
+                .is_symlink(),
+            "the link itself was replaced by a plain file"
+        );
+        assert_eq!(fs::read(&target).expect("read"), b"new");
+    }
+
+    /// The same for a link pointing at a file that is not there yet, which
+    /// `canonicalize` cannot answer for.
+    #[cfg(unix)]
+    #[test]
+    fn writes_through_a_symlink_whose_target_is_missing() {
+        let target = temp_dir("dangling").join("dangling-target.md");
+        let link = temp_dir("dangling").join("dangling.md");
+        let _ = fs::remove_file(&link);
+        let _ = fs::remove_file(&target);
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        replace(&link, b"new", Create::AsUser).expect("replace");
+        assert!(
+            fs::symlink_metadata(&link)
+                .expect("meta")
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read(&target).expect("read"), b"new");
+    }
+
+    /// A link to a link. One hop is the common case and the loop is what
+    /// keeps a cycle from hanging the save.
+    #[cfg(unix)]
+    #[test]
+    fn follows_a_chain_of_symlinks() {
+        let target = temp_dir("chain").join("chain-target.md");
+        let middle = temp_dir("chain").join("chain-middle.md");
+        let link = temp_dir("chain").join("chain.md");
+        for path in [&middle, &link] {
+            let _ = fs::remove_file(path);
+        }
+        fs::write(&target, b"old").expect("fixture");
+        std::os::unix::fs::symlink(&target, &middle).expect("symlink");
+        std::os::unix::fs::symlink(&middle, &link).expect("symlink");
+        replace(&link, b"new", Create::AsUser).expect("replace");
+        assert_eq!(fs::read(&target).expect("read"), b"new");
+        assert!(
+            fs::symlink_metadata(&middle)
+                .expect("meta")
+                .file_type()
+                .is_symlink()
+        );
+    }
+
+    /// A cycle has no file at the end of it. The save fails rather than
+    /// spinning, and it fails where every other unwritable path does.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_loop_is_not_followed_forever() {
+        let a = temp_dir("loop").join("loop-a.md");
+        let b = temp_dir("loop").join("loop-b.md");
+        for path in [&a, &b] {
+            let _ = fs::remove_file(path);
+        }
+        std::os::unix::fs::symlink(&b, &a).expect("symlink");
+        std::os::unix::fs::symlink(&a, &b).expect("symlink");
+        assert!(replace(&a, b"new", Create::AsUser).is_err());
     }
 
     #[cfg(windows)]
