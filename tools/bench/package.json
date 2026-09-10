@@ -2,6 +2,7 @@
   "name": "@mdreader/bench",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Performance harness: synthetic fixtures and keystroke latency measurements in the browser runner.",
   "type": "module",
   "scripts": {

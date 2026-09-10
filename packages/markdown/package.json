@@ -2,6 +2,7 @@
   "name": "@mdreader/markdown",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Lezer grammar extensions, read renderer, block extraction, annotation extractor. Pure TypeScript.",
   "type": "module",
   "exports": {

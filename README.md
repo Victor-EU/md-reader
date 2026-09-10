@@ -115,3 +115,9 @@ bundle does.
 The `.dmg` target additionally drives Finder over Apple Events to lay the
 window out, so the first local `--bundles dmg` will sit waiting on a
 permission prompt until Automation access is granted.
+
+## License
+
+MIT — see [LICENSE](LICENSE). The three bundled font families are not
+covered by it; they ship under the SIL Open Font License, recorded in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

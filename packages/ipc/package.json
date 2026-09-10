@@ -2,6 +2,7 @@
   "name": "@mdreader/ipc",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Generated TypeScript bindings for the Rust commands and events, plus an in-memory fake with the same interface for tests.",
   "type": "module",
   "exports": {

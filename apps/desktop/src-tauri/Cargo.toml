@@ -4,6 +4,7 @@ description = "Markdown viewer and editor for the AI round trip"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 publish = false
 
 [[bin]]

@@ -2,6 +2,7 @@
   "name": "@mdreader/theme",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Theme one as data: the palette both Shiki and the CodeMirror highlighter read, and the stylesheet generated from it.",
   "type": "module",
   "exports": {
