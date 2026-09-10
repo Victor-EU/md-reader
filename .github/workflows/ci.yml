@@ -44,7 +44,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, windows-2022, ubuntu-24.04]
+        # macOS 15 wherever a browser runs. Playwright no longer updates
+        # WebKit for macOS 14 and installs a frozen build there instead,
+        # and the browser tests have never once connected to it.
+        os: [macos-15, windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -55,7 +58,7 @@ jobs:
       - run: cargo test --workspace --locked
 
   bench:
-    name: bench (macos-14)
+    name: bench (macos-15)
     # One platform. These are measurements, and a number is only worth
     # comparing with itself: the same harness on three different runners
     # would be three sets of numbers with one set of thresholds over
@@ -67,7 +70,7 @@ jobs:
     # shared runner: catch a disaster, do not flake on a busy machine.
     # The results are kept as an artifact because the numbers are worth
     # more over time than any one run of them.
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
