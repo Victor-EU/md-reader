@@ -334,6 +334,34 @@ impl History {
             .map_err(|e| failed("read the snapshot list", &e))
     }
 
+    /// The content of one snapshot of one path.
+    ///
+    /// The path is not decoration. Ids are sequential, so a caller that
+    /// may only see one document can otherwise name the id of any
+    /// snapshot of any document and be handed its text; the MCP server
+    /// is exactly such a caller. Asking the two questions as one is what
+    /// keeps the answer inside the scope the caller was given.
+    ///
+    /// # Errors
+    /// Fails when no snapshot of `path` has that id, or the blob cannot
+    /// be read.
+    pub fn read_for(&self, path: &Path, id: &str) -> Result<String, Error> {
+        let hash: String = self
+            .db
+            .query_row(
+                "SELECT hash FROM snapshots WHERE id = ?1 AND path = ?2",
+                params![id, key_of(path)],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| failed("look up the snapshot", &e))?
+            .ok_or_else(|| Error::Unavailable {
+                what: "the history".to_owned(),
+                message: format!("there is no snapshot {id} of {}", path.display()),
+            })?;
+        self.read_blob(&hash)
+    }
+
     /// The content of one snapshot.
     ///
     /// # Errors

@@ -91,11 +91,15 @@ pub trait Desk: Send + Sync + 'static {
     /// When there is no history to read.
     fn snapshots(&self, path: &Path) -> Result<Vec<SnapshotInfo>, Error>;
 
-    /// One version's text.
+    /// One version's text, of one document.
+    ///
+    /// Both, because ids are sequential and the read scope is "the
+    /// documents the app has open": an id alone would let an agent with
+    /// one document open name last week's snapshot of a private note.
     ///
     /// # Errors
-    /// When the id is unknown or the store cannot be read.
-    fn snapshot_text(&self, id: &str) -> Result<String, Error>;
+    /// When no version of `path` has that id, or the store cannot be read.
+    fn snapshot_text(&self, path: &Path, id: &str) -> Result<String, Error>;
 
     /// Write a document as `agent`, and tell the windows who did it.
     ///

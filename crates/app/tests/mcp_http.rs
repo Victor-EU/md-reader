@@ -31,7 +31,7 @@ impl Desk for Empty {
     fn snapshots(&self, _path: &std::path::Path) -> Result<Vec<SnapshotInfo>, Error> {
         Ok(Vec::new())
     }
-    fn snapshot_text(&self, _id: &str) -> Result<String, Error> {
+    fn snapshot_text(&self, _path: &std::path::Path, _id: &str) -> Result<String, Error> {
         Ok(String::new())
     }
     fn write(
@@ -47,6 +47,21 @@ impl Desk for Empty {
 struct Reached {
     port: u16,
     token: String,
+    /// The server's own copy, so a test can rotate it under a live
+    /// connection the way the palette command does.
+    served: mcp::serve::Token,
+}
+
+impl Reached {
+    /// Put a new token in front of the server and answer with it.
+    fn rotate(&self) -> String {
+        let fresh = mdreader_core::new_token();
+        self.served
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone_from(&fresh);
+        fresh
+    }
 }
 
 fn listening() -> Reached {
@@ -54,9 +69,14 @@ fn listening() -> Reached {
     let token = mdreader_core::new_token();
     let desk: Arc<dyn Desk> = Arc::new(Empty);
     let running = Arc::new(mcp::serve::Running::default());
-    let served = token.clone();
-    tokio::spawn(async move { mcp::serve::serve(listener, served, desk, running).await });
-    Reached { port, token }
+    let served: mcp::serve::Token = Arc::new(std::sync::Mutex::new(token.clone()));
+    let held = Arc::clone(&served);
+    tokio::spawn(async move { mcp::serve::serve(listener, held, desk, running).await });
+    Reached {
+        port,
+        token,
+        served,
+    }
 }
 
 /// One request, with whatever headers the case is about.
@@ -133,6 +153,32 @@ async fn the_token_gets_in() {
         body.contains("md-reader"),
         "the server names itself: {body}"
     );
+}
+
+/// The palette's "Rotate agent token" is for the reader who wants the
+/// old one to stop working. It has to stop working here, in the server
+/// that is already listening, and not only in the file a client reads on
+/// its next launch.
+#[tokio::test]
+async fn a_rotated_token_stops_working_on_the_running_server() {
+    let at = listening();
+    let (status, _body) = post(&at, "/mcp", &bearer(&at.token), initialize()).await;
+    assert_eq!(
+        status,
+        hyper::StatusCode::OK,
+        "the token it was started with"
+    );
+
+    let fresh = at.rotate();
+
+    let (status, _body) = post(&at, "/mcp", &bearer(&at.token), initialize()).await;
+    assert_eq!(
+        status,
+        hyper::StatusCode::UNAUTHORIZED,
+        "the old token went on working for the life of the process"
+    );
+    let (status, _body) = post(&at, "/mcp", &bearer(&fresh), initialize()).await;
+    assert_eq!(status, hyper::StatusCode::OK, "and the new one was refused");
 }
 
 /// The DNS rebinding guard the MCP specification asks local servers for:

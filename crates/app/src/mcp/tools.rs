@@ -192,7 +192,7 @@ impl Server {
         Parameters(since): Parameters<Since>,
     ) -> Result<Result<Json<Diff>, CallToolResult>, ErrorData> {
         let path = PathBuf::from(&since.path);
-        let against = match self.desk.snapshot_text(&since.snapshot_id) {
+        let against = match self.desk.snapshot_text(&path, &since.snapshot_id) {
             Ok(text) => text,
             Err(Error::Unavailable { message, .. }) => {
                 return Ok(Err(tool_error(&format!(

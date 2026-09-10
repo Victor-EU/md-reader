@@ -44,6 +44,19 @@ const PATH: &str = "/mcp";
 /// status bar should not still be saying somebody is connected then.
 const SETTLE: Duration = Duration::from_secs(60);
 
+/// How many accepts in a row may fail before the port is called lost.
+///
+/// Counted rather than sorted by kind: the errors worth surviving are
+/// the ones a machine hands out when it is short of something -- no
+/// descriptors left, a client that hung up between the handshake and
+/// here -- and their spellings differ by platform. What tells those
+/// apart from a listener that has been taken away is not the error, it
+/// is whether the next one succeeds. Fifty at fifty milliseconds is two
+/// and a half seconds, long enough for whatever took the descriptors to
+/// give some back and short enough that a dead port is not pretended
+/// about.
+const GIVE_UP: u32 = 50;
+
 /// Whoever wants to know how many clients there are.
 type Told = Box<dyn Fn(u32) + Send + Sync>;
 
@@ -94,13 +107,20 @@ impl Running {
     }
 }
 
-/// Serve `desk` over `listener` until the process ends.
+/// The bearer token, shared with whoever is allowed to change it.
 ///
-/// The token is taken by value and lives as long as the server: rotating
-/// one replaces the whole server rather than reaching into this.
+/// Behind a lock rather than taken by value, and read on each request
+/// rather than once: the palette's "Rotate agent token" writes a new one
+/// into the endpoint file for the reader who wants the old one to stop
+/// working, and a rotation the running server never saw would leave the
+/// old token good for the life of the process -- the exact opposite of
+/// what they asked for, reported as done.
+pub type Token = Arc<Mutex<String>>;
+
+/// Serve `desk` over `listener` until the process ends.
 pub async fn serve(
     listener: std::net::TcpListener,
-    token: String,
+    token: Token,
     desk: Arc<dyn Desk>,
     running: Arc<Running>,
 ) {
@@ -130,19 +150,35 @@ pub async fn serve(
         Arc::clone(&running.sessions),
         StreamableHttpServerConfig::default(),
     );
+    let mut refused = 0u32;
     loop {
-        let Ok((stream, _)) = listener.accept().await else {
-            // A failed accept is this listener being taken away, which
-            // happens at shutdown. Nothing here can put it back.
-            return;
+        let stream = match listener.accept().await {
+            Ok((stream, _)) => {
+                refused = 0;
+                stream
+            }
+            // One failed accept is one connection's problem, not the
+            // server's. Returning on it ended the server for the rest of
+            // the session while the port stayed written down, so every
+            // later client was told there was a server and found nothing
+            // listening. Breathe and take the next one.
+            Err(_) if refused < GIVE_UP => {
+                refused += 1;
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                continue;
+            }
+            // Nothing has got through in two and a half seconds. This is
+            // the listener being taken away, which happens at shutdown,
+            // and nothing here can put it back.
+            Err(_) => return,
         };
         let service = service.clone();
-        let token = token.clone();
+        let token = Arc::clone(&token);
         let running = Arc::clone(&running);
         tokio::spawn(async move {
             let guarded = service_fn(move |request: Request<Incoming>| {
                 let mut service = service.clone();
-                let token = token.clone();
+                let token = Arc::clone(&token);
                 let running = Arc::clone(&running);
                 async move {
                     let served = gate(&mut service, request, &token, port).await;
@@ -162,7 +198,7 @@ pub async fn serve(
 type Served = Response<http_body_util::combinators::BoxBody<hyper::body::Bytes, Infallible>>;
 
 /// The two checks and the path, before anything is parsed.
-async fn gate<S>(service: &mut S, request: Request<Incoming>, token: &str, port: u16) -> Served
+async fn gate<S>(service: &mut S, request: Request<Incoming>, token: &Token, port: u16) -> Served
 where
     S: tower_service::Service<Request<Incoming>, Response = Served, Error = Infallible>,
 {
@@ -170,12 +206,19 @@ where
         return refuse(StatusCode::NOT_FOUND, "there is nothing here");
     }
     let headers = request.headers();
-    if !agent::authorized(
-        headers
-            .get(hyper::header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok()),
-        token,
-    ) {
+    // Read and compared inside the block, so the lock is not held across
+    // the call below: this is the one place a synchronous lock meets an
+    // async server.
+    let allowed = {
+        let current = token.lock().unwrap_or_else(PoisonError::into_inner);
+        agent::authorized(
+            headers
+                .get(hyper::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            &current,
+        )
+    };
+    if !allowed {
         return unauthorized();
     }
     if let Some(origin) = headers.get(hyper::header::ORIGIN)

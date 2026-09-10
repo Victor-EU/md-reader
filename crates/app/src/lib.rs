@@ -69,9 +69,10 @@ struct Services {
     agents: Arc<mcp::Agents>,
     /// The sessions the server is holding, for the client count.
     agent_running: Arc<mcp::serve::Running>,
-    /// The bearer token this launch answers to. Behind its own lock
-    /// because rotating one replaces it while the server is running.
-    agent_token: Mutex<String>,
+    /// The bearer token this launch answers to. Shared with the running
+    /// server rather than copied to it, because rotating one has to
+    /// reach the thing that checks it.
+    agent_token: mcp::serve::Token,
     agent_status: Mutex<AgentStatus>,
     /// The macOS menu bar as it currently stands (section 8).
     menu: Mutex<menu::Bar>,
@@ -194,7 +195,14 @@ fn open_document(services: tauri::State<'_, Services>, path: PathBuf) -> Result<
 
 /// Save the buffer in the file's stored form, refusing when the file on
 /// disk no longer matches `expected_hash`.
-#[tauri::command]
+// `(async)` and not an `async fn`: the body is ordinary blocking work,
+// and this asks Tauri to run it on the async runtime's pool rather than
+// inline on the thread the webview is waiting on. Restoring the file's
+// line endings is a line diff over the whole document, and a window that
+// cannot draw while its own save runs is one that stutters on every
+// Cmd+S in a large file. Not a doc comment: specta puts those in the
+// TypeScript bindings, and where this runs is nobody's business there.
+#[tauri::command(async)]
 #[specta::specta]
 fn save_document(
     services: tauri::State<'_, Services>,
@@ -342,7 +350,10 @@ fn unwatch(services: tauri::State<'_, Services>, path: PathBuf) -> Result<(), Er
 ///
 /// The one command with no failure to report: three strings always have
 /// a merge, even when every hunk of it is a conflict.
-#[tauri::command]
+// Off the webview's thread, as `save_document` explains: this is the
+// slowest pure computation the app asks for, and an external write
+// arriving in a large document must not stop the reader typing in it.
+#[tauri::command(async)]
 #[specta::specta]
 fn merge3(base: String, ours: String, theirs: String) -> MergeResult {
     mdreader_core::merge3(&base, &ours, &theirs)
@@ -651,7 +662,9 @@ fn reveal_path(
 /// It cannot fail. Both sides arrive as arguments, so there is nothing
 /// to read, nothing to lock, and no answer but the alignment of what
 /// was sent.
-#[tauri::command]
+// Off the webview's thread as well, and the easiest of the three to put
+// there: nothing to read, nothing to lock, and no state in reach.
+#[tauri::command(async)]
 #[specta::specta]
 fn block_diff(old_blocks: Vec<Block>, new_blocks: Vec<Block>) -> Vec<BlockOp> {
     mdreader_core::block_diff(&old_blocks, &new_blocks)
@@ -1130,6 +1143,27 @@ fn persist(app: &tauri::AppHandle) {
     }
 }
 
+/// Say in the endpoint file that nothing is listening any more.
+///
+/// Only from `RunEvent::Exit`, which is the process ending. `persist`
+/// looked like the place for it and is not: it also runs when one window
+/// of several closes, and zeroing the port there would take the server
+/// away from every client while the app was still serving them.
+///
+/// The port goes; the token stays, because a token that changed on every
+/// launch would break every client configured with it. Leaving the port
+/// behind is what makes that safe to do: once this process is gone
+/// anything on the machine can bind the port it had, and the next
+/// `--mcp-stdio` launch would hand its `Authorization: Bearer …` to
+/// whoever answered. The bridge already knows what a zero means and says
+/// so in a sentence.
+fn close_the_endpoint(app: &tauri::AppHandle) {
+    let Ok(dir) = app_data(app) else { return };
+    if let Err(error) = mcp::publish(&dir, 0) {
+        eprintln!("could not close the agent endpoint: {error}");
+    }
+}
+
 /// Close a window that has said everything it wants to say.
 fn close_now(app: &tauri::AppHandle, label: &str) {
     if let Some(services) = app.try_state::<Services>() {
@@ -1280,6 +1314,8 @@ fn rotate_agent_token(
     let dir = app_data(&app)?;
     let port = locked(&services.agent_status).port;
     let endpoint = mcp::rotate(&dir, port)?;
+    // The one write that matters: this is the server's own token, not a
+    // copy of it, so the next request is checked against the new one.
     *locked(&services.agent_token) = endpoint.token;
     Ok(())
 }
@@ -1410,18 +1446,71 @@ async fn second_window_for(app: &tauri::AppHandle, path: &Path, asked: &str) -> 
     None
 }
 
+/// Where an agent's write would really land, or `None` when there is no
+/// answering that.
+///
+/// `..` is not a path component to the file system, and neither is a
+/// symlink: `starts_with` compares the components as they are written
+/// and the kernel resolves them, so `<folder>/../../.ssh/authorized_keys`
+/// passes a prefix test against the open folder and lands nowhere near
+/// it. Resolving first is the only comparison that means anything.
+///
+/// A file that is not there yet cannot be resolved, so its directory is
+/// resolved and the name put back on -- and that directory has to exist,
+/// which is right: this server does not make folders.
+///
+/// A target that is itself a symlink is refused rather than followed.
+/// `atomic::replace` follows one, which is what the reader who made the
+/// link meant; an agent whose whole scope is "inside this folder" means
+/// no such thing, and a link is how a write inside the folder ends up
+/// outside it.
+fn resolved_target(path: &Path) -> Option<PathBuf> {
+    if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        return None;
+    }
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return Some(real);
+    }
+    let parent = std::fs::canonicalize(path.parent()?).ok()?;
+    Some(parent.join(path.file_name()?))
+}
+
 /// Whether an agent may write here (see the module docs of `mcp`): a
 /// document with a tab on it, or a new file inside a folder some window
 /// has open.
+///
+/// "New" is the word the documentation and ADR 0028 both use, and until
+/// now the code did not keep it: any existing file under an open folder
+/// was writable, which with a repository open is every source file in
+/// it and `.git/hooks/pre-commit`, whose executable bit `atomic::replace`
+/// carefully preserves.
+///
+/// The two halves are asked differently on purpose. The folder half is a
+/// question about a path nobody has vouched for, so it is resolved before
+/// it is compared. The tab half is not a question about a path at all: it
+/// asks whether a window is holding this document, and the reader opening
+/// it is the authorization. Resolving there would only take reach away --
+/// a note kept as a symlink into a synced folder is the ordinary shape of
+/// the vaults this app is for, and it is still the document on the screen.
 async fn writable(app: &tauri::AppHandle, path: &Path) -> bool {
-    let folder = app.try_state::<Services>().is_some_and(|services| {
-        locked(&services.folders)
-            .values()
-            .any(|folder| path.starts_with(folder.root()))
-    });
-    // The folder first, because it is a string comparison and the other
-    // one is a round trip to a webview.
-    folder || window_for(app, path).await.is_some()
+    // The folder first, because it is the file system and the other one
+    // is a round trip to a webview.
+    new_file_in_a_folder(app, path) || window_for(app, path).await.is_some()
+}
+
+/// The half of `writable` that admits a path no window has open.
+fn new_file_in_a_folder(app: &tauri::AppHandle, path: &Path) -> bool {
+    let Some(target) = resolved_target(path) else {
+        return false;
+    };
+    if target.exists() {
+        return false;
+    }
+    app.try_state::<Services>().is_some_and(|services| {
+        locked(&services.folders).values().any(|folder| {
+            std::fs::canonicalize(folder.root()).is_ok_and(|root| target.starts_with(root))
+        })
+    })
 }
 
 impl mcp::Desk for Desktop {
@@ -1481,9 +1570,9 @@ impl mcp::Desk for Desktop {
         services.history()?.list(path)
     }
 
-    fn snapshot_text(&self, id: &str) -> Result<String, Error> {
+    fn snapshot_text(&self, path: &Path, id: &str) -> Result<String, Error> {
         let services = self.app.state::<Services>();
-        services.history()?.read(id)
+        services.history()?.read_for(path, id)
     }
 
     fn write(&self, path: PathBuf, content: String, agent: String) -> mcp::Ask<SnapshotInfo> {
@@ -1586,7 +1675,7 @@ fn start_agent_server(app: &tauri::AppHandle) {
             change_agent_status(&app, |status| status.clients = clients);
         });
     }
-    let token = endpoint.token;
+    let token = Arc::clone(&services.agent_token);
     tauri::async_runtime::spawn(async move {
         mcp::serve::serve(listener, token, desk, running).await;
     });
@@ -1735,7 +1824,7 @@ fn services(app: &tauri::AppHandle) -> Services {
         quitting: Mutex::new(false),
         agents: Arc::new(mcp::Agents::default()),
         agent_running: Arc::new(mcp::serve::Running::default()),
-        agent_token: Mutex::new(String::new()),
+        agent_token: Arc::new(Mutex::new(String::new())),
         agent_status: Mutex::new(AgentStatus::default()),
         menu: Mutex::new(menu::Bar::default()),
     }
@@ -1957,7 +2046,10 @@ pub fn run(context: tauri::Context) {
             deliver(app, paths);
         }
         tauri::RunEvent::ExitRequested { ref api, .. } => before_exit(app, api),
-        tauri::RunEvent::Exit => persist(app),
+        tauri::RunEvent::Exit => {
+            persist(app);
+            close_the_endpoint(app);
+        }
         _ => {}
     });
 }
@@ -1971,6 +2063,74 @@ mod tests {
             .chain(rest.iter().copied())
             .map(str::to_owned)
             .collect()
+    }
+
+    fn scope_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("mdreader-scope-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        std::fs::canonicalize(&dir).expect("canonical temp dir")
+    }
+
+    /// The prefix test `writable` runs, on a resolved path. Written out
+    /// here because the rest of `writable` needs a running app and this
+    /// is the part that decides.
+    fn inside(root: &Path, path: &Path) -> bool {
+        resolved_target(path)
+            .is_some_and(|target| std::fs::canonicalize(root).is_ok_and(|r| target.starts_with(r)))
+    }
+
+    /// `starts_with` compares components as they are written; the kernel
+    /// resolves them. So `<folder>/../../.ssh/authorized_keys` passed the
+    /// scope test and landed outside the folder the reader opened.
+    #[test]
+    fn a_write_scope_is_not_a_string_comparison() {
+        let root = scope_dir("root");
+        let notes = root.join("notes");
+        std::fs::create_dir_all(&notes).expect("folder");
+        assert!(inside(&notes, &notes.join("new.md")), "a new file in it");
+        assert!(
+            !inside(&notes, &notes.join("../../.ssh/authorized_keys")),
+            "a path that walks out of the folder is not inside it"
+        );
+        assert!(
+            !inside(&notes, &root.join("elsewhere.md")),
+            "and neither is its parent"
+        );
+    }
+
+    /// A link inside the folder is how a write inside it lands outside,
+    /// so the folder branch refuses one. Only that branch: a link the
+    /// reader has open in a tab goes through `window_for`, which never
+    /// sees this and should not.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_target_is_refused_rather_than_followed() {
+        let root = scope_dir("links");
+        let notes = root.join("notes");
+        std::fs::create_dir_all(&notes).expect("folder");
+        let outside = root.join("secret.txt");
+        std::fs::write(&outside, b"before").expect("fixture");
+        let link = notes.join("innocent.md");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&outside, &link).expect("symlink");
+        assert_eq!(resolved_target(&link), None);
+        assert!(!inside(&notes, &link));
+    }
+
+    /// The scope is new files, which is what the module docs and ADR 0028
+    /// both say. It used to be every file under the folder, which with a
+    /// repository open is every source file in it.
+    #[test]
+    fn an_existing_file_is_not_a_new_one() {
+        let root = scope_dir("existing");
+        std::fs::create_dir_all(&root).expect("folder");
+        let there = root.join("already.md");
+        std::fs::write(&there, b"# already").expect("fixture");
+        let target = resolved_target(&there).expect("resolves");
+        assert!(target.exists(), "so the folder branch does not admit it");
+        let fresh = resolved_target(&root.join("fresh.md")).expect("resolves");
+        assert!(!fresh.exists());
     }
 
     #[test]

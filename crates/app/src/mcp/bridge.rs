@@ -369,7 +369,7 @@ mod tests {
         fn snapshots(&self, _path: &std::path::Path) -> Result<Vec<SnapshotInfo>, Error> {
             Ok(Vec::new())
         }
-        fn snapshot_text(&self, _id: &str) -> Result<String, Error> {
+        fn snapshot_text(&self, _path: &std::path::Path, _id: &str) -> Result<String, Error> {
             Ok(String::new())
         }
         fn write(
@@ -398,7 +398,7 @@ mod tests {
         let token = mdreader_core::new_token();
         let desk: Arc<dyn Desk> = Arc::new(One);
         let running = Arc::new(mcp::serve::Running::default());
-        let served = token.clone();
+        let served = Arc::new(std::sync::Mutex::new(token.clone()));
         tokio::spawn(async move { mcp::serve::serve(listener, served, desk, running).await });
 
         let bridge = Bridge::new(
@@ -447,12 +447,55 @@ mod tests {
         assert!(lines[1].contains("brief.md"), "{}", lines[1]);
     }
 
+    /// Rotating the token has to reach the server that is already
+    /// running. It did not: `serve` was handed the token by value, so
+    /// the palette command wrote a new one into the endpoint file, told
+    /// the reader the old one had stopped working, and the old one went
+    /// on working until the app was quit.
+    #[tokio::test]
+    async fn rotating_the_token_reaches_the_running_server() {
+        let (listener, port) = mcp::bind().expect("bind");
+        let first = mdreader_core::new_token();
+        let desk: Arc<dyn Desk> = Arc::new(One);
+        let running = Arc::new(mcp::serve::Running::default());
+        let served = Arc::new(std::sync::Mutex::new(first.clone()));
+        let held = Arc::clone(&served);
+        tokio::spawn(async move { mcp::serve::serve(listener, held, desk, running).await });
+
+        let hello = || {
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}"#
+                .to_owned()
+        };
+        let bridge = |token: String| {
+            Bridge::new(
+                Endpoint::new(port, token),
+                Out::Kept(Mutex::new(Vec::new())),
+            )
+        };
+
+        let old = bridge(first);
+        forward(&old, hello()).await.expect("the first token works");
+
+        let second = mdreader_core::new_token();
+        *served
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = second.clone();
+
+        let error = forward(&bridge(old.endpoint.token.clone()), hello())
+            .await
+            .expect_err("the rotated-away token is refused");
+        assert!(error.contains("rotated"), "got {error}");
+        forward(&bridge(second), hello())
+            .await
+            .expect("the new token works");
+    }
+
     #[tokio::test]
     async fn a_token_the_server_will_not_take_says_so_in_a_sentence() {
         let (listener, port) = mcp::bind().expect("bind");
         let desk: Arc<dyn Desk> = Arc::new(One);
         let running = Arc::new(mcp::serve::Running::default());
-        let served = mdreader_core::new_token();
+        let served = Arc::new(std::sync::Mutex::new(mdreader_core::new_token()));
         tokio::spawn(async move { mcp::serve::serve(listener, served, desk, running).await });
 
         let bridge = Bridge::new(

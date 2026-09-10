@@ -213,8 +213,8 @@ impl Desk for Window {
         self.history.lock().expect("history").list(path)
     }
 
-    fn snapshot_text(&self, id: &str) -> Result<String, Error> {
-        self.history.lock().expect("history").read(id)
+    fn snapshot_text(&self, path: &Path, id: &str) -> Result<String, Error> {
+        self.history.lock().expect("history").read_for(path, id)
     }
 
     fn write(&self, path: PathBuf, content: String, agent: String) -> mcp::Ask<SnapshotInfo> {

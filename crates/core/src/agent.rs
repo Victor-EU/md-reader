@@ -172,6 +172,14 @@ fn restrict(_path: &Path) {}
 /// that leaks a token one byte at a time to a caller who can time it.
 #[must_use]
 pub fn authorized(header: Option<&str>, token: &str) -> bool {
+    // A server with no token answers to nobody, rather than to everybody
+    // who sends an empty one. Nothing reaches this in one piece today --
+    // the token is generated before the listener is spawned -- but the
+    // door being shut when there is no lock on it is not a thing to
+    // leave to the order two other functions happen to run in.
+    if token.is_empty() {
+        return false;
+    }
     let Some(header) = header else { return false };
     let Some(offered) = header
         .strip_prefix("Bearer ")
@@ -327,6 +335,12 @@ mod tests {
         assert!(!authorized(Some("Bearer "), &token), "empty");
         assert!(!authorized(Some(&format!("Bearer {token}x")), &token));
         assert!(!authorized(Some("Basic abc"), &token));
+        // A server that has no token yet answers to nobody. `Bearer `
+        // with nothing after it is a constant-time match for an empty
+        // token, which is the one input that would otherwise let a
+        // request in through a lock that has not been fitted.
+        assert!(!authorized(Some("Bearer "), ""), "no token configured");
+        assert!(!authorized(Some("Bearer anything"), ""));
     }
 
     #[test]
