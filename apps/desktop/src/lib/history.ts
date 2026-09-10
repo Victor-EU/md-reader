@@ -1,4 +1,4 @@
-import type { SnapshotAuthor, SnapshotInfo } from '@mdreader/ipc';
+import type { SnapshotAuthor, SnapshotInfo } from '@markdown/ipc';
 
 /**
  * How the history panel says what a version is (design 4.4).

@@ -11,7 +11,7 @@ function manifest(entries, rest = {}) {
 }
 
 async function dirWith(names) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'mdreader-release-'));
+  const dir = await mkdtemp(path.join(tmpdir(), 'markdown-release-'));
   for (const name of names) await writeFile(path.join(dir, name), 'x');
   return dir;
 }
@@ -19,7 +19,7 @@ async function dirWith(names) {
 describe('the manifest', () => {
   it('is what the updater expects, one entry per key it asks for', () => {
     const out = manifest(
-      [{ platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 'sig\n' }],
+      [{ platform: 'darwin-universal', file: 'Markdown.app.tar.gz', signature: 'sig\n' }],
       { date: '2026-09-09T12:00:00Z', notes: 'Fixes the thing' },
     );
     expect(out).toEqual({
@@ -29,21 +29,21 @@ describe('the manifest', () => {
       platforms: {
         'darwin-aarch64': {
           signature: 'sig',
-          url: `${base}/MD%20Reader.app.tar.gz`,
+          url: `${base}/Markdown.app.tar.gz`,
         },
         'darwin-x86_64': {
           signature: 'sig',
-          url: `${base}/MD%20Reader.app.tar.gz`,
+          url: `${base}/Markdown.app.tar.gz`,
         },
       },
     });
   });
 
-  it('escapes the spaces the product name puts in every file name', () => {
+  it('escapes a space in a file name, should the product name ever carry one again', () => {
     const out = manifest([
-      { platform: 'windows-x86_64', file: 'MD Reader_0.2.0_x64_en-US.msi', signature: 's' },
+      { platform: 'windows-x86_64', file: 'Two Words_0.2.0_x64_en-US.msi', signature: 's' },
     ]);
-    expect(out.platforms['windows-x86_64'].url).toBe(`${base}/MD%20Reader_0.2.0_x64_en-US.msi`);
+    expect(out.platforms['windows-x86_64'].url).toBe(`${base}/Two%20Words_0.2.0_x64_en-US.msi`);
   });
 
   it('does not mind a base URL with a trailing slash', () => {
@@ -63,14 +63,14 @@ describe('the manifest', () => {
     // key updates no Mac at all, and does it quietly: a target it cannot
     // find is reported to the app as "there is nothing new".
     const out = manifest([
-      { platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 'sig' },
+      { platform: 'darwin-universal', file: 'Markdown.app.tar.gz', signature: 'sig' },
     ]);
     expect(Object.keys(out.platforms).sort()).toEqual(['darwin-aarch64', 'darwin-x86_64']);
     expect(out.platforms['darwin-universal']).toBeUndefined();
     // One bundle, so both keys point at the same file and the same
     // signature — that is what makes publishing it twice honest.
     expect(out.platforms['darwin-aarch64']).toEqual(out.platforms['darwin-x86_64']);
-    expect(out.platforms['darwin-aarch64'].url).toBe(`${base}/MD%20Reader.app.tar.gz`);
+    expect(out.platforms['darwin-aarch64'].url).toBe(`${base}/Markdown.app.tar.gz`);
   });
 
   it('refuses a universal bundle beside one of the arches it already covers', () => {
@@ -79,8 +79,8 @@ describe('the manifest', () => {
     // in, or the second of these would silently take the first's place.
     expect(() =>
       manifest([
-        { platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 's' },
-        { platform: 'darwin-aarch64', file: 'MD Reader-arm.app.tar.gz', signature: 's' },
+        { platform: 'darwin-universal', file: 'Markdown.app.tar.gz', signature: 's' },
+        { platform: 'darwin-aarch64', file: 'Markdown-arm.app.tar.gz', signature: 's' },
       ]),
     ).toThrow(/two artifacts claim darwin-aarch64/);
   });
@@ -88,8 +88,8 @@ describe('the manifest', () => {
   it('refuses them in the other order too', () => {
     expect(() =>
       manifest([
-        { platform: 'darwin-aarch64', file: 'MD Reader-arm.app.tar.gz', signature: 's' },
-        { platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 's' },
+        { platform: 'darwin-aarch64', file: 'Markdown-arm.app.tar.gz', signature: 's' },
+        { platform: 'darwin-universal', file: 'Markdown.app.tar.gz', signature: 's' },
       ]),
     ).toThrow(/two artifacts claim darwin-aarch64/);
   });
@@ -137,20 +137,16 @@ describe('the manifest', () => {
 
 describe('finding the signed artifact', () => {
   it('takes the file the .sig is named after', async () => {
-    const dir = await dirWith([
-      'MD Reader.app.tar.gz',
-      'MD Reader.app.tar.gz.sig',
-      'MD Reader.dmg',
-    ]);
-    await writeFile(path.join(dir, 'MD Reader.app.tar.gz.sig'), 'signature\n');
+    const dir = await dirWith(['Markdown.app.tar.gz', 'Markdown.app.tar.gz.sig', 'Markdown.dmg']);
+    await writeFile(path.join(dir, 'Markdown.app.tar.gz.sig'), 'signature\n');
     expect(await signedArtifact(dir)).toEqual({
-      file: 'MD Reader.app.tar.gz',
+      file: 'Markdown.app.tar.gz',
       signature: 'signature\n',
     });
   });
 
   it('says so when nothing was signed', async () => {
-    const dir = await dirWith(['MD Reader.dmg']);
+    const dir = await dirWith(['Markdown.dmg']);
     await expect(signedArtifact(dir)).rejects.toThrow(/no \.sig file/);
   });
 

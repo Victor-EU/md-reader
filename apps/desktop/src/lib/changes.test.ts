@@ -1,8 +1,8 @@
 import { ChangeSet, Text } from '@codemirror/state';
-import type { ChangeRecord } from '@mdreader/editor-core';
-import type { BlockOp } from '@mdreader/ipc';
-import { fakeAlign } from '@mdreader/ipc/fake';
-import { flattenBlocks, parser } from '@mdreader/markdown';
+import type { ChangeRecord } from '@markdown/editor-core';
+import type { BlockOp } from '@markdown/ipc';
+import { fakeAlign } from '@markdown/ipc/fake';
+import { flattenBlocks, parser } from '@markdown/markdown';
 import { describe, expect, it } from 'vitest';
 import { blockChanges, type Side, shorten, tracked } from './changes.ts';
 

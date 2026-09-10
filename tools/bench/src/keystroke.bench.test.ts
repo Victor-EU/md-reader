@@ -1,6 +1,6 @@
 import { syntaxParserRunning } from '@codemirror/language';
-import { createEditor } from '@mdreader/editor-core';
-import { generateDocument } from '@mdreader/markdown';
+import { createEditor } from '@markdown/editor-core';
+import { generateDocument } from '@markdown/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
 

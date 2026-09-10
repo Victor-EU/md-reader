@@ -5,7 +5,7 @@ import {
   colorStyle,
   type PaletteMeaning,
   paletteEntry,
-} from '@mdreader/markdown';
+} from '@markdown/markdown';
 import { command, type Edit, trimmed } from './edit.ts';
 
 /**

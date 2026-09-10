@@ -1,4 +1,4 @@
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { mount, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Banner from '../components/Banner.svelte';

@@ -1,4 +1,4 @@
-import type { Override, Settings } from '@mdreader/ipc';
+import type { Override, Settings } from '@markdown/ipc';
 import {
   type Appearance,
   DEFAULT_THEME,
@@ -7,7 +7,7 @@ import {
   paperIsDark,
   type Theme,
   themes,
-} from '@mdreader/theme';
+} from '@markdown/theme';
 
 /**
  * The reading preferences, applied (design 11, plan WP 1.9, plan WP 2.6).

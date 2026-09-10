@@ -1,5 +1,5 @@
 import { EditorView } from '@codemirror/view';
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyAppearance, DEFAULT_SETTINGS, DEFAULT_SIZE, SIZES } from './appearance.ts';
 import { createShell, type Shell } from './shell.svelte.ts';

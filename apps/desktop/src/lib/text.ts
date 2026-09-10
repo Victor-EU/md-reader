@@ -4,8 +4,8 @@ import {
   type FileFormat,
   type Error as IpcError,
   type ReadOnly,
-} from '@mdreader/ipc';
-import type { Span } from '@mdreader/markdown';
+} from '@markdown/ipc';
+import type { Span } from '@markdown/markdown';
 
 /**
  * Words as a writer counts them: runs of letters, digits, and the marks

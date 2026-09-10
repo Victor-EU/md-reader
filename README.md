@@ -1,6 +1,6 @@
-# md-reader
+# Markdown
 
-Markdown viewer and editor for the AI round trip. Working title.
+Markdown viewer and editor for the AI round trip.
 
 - [Design](docs/markdown-app-design.md)
 - [Build plan](docs/markdown-app-build-plan.md)
@@ -39,8 +39,8 @@ Configuration` in the palette copies one with neither in it:
 ```json
 {
   "mcpServers": {
-    "md-reader": {
-      "command": "/Applications/MD Reader.app/Contents/MacOS/mdreader-desktop",
+    "markdown-app": {
+      "command": "/Applications/Markdown.app/Contents/MacOS/markdown-desktop",
       "args": ["--mcp-stdio"]
     }
   }

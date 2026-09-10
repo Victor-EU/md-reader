@@ -1,6 +1,6 @@
-import type { ThemeId } from '@mdreader/ipc';
-import { calloutTypes, palette } from '@mdreader/markdown';
-import { codeTokens, noteKinds, paletteFor, papers, themes } from '@mdreader/theme';
+import type { ThemeId } from '@markdown/ipc';
+import { calloutTypes, palette } from '@markdown/markdown';
+import { codeTokens, noteKinds, paletteFor, papers, themes } from '@markdown/theme';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SETTINGS,

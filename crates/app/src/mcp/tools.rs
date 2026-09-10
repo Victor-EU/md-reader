@@ -19,7 +19,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mdreader_core::{AgentAnnotation, AgentChange, AgentDocument, Error};
+use markdown_core::{AgentAnnotation, AgentChange, AgentDocument, Error};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::{
@@ -249,7 +249,7 @@ impl ServerHandler for Server {
                 .build(),
         );
         info.server_info =
-            Implementation::new("md-reader", env!("CARGO_PKG_VERSION")).with_title("MD Reader");
+            Implementation::new("markdown-app", env!("CARGO_PKG_VERSION")).with_title("Markdown");
         info.with_instructions(
             "The markdown documents a person has open in front of them, and a way to write to \
              one. `list_documents` first. The reader marks up what they are reading — \

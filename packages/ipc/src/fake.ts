@@ -843,7 +843,7 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
         'agent_client_config',
         [],
         ok(
-          '{\n  "mcpServers": {\n    "md-reader": {\n      "command": "mdreader-desktop",\n      "args": ["--mcp-stdio"]\n    }\n  }\n}\n',
+          '{\n  "mcpServers": {\n    "markdown-app": {\n      "command": "markdown-desktop",\n      "args": ["--mcp-stdio"]\n    }\n  }\n}\n',
         ),
       ),
     setMenu: (sections) => {

@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use mdreader_app::mcp::{self, Desk};
-use mdreader_core::{
+use markdown_app::mcp::{self, Desk};
+use markdown_core::{
     AgentAnnotation, AgentAnswer, AgentDocument, AgentRequest, AnnotationKind, AnnotationMark,
     Block, Error, History, SnapshotAuthor, SnapshotInfo,
 };
@@ -220,7 +220,7 @@ impl Desk for Window {
     fn write(&self, path: PathBuf, content: String, agent: String) -> mcp::Ask<SnapshotInfo> {
         // Everything the app does but the event: the file, then the
         // version under the agent's name, then the buffer catching up.
-        let done = mdreader_core::agent::write_document(&path, &content).and_then(|written| {
+        let done = markdown_core::agent::write_document(&path, &content).and_then(|written| {
             let info = self.history.lock().expect("history").snapshot_by(
                 &path,
                 &written.content,
@@ -382,7 +382,7 @@ async fn the_marks_the_reader_made() {
             anchor: "The migration can be done in one sprint".to_owned(),
             from: 0,
             to: 38,
-            comment: Some(mdreader_core::AgentComment {
+            comment: Some(markdown_core::AgentComment {
                 kind: AnnotationKind::Note,
                 text: "too ambitious, cut to two weeks".to_owned(),
             }),
@@ -526,7 +526,7 @@ async fn an_agent_reads_the_annotations_and_leaves_a_version() {
             anchor: "The migration can be done in one sprint".to_owned(),
             from: 10,
             to: 48,
-            comment: Some(mdreader_core::AgentComment {
+            comment: Some(markdown_core::AgentComment {
                 kind: AnnotationKind::Rewrite,
                 text: "too ambitious, say two weeks".to_owned(),
             }),

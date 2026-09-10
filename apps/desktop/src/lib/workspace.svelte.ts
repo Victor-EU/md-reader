@@ -52,7 +52,7 @@ import {
   takeTheirsHere,
   toggleTaskAt,
   undo,
-} from '@mdreader/editor-core';
+} from '@markdown/editor-core';
 import type {
   AgentAnswer,
   AgentAsk,
@@ -80,7 +80,7 @@ import type {
   TabKind,
   TabMove,
   WindowContent,
-} from '@mdreader/ipc';
+} from '@markdown/ipc';
 import {
   type AnnotationKind,
   commonBlocks,
@@ -94,7 +94,7 @@ import {
   parser,
   renderDocument,
   toHtml,
-} from '@mdreader/markdown';
+} from '@markdown/markdown';
 import { agentAnnotation, agentDocument } from './agent.ts';
 import {
   DEFAULT_SETTINGS,
@@ -558,12 +558,12 @@ export class Workspace {
    *
    * Nothing draws it any more — the title bar is the tab strip — but
    * macOS still lists windows by it in the Window menu and under Mission
-   * Control, and two windows both answering to "MD Reader" are no help
+   * Control, and two windows both answering to "Markdown" are no help
    * there. The tab in front is the answer, as it is in a browser.
    */
   windowTitle: string = $derived.by(() => {
     const at = this.tabs.findIndex((tab) => tab.id === this.activeId);
-    return this.labels[at] ?? 'MD Reader';
+    return this.labels[at] ?? 'Markdown';
   });
   /**
    * What the mounted view is built from. It changes when another tab comes

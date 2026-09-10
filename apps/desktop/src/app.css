@@ -1,5 +1,5 @@
 /* Every theme's colours and the bundled faces, before any rule uses them. */
-@import "@mdreader/theme/css";
+@import "@markdown/theme/css";
 @import "./fonts.css";
 /* What a rendered document wears, which an exported page wears too. */
 @import "./read.css";

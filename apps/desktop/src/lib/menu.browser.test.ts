@@ -1,5 +1,5 @@
-import type { MenuSection } from '@mdreader/ipc';
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import type { MenuSection } from '@markdown/ipc';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { watchMenu } from './menu.svelte.ts';

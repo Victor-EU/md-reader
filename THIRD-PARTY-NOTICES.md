@@ -14,7 +14,7 @@ Only the Latin and Latin Extended subsets are bundled; see
 `apps/desktop/src/fonts.css`.
 
 This file ships inside the application. On macOS it is at
-`MD Reader.app/Contents/Resources/THIRD-PARTY-NOTICES.md`; the Settings
+`Markdown.app/Contents/Resources/THIRD-PARTY-NOTICES.md`; the Settings
 colophon says so.
 
 Every other dependency is a build-time or runtime library resolved by

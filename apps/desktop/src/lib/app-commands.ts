@@ -1,4 +1,4 @@
-import { palette } from '@mdreader/markdown';
+import { palette } from '@markdown/markdown';
 import type { CommandRegistry, CommandSpec } from './commands.ts';
 import type { Workspace } from './workspace.svelte.ts';
 

@@ -1,4 +1,4 @@
-import { createFakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // The comment toggle is a class and a stylesheet rule, so the stylesheet
 // has to be in the page for the test to be about anything.

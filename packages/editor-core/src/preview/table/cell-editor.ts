@@ -10,7 +10,7 @@ import {
   type TransactionSpec,
 } from '@codemirror/state';
 import { EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view';
-import { extensions as dialect } from '@mdreader/markdown';
+import { extensions as dialect } from '@markdown/markdown';
 import { markdownHighlightStyle } from '../theme.ts';
 import { escapePipes, insertRowBelow, materializeCell, rebaseCellChanges } from './commands.ts';
 import { type CellModel, cellText, type TableModel, tableModelAt, tableNodeAt } from './model.ts';

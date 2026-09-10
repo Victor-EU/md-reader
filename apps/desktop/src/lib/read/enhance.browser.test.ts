@@ -1,4 +1,4 @@
-import { parser, renderDocument, resolveOffset, toDom } from '@mdreader/markdown';
+import { parser, renderDocument, resolveOffset, toDom } from '@markdown/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createEnhancer, type Enhancer } from './enhance.ts';
 // The stylesheet is part of the feature: Shiki emits both themes as custom

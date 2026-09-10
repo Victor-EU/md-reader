@@ -102,7 +102,7 @@ export function reportCheck(state: UpdateState): string {
     case 'checking':
       return 'Checking for updates…';
     case 'none':
-      return 'MD Reader is up to date';
+      return 'Markdown is up to date';
     case 'failed':
       return `Could not check for updates — ${state.message}`;
     case 'available':

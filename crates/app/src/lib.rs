@@ -1,5 +1,5 @@
 //! Tauri command handlers and the IPC contract (design 6.4). Each command
-//! is a thin adapter over `mdreader_core`; commands later work packages
+//! is a thin adapter over `markdown_core`; commands later work packages
 //! implement are declared here as stubs so the generated bindings carry
 //! the whole contract and cannot drift from it.
 
@@ -18,7 +18,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use mdreader_core::{
+use markdown_core::{
     AgentAnswer, AgentAsk, AgentDocument, AgentRequest, AgentStatus, AssetWrite, Block, BlockOp,
     Bounds, DirEntry, Document, Error, ExportWrite, ExternalChange, FileFormat, FileMatches,
     FileRemoved, FileRenamed, Folder, FolderChange, History, MergeResult, Override, Overrides,
@@ -181,7 +181,7 @@ impl Services {
 #[tauri::command]
 #[specta::specta]
 fn open_document(services: tauri::State<'_, Services>, path: PathBuf) -> Result<Document, Error> {
-    let document = mdreader_core::read_document(&path)?;
+    let document = markdown_core::read_document(&path)?;
     if document.meta.read_only != Some(ReadOnly::Size)
         && let Ok(mut history) = services.history()
     {
@@ -211,7 +211,7 @@ fn save_document(
     expected_hash: Option<String>,
     format: FileFormat,
 ) -> Result<SaveResult, Error> {
-    let saved = mdreader_core::save_document(&path, &content, expected_hash.as_deref(), &format)?;
+    let saved = markdown_core::save_document(&path, &content, expected_hash.as_deref(), &format)?;
     // The watcher is about to see this write through the folder watch.
     // Telling it what we wrote is what keeps it from reporting our own
     // save back to us as somebody else's change.
@@ -269,7 +269,7 @@ fn write_asset(
             path: PathBuf::from(&name),
             message: error.to_string(),
         })?;
-    let write = mdreader_core::store_asset(&document, &name, &bytes)?;
+    let write = markdown_core::store_asset(&document, &name, &bytes)?;
     allow_images(&app, &document)?;
     Ok(write)
 }
@@ -284,7 +284,7 @@ fn import_asset(
     document: PathBuf,
     source: PathBuf,
 ) -> Result<AssetWrite, Error> {
-    let write = mdreader_core::copy_asset(&document, &source)?;
+    let write = markdown_core::copy_asset(&document, &source)?;
     allow_images(&app, &document)?;
     Ok(write)
 }
@@ -322,14 +322,14 @@ fn export_html(
             }
         })
         .collect();
-    mdreader_core::write_export(&path, &html, &reachable)
+    markdown_core::write_export(&path, &html, &reachable)
 }
 
 /// Rewrite a non-UTF-8 file as UTF-8 and return it freshly read.
 #[tauri::command]
 #[specta::specta]
 fn convert_document_to_utf8(path: PathBuf) -> Result<Document, Error> {
-    mdreader_core::convert_to_utf8(&path)
+    markdown_core::convert_to_utf8(&path)
 }
 
 /// Watch a file for writes by other processes.
@@ -356,7 +356,7 @@ fn unwatch(services: tauri::State<'_, Services>, path: PathBuf) -> Result<(), Er
 #[tauri::command(async)]
 #[specta::specta]
 fn merge3(base: String, ours: String, theirs: String) -> MergeResult {
-    mdreader_core::merge3(&base, &ours, &theirs)
+    markdown_core::merge3(&base, &ours, &theirs)
 }
 
 /// Store a snapshot of `content` for `path`.
@@ -667,7 +667,7 @@ fn reveal_path(
 #[tauri::command(async)]
 #[specta::specta]
 fn block_diff(old_blocks: Vec<Block>, new_blocks: Vec<Block>) -> Vec<BlockOp> {
-    mdreader_core::block_diff(&old_blocks, &new_blocks)
+    markdown_core::block_diff(&old_blocks, &new_blocks)
 }
 
 // --- the folder --------------------------------------------------------
@@ -721,7 +721,7 @@ fn close_folder(services: tauri::State<'_, Services>, window: tauri::WebviewWind
 #[tauri::command]
 #[specta::specta]
 fn list_dir(path: PathBuf) -> Result<Vec<DirEntry>, Error> {
-    mdreader_core::list_dir(&path)
+    markdown_core::list_dir(&path)
 }
 
 /// The files in the open folder that match what has been typed into
@@ -772,7 +772,7 @@ fn start_search(
             message: "no folder is open to search".to_owned(),
         });
     };
-    mdreader_core::check_search(&query, &options)?;
+    markdown_core::check_search(&query, &options)?;
     services.stop_search(&label);
     let stop = Arc::new(AtomicBool::new(false));
     locked(&services.searches)
@@ -813,7 +813,7 @@ fn run_search(
 ) {
     let mut batch: Vec<SearchHit> = Vec::new();
     let mut sent = Instant::now();
-    let found = mdreader_core::search(folder.root(), query, options, stop, |hit| {
+    let found = markdown_core::search(folder.root(), query, options, stop, |hit| {
         batch.push(hit);
         if batch.len() >= SEARCH_BATCH || sent.elapsed() >= SEARCH_FLUSH {
             report_hits(app, label, id, std::mem::take(&mut batch));
@@ -847,14 +847,14 @@ fn report_hits(app: &tauri::AppHandle, label: &str, id: u32, hits: Vec<SearchHit
 #[tauri::command]
 #[specta::specta]
 fn create_file(dir: PathBuf, name: String) -> Result<PathBuf, Error> {
-    mdreader_core::create_file(&dir, &name)
+    markdown_core::create_file(&dir, &name)
 }
 
 /// Rename a file within its folder, from the sidebar's inline rename.
 #[tauri::command]
 #[specta::specta]
 fn rename_path(path: PathBuf, name: String) -> Result<PathBuf, Error> {
-    mdreader_core::rename(&path, &name)
+    markdown_core::rename(&path, &name)
 }
 
 /// The watcher's report of a write by another process (design 6.4).
@@ -1584,7 +1584,7 @@ impl mcp::Desk for Desktop {
                     message: "this server writes open documents, and new files inside a folder the app has open".to_owned(),
                 });
             }
-            let written = mdreader_core::agent::write_document(&path, &content)?;
+            let written = markdown_core::agent::write_document(&path, &content)?;
             let services = app.state::<Services>();
             // The watcher is about to see this write. Telling it what
             // landed keeps it from reporting the same change a second
@@ -1602,7 +1602,7 @@ impl mcp::Desk for Desktop {
                 path,
                 hash: written.saved.hash,
                 agent: Some(agent),
-                changes: mdreader_core::edits(&written.before, &written.content),
+                changes: markdown_core::edits(&written.before, &written.content),
                 content: written.content,
             };
             if let Err(error) = ExternalChangeEvent(change).emit(&app) {
@@ -1665,7 +1665,7 @@ fn start_agent_server(app: &tauri::AppHandle) {
     {
         let mut status = locked(&services.agent_status);
         status.port = port;
-        status.endpoint = Some(mdreader_core::agent::endpoint_path(&dir));
+        status.endpoint = Some(markdown_core::agent::endpoint_path(&dir));
     }
     let desk: Arc<dyn mcp::Desk> = Arc::new(Desktop { app: app.clone() });
     let running = Arc::clone(&services.agent_running);
@@ -1896,7 +1896,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
 #[must_use]
 pub fn typescript() -> Typescript {
     Typescript::default().header(
-        "// Generated by crates/app. Do not edit; run `cargo run -p mdreader-app --bin export-bindings`.",
+        "// Generated by crates/app. Do not edit; run `cargo run -p markdown-app --bin export-bindings`.",
     )
 }
 
@@ -2059,7 +2059,7 @@ mod tests {
     use super::*;
 
     fn args(rest: &[&str]) -> Vec<String> {
-        std::iter::once("mdreader-desktop")
+        std::iter::once("markdown-desktop")
             .chain(rest.iter().copied())
             .map(str::to_owned)
             .collect()
@@ -2067,7 +2067,7 @@ mod tests {
 
     fn scope_dir(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("mdreader-scope-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("markdown-scope-{}-{name}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         std::fs::canonicalize(&dir).expect("canonical temp dir")
     }
@@ -2135,7 +2135,7 @@ mod tests {
 
     #[test]
     fn file_arguments_are_taken_relative_to_where_they_were_typed() {
-        let dir = std::env::temp_dir().join(format!("mdreader-args-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("markdown-args-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let here = dir.join("here.md");
         std::fs::write(&here, b"# here").expect("fixture");
@@ -2153,7 +2153,7 @@ mod tests {
 
     #[test]
     fn what_is_not_a_file_to_open_is_dropped() {
-        let dir = std::env::temp_dir().join(format!("mdreader-args-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("markdown-args-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         assert!(
             paths_from(&args(&[]), &dir).is_empty(),
@@ -2202,7 +2202,7 @@ mod tests {
     /// contract generates. Regenerate with the `export-bindings` binary.
     #[test]
     fn committed_bindings_are_current() {
-        let dir = std::env::temp_dir().join(format!("mdreader-bindings-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("markdown-bindings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         let fresh = dir.join("bindings.ts");
         export_bindings(&fresh).expect("export");
@@ -2210,7 +2210,7 @@ mod tests {
         let committed = std::fs::read_to_string(bindings_path()).unwrap_or_default();
         assert!(
             generated == committed,
-            "packages/ipc/src/bindings.ts is stale; run `cargo run -p mdreader-app --bin export-bindings`"
+            "packages/ipc/src/bindings.ts is stale; run `cargo run -p markdown-app --bin export-bindings`"
         );
     }
 }

@@ -1,7 +1,7 @@
 import type { Text } from '@codemirror/state';
-import type { ChangeEdit, ChangePart, ChangeRecord } from '@mdreader/editor-core';
-import type { BlockOp, WordRun } from '@mdreader/ipc';
-import type { DocBlock } from '@mdreader/markdown';
+import type { ChangeEdit, ChangePart, ChangeRecord } from '@markdown/editor-core';
+import type { BlockOp, WordRun } from '@markdown/ipc';
+import type { DocBlock } from '@markdown/markdown';
 
 /**
  * The alignment of two block lists, as the records the margin marks and

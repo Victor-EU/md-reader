@@ -16,7 +16,7 @@ import {
   type KeyBinding,
   keymap,
 } from '@codemirror/view';
-import { extensions as dialect } from '@mdreader/markdown';
+import { extensions as dialect } from '@markdown/markdown';
 import { changeMarkers, reviewPanels } from './changes/index.ts';
 import { deleteMarkerBackward, indentListItem, outdentListItem } from './commands/list.ts';
 import { insertNewlineMarkdown } from './commands/newline.ts';
@@ -75,7 +75,7 @@ export function setDarkEffect(dark: boolean): StateEffect<unknown> {
 
 /**
  * The markdown language for the editor: CodeMirror's CommonMark base plus
- * the whole dialect from `@mdreader/markdown`, with fence languages loaded
+ * the whole dialect from `@markdown/markdown`, with fence languages loaded
  * lazily. The base is CommonMark, not `markdownLanguage`, because that one
  * adds Subscript, Superscript, and Emoji, which design 5.1 leaves out and
  * the headless parser does not have. Only the table folding rule from that

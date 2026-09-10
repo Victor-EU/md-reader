@@ -1,4 +1,4 @@
-import { editorKeys } from '@mdreader/editor-core';
+import { editorKeys } from '@markdown/editor-core';
 import { describe, expect, it, vi } from 'vitest';
 import { appCommands } from './app-commands.ts';
 import { CommandRegistry } from './commands.ts';

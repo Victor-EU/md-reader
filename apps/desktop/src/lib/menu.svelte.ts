@@ -1,4 +1,4 @@
-import type { MenuEntry, MenuRole, MenuSection } from '@mdreader/ipc';
+import type { MenuEntry, MenuRole, MenuSection } from '@markdown/ipc';
 import { type Command, type CommandRegistry, type MenuGroup, titleOf } from './commands.ts';
 
 /**
@@ -54,7 +54,7 @@ export function menuBar(registry: CommandRegistry): MenuSection[] {
   const history = entries('Edit', (command) => HISTORY.includes(command.id));
   return [
     {
-      title: 'MD Reader',
+      title: 'Markdown',
       items: [
         standard('about'),
         SEPARATOR,

@@ -1,5 +1,5 @@
 {
-  "name": "md-reader-workspace",
+  "name": "markdown-workspace",
   "private": true,
   "license": "MIT",
   "packageManager": "pnpm@12.3.4",
@@ -7,8 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --filter @mdreader/desktop dev",
-    "tauri": "pnpm --filter @mdreader/desktop tauri",
+    "dev": "pnpm --filter @markdown/desktop dev",
+    "tauri": "pnpm --filter @markdown/desktop tauri",
     "lint": "biome ci .",
     "format": "biome format --write .",
     "typecheck": "pnpm -r --if-present run check",

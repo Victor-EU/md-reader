@@ -1,5 +1,5 @@
 [package]
-name = "mdreader-desktop"
+name = "markdown-desktop"
 description = "Markdown viewer and editor for the AI round trip"
 version.workspace = true
 edition.workspace = true
@@ -8,14 +8,14 @@ license.workspace = true
 publish = false
 
 [[bin]]
-name = "mdreader-desktop"
+name = "markdown-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { workspace = true }
 
 [dependencies]
-mdreader-app = { workspace = true }
+markdown-app = { workspace = true }
 # `generate_context!` emits the plugin configuration through serde_json
 # once any plugin is configured in tauri.conf.json (the updater is).
 serde_json = { workspace = true }

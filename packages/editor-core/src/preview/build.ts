@@ -9,7 +9,7 @@ import {
   commentAnchor,
   pairTags,
   parseTag,
-} from '@mdreader/markdown';
+} from '@markdown/markdown';
 import { CommentWidget } from './comment.ts';
 import { headingLevel } from './nodes.ts';
 import { type RevealRange, revealRanges } from './reveal.ts';

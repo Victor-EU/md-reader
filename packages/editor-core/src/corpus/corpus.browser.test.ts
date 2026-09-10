@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import { ChangeSet, type EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { corpusFiles } from '@mdreader/markdown';
+import { corpusFiles } from '@markdown/markdown';
 import { afterEach, describe, expect, it } from 'vitest';
 import { activateCell } from '../preview/table/cell-editor.ts';
 import { escapePipes } from '../preview/table/commands.ts';

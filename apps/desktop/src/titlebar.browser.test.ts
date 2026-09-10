@@ -1,4 +1,4 @@
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import App from './App.svelte';
@@ -209,7 +209,7 @@ describe('the title bar', () => {
   it('names the window after the tab in front', async () => {
     start({ '/w/one.md': '# one\n', '/w/two.md': '# two\n' });
     await settle();
-    expect(named.at(-1)).toBe('MD Reader');
+    expect(named.at(-1)).toBe('Markdown');
     await shell.workspace.openPaths(['/w/one.md', '/w/two.md']);
     await settle();
     expect(named.at(-1)).toBe('two.md');

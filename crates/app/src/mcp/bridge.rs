@@ -29,7 +29,7 @@ use hyper::body::Bytes;
 use hyper::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use hyper::{Request, StatusCode};
 use hyper_util::rt::TokioIo;
-use mdreader_core::{Endpoint, agent};
+use markdown_core::{Endpoint, agent};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::sync::Mutex;
 
@@ -77,18 +77,18 @@ impl Bridge {
 #[must_use]
 pub fn run(identifier: &str) -> i32 {
     let Some(dir) = app_data_dir(identifier) else {
-        eprintln!("mdreader --mcp-stdio: this machine has no home directory to look in");
+        eprintln!("markdown --mcp-stdio: this machine has no home directory to look in");
         return 2;
     };
     let Some(endpoint) = agent::read(&dir) else {
         eprintln!(
-            "mdreader --mcp-stdio: no server to reach. {} says where one is, and MD Reader writes it when it starts. Is the app running?",
+            "markdown --mcp-stdio: no server to reach. {} says where one is, and Markdown writes it when it starts. Is the app running?",
             agent::endpoint_path(&dir).display()
         );
         return 2;
     };
     if endpoint.port == 0 {
-        eprintln!("mdreader --mcp-stdio: the last run of MD Reader had no agent server");
+        eprintln!("markdown --mcp-stdio: the last run of Markdown had no agent server");
         return 2;
     }
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -97,7 +97,7 @@ pub fn run(identifier: &str) -> i32 {
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("mdreader --mcp-stdio: {error}");
+            eprintln!("markdown --mcp-stdio: {error}");
             return 2;
         }
     };
@@ -123,7 +123,7 @@ async fn pump(bridge: Arc<Bridge>) -> i32 {
                 let bridge = Arc::clone(&bridge);
                 tasks.push(tokio::spawn(async move {
                     if let Err(error) = forward(&bridge, line).await {
-                        eprintln!("mdreader --mcp-stdio: {error}");
+                        eprintln!("markdown --mcp-stdio: {error}");
                     }
                 }));
             }
@@ -131,7 +131,7 @@ async fn pump(bridge: Arc<Bridge>) -> i32 {
             // response already on its way still reaches the pipe.
             Ok(None) => break,
             Err(error) => {
-                eprintln!("mdreader --mcp-stdio: {error}");
+                eprintln!("markdown --mcp-stdio: {error}");
                 return 1;
             }
         }
@@ -164,7 +164,7 @@ async fn forward(bridge: &Bridge, message: String) -> Result<(), String> {
         .await
         .map_err(|error| {
             format!(
-                "nothing is listening on port {}. Is MD Reader still running? ({error})",
+                "nothing is listening on port {}. Is Markdown still running? ({error})",
                 bridge.endpoint.port
             )
         })?;
@@ -337,7 +337,7 @@ pub fn endpoint_for(identifier: &str) -> Option<PathBuf> {
 mod tests {
     use std::sync::Arc;
 
-    use mdreader_core::{AgentAnswer, AgentDocument, AgentRequest, Error, SnapshotInfo};
+    use markdown_core::{AgentAnswer, AgentDocument, AgentRequest, Error, SnapshotInfo};
 
     use super::*;
     use crate::mcp::{self, Desk};
@@ -395,7 +395,7 @@ mod tests {
     #[tokio::test]
     async fn a_message_in_is_a_message_out_and_the_session_sticks() {
         let (listener, port) = mcp::bind().expect("bind");
-        let token = mdreader_core::new_token();
+        let token = markdown_core::new_token();
         let desk: Arc<dyn Desk> = Arc::new(One);
         let running = Arc::new(mcp::serve::Running::default());
         let served = Arc::new(std::sync::Mutex::new(token.clone()));
@@ -443,7 +443,7 @@ mod tests {
             assert!(!line.contains('\n'), "a message is one line: {line:?}");
             serde_json::from_str::<serde_json::Value>(line).expect("each line is a message");
         }
-        assert!(lines[0].contains("md-reader"), "{}", lines[0]);
+        assert!(lines[0].contains("markdown-app"), "{}", lines[0]);
         assert!(lines[1].contains("brief.md"), "{}", lines[1]);
     }
 
@@ -455,7 +455,7 @@ mod tests {
     #[tokio::test]
     async fn rotating_the_token_reaches_the_running_server() {
         let (listener, port) = mcp::bind().expect("bind");
-        let first = mdreader_core::new_token();
+        let first = markdown_core::new_token();
         let desk: Arc<dyn Desk> = Arc::new(One);
         let running = Arc::new(mcp::serve::Running::default());
         let served = Arc::new(std::sync::Mutex::new(first.clone()));
@@ -476,7 +476,7 @@ mod tests {
         let old = bridge(first);
         forward(&old, hello()).await.expect("the first token works");
 
-        let second = mdreader_core::new_token();
+        let second = markdown_core::new_token();
         *served
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = second.clone();
@@ -495,11 +495,11 @@ mod tests {
         let (listener, port) = mcp::bind().expect("bind");
         let desk: Arc<dyn Desk> = Arc::new(One);
         let running = Arc::new(mcp::serve::Running::default());
-        let served = Arc::new(std::sync::Mutex::new(mdreader_core::new_token()));
+        let served = Arc::new(std::sync::Mutex::new(markdown_core::new_token()));
         tokio::spawn(async move { mcp::serve::serve(listener, served, desk, running).await });
 
         let bridge = Bridge::new(
-            Endpoint::new(port, mdreader_core::new_token()),
+            Endpoint::new(port, markdown_core::new_token()),
             Out::Kept(Mutex::new(Vec::new())),
         );
         let error = forward(
@@ -516,7 +516,7 @@ mod tests {
         let (listener, port) = mcp::bind().expect("bind");
         drop(listener);
         let bridge = Bridge::new(
-            Endpoint::new(port, mdreader_core::new_token()),
+            Endpoint::new(port, markdown_core::new_token()),
             Out::Kept(Mutex::new(Vec::new())),
         );
         let error = forward(
@@ -526,13 +526,13 @@ mod tests {
         .await
         .expect_err("nothing there");
         assert!(error.contains(&port.to_string()), "got {error}");
-        assert!(error.contains("MD Reader"), "got {error}");
+        assert!(error.contains("Markdown"), "got {error}");
     }
 
     #[test]
     fn only_the_flag_asks_for_the_bridge() {
         let args = |rest: &[&str]| -> Vec<String> {
-            std::iter::once("mdreader-desktop")
+            std::iter::once("markdown-desktop")
                 .chain(rest.iter().copied())
                 .map(str::to_owned)
                 .collect()

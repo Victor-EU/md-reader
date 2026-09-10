@@ -1,5 +1,5 @@
-import { createEditorState } from '@mdreader/editor-core';
-import { generateDocument } from '@mdreader/markdown';
+import { createEditorState } from '@markdown/editor-core';
+import { generateDocument } from '@markdown/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
 // The read view the app mounts, not a copy of it: what is measured here has

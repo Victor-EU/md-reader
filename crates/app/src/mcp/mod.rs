@@ -47,7 +47,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use mdreader_core::{
+use markdown_core::{
     AgentAnnotation, AgentAnswer, AgentChange, AgentDocument, AgentRequest, Endpoint, Error,
     SnapshotInfo, agent,
 };
@@ -254,7 +254,7 @@ pub fn rotate(app_data: &Path, port: u16) -> Result<Endpoint, Error> {
 #[must_use]
 pub fn client_config(binary: &Path) -> String {
     format!(
-        "{{\n  \"mcpServers\": {{\n    \"md-reader\": {{\n      \"command\": {},\n      \"args\": [\"--mcp-stdio\"]\n    }}\n  }}\n}}\n",
+        "{{\n  \"mcpServers\": {{\n    \"markdown-app\": {{\n      \"command\": {},\n      \"args\": [\"--mcp-stdio\"]\n    }}\n  }}\n}}\n",
         serde_json::Value::String(binary.to_string_lossy().into_owned())
     )
 }
@@ -315,7 +315,7 @@ pub async fn changes(
         AgentAnswer::Changes { old, new } => Some((old, new)),
         _ => None,
     })?;
-    Ok(mdreader_core::agent_changes(&old, &new))
+    Ok(markdown_core::agent_changes(&old, &new))
 }
 
 /// A server over `desk`, ready to be mounted on a transport.
@@ -331,11 +331,11 @@ mod tests {
     #[test]
     fn the_client_configuration_is_the_command_and_the_flag() {
         let config = client_config(Path::new(
-            "/Applications/MD Reader.app/Contents/MacOS/mdreader-desktop",
+            "/Applications/Markdown.app/Contents/MacOS/markdown-desktop",
         ));
         assert!(
             config.contains(
-                "\"command\": \"/Applications/MD Reader.app/Contents/MacOS/mdreader-desktop\""
+                "\"command\": \"/Applications/Markdown.app/Contents/MacOS/markdown-desktop\""
             ),
             "got {config}"
         );
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn a_path_with_a_quote_in_it_is_still_json() {
-        let config = client_config(Path::new(r#"/tmp/od"d/mdreader"#));
+        let config = client_config(Path::new(r#"/tmp/od"d/markdown"#));
         serde_json::from_str::<serde_json::Value>(&config).expect("parses");
     }
 

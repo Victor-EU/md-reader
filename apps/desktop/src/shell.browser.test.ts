@@ -1,4 +1,4 @@
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import App from './App.svelte';
@@ -563,7 +563,7 @@ describe('the updater in the chrome', () => {
     await settle();
     expect(cell()).toBeNull();
     // The transient line still answers, because the reader asked.
-    expect(shell.workspace.status).toBe('MD Reader is up to date');
+    expect(shell.workspace.status).toBe('Markdown is up to date');
   });
 
   it('offers install and restart only when they are possible', async () => {
@@ -588,7 +588,7 @@ describe('the updater in the chrome', () => {
     shell.workspace.openSettings();
     await settle();
     const about = target.querySelector('.page-settings');
-    expect(about?.textContent).toContain('MD Reader 0.1.0');
+    expect(about?.textContent).toContain('Markdown 0.1.0');
     expect(about?.textContent).toContain('Check for updates');
   });
 });

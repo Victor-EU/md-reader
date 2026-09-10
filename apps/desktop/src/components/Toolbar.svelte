@@ -1,5 +1,5 @@
 <script lang="ts">
-import { palette } from '@mdreader/markdown';
+import { palette } from '@markdown/markdown';
 import { type CommandRegistry, titleOf } from '../lib/commands.ts';
 import { segments } from '../lib/paths.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';

@@ -729,7 +729,7 @@ mod tests {
 
     fn dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "mdreader-state-{}-{name}-{:?}",
+            "markdown-state-{}-{name}-{:?}",
             std::process::id(),
             thread::current().id()
         ));

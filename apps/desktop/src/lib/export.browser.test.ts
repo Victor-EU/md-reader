@@ -1,4 +1,4 @@
-import { createFakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, type Reading } from './appearance.ts';
 import { describeExport, exportPage } from './export.ts';

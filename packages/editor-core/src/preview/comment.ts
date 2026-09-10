@@ -1,6 +1,6 @@
 import { type Extension, StateEffect, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
-import type { AnnotationKind } from '@mdreader/markdown';
+import type { AnnotationKind } from '@markdown/markdown';
 
 /**
  * Comments as notes (design 4.3): a chip carrying the kind and the words,

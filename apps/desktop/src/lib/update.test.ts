@@ -59,7 +59,7 @@ describe('what pressing the cell does', () => {
 describe('what a check the reader asked for reports', () => {
   it('answers both ways, which is the whole difference from an automatic one', () => {
     expect(reportCheck({ phase: 'checking' })).toBe('Checking for updates…');
-    expect(reportCheck({ phase: 'none' })).toBe('MD Reader is up to date');
+    expect(reportCheck({ phase: 'none' })).toBe('Markdown is up to date');
     expect(reportCheck(available)).toBe('Version 0.2.0 is available');
     expect(reportCheck({ phase: 'failed', message: 'offline' })).toBe(
       'Could not check for updates — offline',

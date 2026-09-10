@@ -2466,18 +2466,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
-name = "markup5ever"
-version = "0.38.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8983d30f2915feeaaab2d6babdd6bc7e9ed1a00b66b5e6d74df19aa9c0e91862"
-dependencies = [
- "log",
- "tendril",
- "web_atoms",
-]
-
-[[package]]
-name = "mdreader-app"
+name = "markdown-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
@@ -2485,7 +2474,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
- "mdreader-core",
+ "markdown-core",
  "rmcp",
  "schemars 1.2.2",
  "serde",
@@ -2505,7 +2494,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mdreader-core"
+name = "markdown-core"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
@@ -2535,10 +2524,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "mdreader-desktop"
+name = "markdown-desktop"
 version = "0.1.0"
 dependencies = [
- "mdreader-app",
+ "markdown-app",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -2547,6 +2536,17 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+]
+
+[[package]]
+name = "markup5ever"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8983d30f2915feeaaab2d6babdd6bc7e9ed1a00b66b5e6d74df19aa9c0e91862"
+dependencies = [
+ "log",
+ "tendril",
+ "web_atoms",
 ]
 
 [[package]]

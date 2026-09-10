@@ -1,6 +1,6 @@
-import type { WindowContent } from '@mdreader/ipc';
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
-import { generateDocument } from '@mdreader/markdown';
+import type { WindowContent } from '@markdown/ipc';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
+import { generateDocument } from '@markdown/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
 // The shell the app runs, not a copy of it: what is measured here has to

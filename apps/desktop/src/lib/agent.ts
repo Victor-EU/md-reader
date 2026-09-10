@@ -1,5 +1,5 @@
-import type { AgentAnnotation, AgentDocument, AgentStatus } from '@mdreader/ipc';
-import type { Annotation } from '@mdreader/markdown';
+import type { AgentAnnotation, AgentDocument, AgentStatus } from '@markdown/ipc';
+import type { Annotation } from '@markdown/markdown';
 
 /**
  * What a window tells an agent about a document (design 9, plan WP 3.1).

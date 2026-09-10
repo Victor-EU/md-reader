@@ -1,7 +1,7 @@
 import { isolateHistory, undo } from '@codemirror/commands';
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
 import { EditorSelection } from '@codemirror/state';
-import { dumpTree, parser } from '@mdreader/markdown';
+import { dumpTree, parser } from '@markdown/markdown';
 import { describe, expect, it } from 'vitest';
 import { createEditorState, editorStateFromJSON, serializeEditorState } from './state.ts';
 

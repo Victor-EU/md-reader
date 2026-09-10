@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view';
-import { createEditorState } from '@mdreader/editor-core';
-import { parser, renderDocument, toDom } from '@mdreader/markdown';
-import { codeTokens, paletteFor, themeById, themes } from '@mdreader/theme';
+import { createEditorState } from '@markdown/editor-core';
+import { parser, renderDocument, toDom } from '@markdown/markdown';
+import { codeTokens, paletteFor, themeById, themes } from '@markdown/theme';
 import { afterEach, describe, expect, it } from 'vitest';
 // The palette reaches both engines through the stylesheet.
 import '../../app.css';

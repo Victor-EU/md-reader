@@ -1,5 +1,5 @@
 {
-  "name": "@mdreader/bench",
+  "name": "@markdown/bench",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
@@ -12,9 +12,9 @@
     "@codemirror/language": "~6.12.4",
     "@codemirror/state": "~6.7.4",
     "@codemirror/view": "~6.43.11",
-    "@mdreader/editor-core": "workspace:*",
-    "@mdreader/ipc": "workspace:*",
-    "@mdreader/markdown": "workspace:*",
+    "@markdown/editor-core": "workspace:*",
+    "@markdown/ipc": "workspace:*",
+    "@markdown/markdown": "workspace:*",
     "svelte": "^5.57.0"
   },
   "devDependencies": {

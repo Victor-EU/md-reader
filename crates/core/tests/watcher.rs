@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
 use std::time::Duration;
 
-use mdreader_core::{WatchEvent, Watcher, apply, read_document, save_document};
+use markdown_core::{WatchEvent, Watcher, apply, read_document, save_document};
 
 /// Generous: the debounce is 100 ms and a loaded machine can take a while
 /// to deliver a filesystem event.
@@ -50,7 +50,7 @@ impl Fixture {
         self.events.recv_timeout(WAIT).expect("an event")
     }
 
-    fn changed(&self) -> mdreader_core::ExternalChange {
+    fn changed(&self) -> markdown_core::ExternalChange {
         match self.next() {
             WatchEvent::Changed(change) => change,
             other => panic!("expected a change, got {other:?}"),

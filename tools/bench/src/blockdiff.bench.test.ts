@@ -1,6 +1,6 @@
 import { ensureSyntaxTree } from '@codemirror/language';
-import { createEditorState } from '@mdreader/editor-core';
-import { commonBlocks, flattenBlocks, generateDocument, parser } from '@mdreader/markdown';
+import { createEditorState } from '@markdown/editor-core';
+import { commonBlocks, flattenBlocks, generateDocument, parser } from '@markdown/markdown';
 import { afterEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
 

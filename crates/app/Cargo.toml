@@ -1,5 +1,5 @@
 [package]
-name = "mdreader-app"
+name = "markdown-app"
 description = "Tauri command handlers and event plumbing. Thin."
 version.workspace = true
 edition.workspace = true
@@ -13,7 +13,7 @@ http = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
-mdreader-core = { workspace = true }
+markdown-core = { workspace = true }
 rmcp = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

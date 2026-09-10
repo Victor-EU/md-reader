@@ -9,4 +9,5 @@ apps/desktop/src-tauri/gen/schemas/
 # Review pages written into the checkout by a review run. They are about
 # the repository rather than part of it, and one was committed by
 # accident once.
+markdown-review-*.html
 md-reader-review-*.html

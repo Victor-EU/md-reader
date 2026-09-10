@@ -1,4 +1,4 @@
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { applyAppearance, DEFAULT_SETTINGS } from './appearance.ts';
 import { Workspace } from './workspace.svelte.ts';

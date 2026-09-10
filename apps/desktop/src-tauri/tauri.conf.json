@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MD Reader",
+  "productName": "Markdown",
   "version": "0.1.0",
-  "identifier": "io.github.victor-eu.mdreader",
+  "identifier": "io.github.victor-eu.markdown",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "MD Reader",
+        "title": "Markdown",
         "width": 1100,
         "height": 760,
         "minWidth": 600,
@@ -74,7 +74,7 @@
     "copyright": "Copyright © 2026 Victor Zhang",
     "shortDescription": "Markdown viewer and editor for the AI round trip",
     "longDescription": "A markdown viewer and editor whose files stay exactly as they were written, so a document can go out to a model and come back without drifting.",
-    "homepage": "https://github.com/victor-eu/md-reader",
+    "homepage": "https://github.com/victor-eu/markdown",
     "resources": {
       "../../../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md"
     },
@@ -95,7 +95,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMzQzc3RjA5RURERTk4QwpSV1NNNmQyZThIYzhEUHFMT0NHTTN1OFVPM0tMRTYvSE5NMGlqd0V1Z2daUUpFYzgraTRxTWcvLwo=",
-      "endpoints": ["https://github.com/victor-eu/md-reader/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/victor-eu/markdown/releases/latest/download/latest.json"],
       "windows": {
         "installMode": "passive"
       }

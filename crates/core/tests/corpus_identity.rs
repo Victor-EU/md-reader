@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use mdreader_core::{encode, read_document, save_document};
+use markdown_core::{encode, read_document, save_document};
 
 fn corpus_dir(set: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -44,7 +44,7 @@ fn editor_view(content: &str) -> String {
 
 #[test]
 fn open_and_save_unchanged_is_byte_identical() {
-    let scratch = std::env::temp_dir().join(format!("mdreader-corpus-{}", std::process::id()));
+    let scratch = std::env::temp_dir().join(format!("markdown-corpus-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).expect("scratch dir");
     for file in files() {
         let original = std::fs::read(&file).expect("read corpus file");

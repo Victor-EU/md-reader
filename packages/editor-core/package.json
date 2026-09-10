@@ -1,5 +1,5 @@
 {
-  "name": "@mdreader/editor-core",
+  "name": "@markdown/editor-core",
   "version": "0.1.0",
   "private": true,
   "license": "MIT",
@@ -22,8 +22,8 @@
     "@lezer/common": "~1.5.2",
     "@lezer/highlight": "~1.2.3",
     "@lezer/markdown": "~1.7.2",
-    "@mdreader/markdown": "workspace:*",
-    "@mdreader/theme": "workspace:*"
+    "@markdown/markdown": "workspace:*",
+    "@markdown/theme": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24",

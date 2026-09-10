@@ -154,16 +154,16 @@ importers:
       '@lezer/common':
         specifier: ~1.5.2
         version: 1.5.2
-      '@mdreader/editor-core':
+      '@markdown/editor-core':
         specifier: workspace:*
         version: link:../../packages/editor-core
-      '@mdreader/ipc':
+      '@markdown/ipc':
         specifier: workspace:*
         version: link:../../packages/ipc
-      '@mdreader/markdown':
+      '@markdown/markdown':
         specifier: workspace:*
         version: link:../../packages/markdown
-      '@mdreader/theme':
+      '@markdown/theme':
         specifier: workspace:*
         version: link:../../packages/theme
       '@shikijs/langs':
@@ -248,10 +248,10 @@ importers:
       '@lezer/markdown':
         specifier: ~1.7.2
         version: 1.7.2
-      '@mdreader/markdown':
+      '@markdown/markdown':
         specifier: workspace:*
         version: link:../markdown
-      '@mdreader/theme':
+      '@markdown/theme':
         specifier: workspace:*
         version: link:../theme
     devDependencies:
@@ -315,13 +315,13 @@ importers:
       '@codemirror/view':
         specifier: ~6.43.11
         version: 6.43.11
-      '@mdreader/editor-core':
+      '@markdown/editor-core':
         specifier: workspace:*
         version: link:../../packages/editor-core
-      '@mdreader/ipc':
+      '@markdown/ipc':
         specifier: workspace:*
         version: link:../../packages/ipc
-      '@mdreader/markdown':
+      '@markdown/markdown':
         specifier: workspace:*
         version: link:../../packages/markdown
       svelte:

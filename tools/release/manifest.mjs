@@ -80,9 +80,9 @@ export function buildManifest({ version, notes = '', date = new Date(), baseUrl,
     }
     const published = {
       signature: entry.signature.trim(),
-      // The names carry spaces — "MD Reader.app.tar.gz" — and a raw
-      // space in a URL is a link that works in a browser and not in the
-      // updater's HTTP client.
+      // The names are encoded because an earlier product name carried a
+      // space, and a raw space in a URL is a link that works in a browser
+      // and not in the updater's HTTP client.
       url: `${baseUrl.replace(/\/$/, '')}/${encodeURIComponent(entry.file)}`,
     };
     for (const key of lookupKeys(entry.platform)) {

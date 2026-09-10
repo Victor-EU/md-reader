@@ -8,7 +8,7 @@
  * second pass over the same chunk is free.
  */
 
-import { tokenClass, tokenOfColor, tokenTheme, tokenThemeName } from '@mdreader/theme';
+import { tokenClass, tokenOfColor, tokenTheme, tokenThemeName } from '@markdown/theme';
 
 const DONE = 'data-enhanced';
 

@@ -1,5 +1,5 @@
 import { Facet } from '@codemirror/state';
-import type { ImageResolver } from '@mdreader/markdown';
+import type { ImageResolver } from '@markdown/markdown';
 
 /**
  * Anything a block widget needs that the editor cannot supply itself.

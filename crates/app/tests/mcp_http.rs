@@ -10,8 +10,8 @@ use std::sync::Arc;
 use http_body_util::BodyExt as _;
 use hyper::body::Bytes;
 use hyper_util::rt::TokioIo;
-use mdreader_app::mcp::{self, Desk};
-use mdreader_core::{AgentAnswer, AgentDocument, AgentRequest, Error, SnapshotInfo};
+use markdown_app::mcp::{self, Desk};
+use markdown_core::{AgentAnswer, AgentDocument, AgentRequest, Error, SnapshotInfo};
 
 /// A desk with nothing on it. Nothing here gets past the gate.
 struct Empty;
@@ -55,7 +55,7 @@ struct Reached {
 impl Reached {
     /// Put a new token in front of the server and answer with it.
     fn rotate(&self) -> String {
-        let fresh = mdreader_core::new_token();
+        let fresh = markdown_core::new_token();
         self.served
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -66,7 +66,7 @@ impl Reached {
 
 fn listening() -> Reached {
     let (listener, port) = mcp::bind().expect("bind");
-    let token = mdreader_core::new_token();
+    let token = markdown_core::new_token();
     let desk: Arc<dyn Desk> = Arc::new(Empty);
     let running = Arc::new(mcp::serve::Running::default());
     let served: mcp::serve::Token = Arc::new(std::sync::Mutex::new(token.clone()));
@@ -135,7 +135,7 @@ async fn a_request_with_no_token_never_reaches_a_tool() {
     let (status, _body) = post(&at, "/mcp", &[], initialize()).await;
     assert_eq!(status, hyper::StatusCode::UNAUTHORIZED);
 
-    let wrong = bearer(&mdreader_core::new_token());
+    let wrong = bearer(&markdown_core::new_token());
     let (status, _body) = post(&at, "/mcp", &wrong, initialize()).await;
     assert_eq!(
         status,
@@ -150,7 +150,7 @@ async fn the_token_gets_in() {
     let (status, body) = post(&at, "/mcp", &bearer(&at.token), initialize()).await;
     assert!(status.is_success(), "{status}: {body}");
     assert!(
-        body.contains("md-reader"),
+        body.contains("markdown-app"),
         "the server names itself: {body}"
     );
 }

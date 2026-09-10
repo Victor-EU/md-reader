@@ -1,6 +1,6 @@
 import { EditorSelection } from '@codemirror/state';
-import type { WindowContent } from '@mdreader/ipc';
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import type { WindowContent } from '@markdown/ipc';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Workspace } from './workspace.svelte.ts';
 

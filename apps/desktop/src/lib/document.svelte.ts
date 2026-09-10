@@ -8,8 +8,8 @@ import {
   type EditorMode,
   editorStateFromJSON,
   type PreviewOptions,
-} from '@mdreader/editor-core';
-import type { DocumentMeta, Override } from '@mdreader/ipc';
+} from '@markdown/editor-core';
+import type { DocumentMeta, Override } from '@markdown/ipc';
 import {
   commentSpans,
   type DocBlock,
@@ -17,7 +17,7 @@ import {
   headings,
   type OutlineEntry,
   parser,
-} from '@mdreader/markdown';
+} from '@markdown/markdown';
 import { basename } from './paths.ts';
 import { countWords } from './text.ts';
 

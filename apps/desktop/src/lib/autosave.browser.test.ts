@@ -1,5 +1,5 @@
-import type { MergeResult } from '@mdreader/ipc';
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import type { MergeResult } from '@markdown/ipc';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Workspace } from './workspace.svelte.ts';
 

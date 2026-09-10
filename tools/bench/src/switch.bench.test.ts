@@ -1,5 +1,5 @@
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
-import { generateDocument } from '@mdreader/markdown';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
+import { generateDocument } from '@markdown/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
 import { Workspace } from '../../../apps/desktop/src/lib/workspace.svelte.ts';

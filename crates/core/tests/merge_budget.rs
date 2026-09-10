@@ -11,7 +11,7 @@
 use std::fmt::Write;
 use std::time::Instant;
 
-use mdreader_core::{apply, merge3};
+use markdown_core::{apply, merge3};
 
 const BUDGET_MS: u128 = if cfg!(debug_assertions) { 2_000 } else { 200 };
 

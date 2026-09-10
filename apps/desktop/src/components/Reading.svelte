@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { Settings } from '@mdreader/ipc';
+import type { Settings } from '@markdown/ipc';
 import { MEASURE_RANGE, SIZES, zoomed } from '../lib/appearance.ts';
 import { basename } from '../lib/paths.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';

@@ -1,4 +1,4 @@
-import { createFakeIpc, type FakeIpc } from '@mdreader/ipc/fake';
+import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Available, describeUpdate, type Updater } from './update.ts';
 import { Workspace } from './workspace.svelte.ts';
@@ -71,7 +71,7 @@ describe('checking', () => {
   it('reports both ways when the reader asked, and only one way when they did not', async () => {
     await workspace.checkForUpdates(true);
     expect(workspace.update.phase).toBe('none');
-    expect(workspace.status).toBe('MD Reader is up to date');
+    expect(workspace.status).toBe('Markdown is up to date');
 
     workspace.status = '';
     await workspace.checkForUpdates();

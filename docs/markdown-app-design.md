@@ -1,6 +1,6 @@
 # Markdown Viewer and Editor for the AI Round Trip
 
-Design document. Working title: TBD. Status: draft v1.1, 2026-09-07 (three edits from the build plan review: Cmd+O and drop to open, second views per window, non-conflicting merge in Phase 1).
+Design document. Name: Markdown (decided 2026-09-10). Status: draft v1.1, 2026-09-07 (three edits from the build plan review: Cmd+O and drop to open, second views per window, non-conflicting merge in Phase 1).
 
 ---
 
@@ -438,4 +438,4 @@ MCP server, agent attribution, HTML export, performance hardening on large files
 - **Attribution of plain file writes** is unknowable in general. Accept `external` as the author and let the MCP path supply names. Consider a heuristic that reads the agent name from a trailing HTML comment if agents adopt a convention.
 - **Per-document reader overrides keyed by path** break when a file is moved or renamed. Acceptable for v1. If it matters, key by a content hash of the first snapshot as a fallback.
 - **History storage growth** for users with hundreds of agent-written files. The retention policy handles it; measure real usage before tuning.
-- **Name.** Undecided. Should say "markdown" or "notes" to the average user without sounding like a developer tool.
+- **Name.** Decided 2026-09-10: Markdown, one word. It says "markdown" to the average user, and the app is named after the thing it opens, like Preview or Notes. Accepted costs: the bare word is unsearchable, and some will object to an app claiming the format's name. The GitHub URL is the name in practice.

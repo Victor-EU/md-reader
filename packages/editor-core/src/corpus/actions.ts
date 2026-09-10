@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import { ChangeSet, EditorSelection, type EditorState } from '@codemirror/state';
 import type { SyntaxNode } from '@lezer/common';
-import { colorStyle, paletteEntry } from '@mdreader/markdown';
+import { colorStyle, paletteEntry } from '@markdown/markdown';
 import {
   applyColor,
   applyComment,

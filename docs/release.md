@@ -190,6 +190,6 @@ would mean signing releases by hand.
 ## 6. If the repository moves
 
 The updater endpoint in `tauri.conf.json` names
-`github.com/victor-eu/md-reader`. It is baked into every build, so a copy
+`github.com/victor-eu/markdown`. It is baked into every build, so a copy
 of the app installed before a move will keep asking the old address.
 Change it *before* the first published release, not after.

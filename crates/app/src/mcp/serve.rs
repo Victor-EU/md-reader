@@ -6,7 +6,7 @@
 //! **The token.** Anything on this machine can reach the loopback
 //! address, and what is behind this port is the reader's documents and a
 //! way to write to them. The token is in a file only the owner can read
-//! (see [`mdreader_core::agent`]), and a request without it never
+//! (see [`markdown_core::agent`]), and a request without it never
 //! reaches a tool.
 //!
 //! **The origin.** A page in a browser cannot read the token, but it can
@@ -26,7 +26,7 @@ use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use mdreader_core::agent;
+use markdown_core::agent;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 

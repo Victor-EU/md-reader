@@ -1,5 +1,5 @@
 import type { EditorState, Transaction } from '@codemirror/state';
-import type { CorpusFile } from '@mdreader/markdown';
+import type { CorpusFile } from '@markdown/markdown';
 import type { CommandTarget } from '../preview/widgets.ts';
 import type { Action, ActionPlan } from './actions.ts';
 import { checkExactness, checkLocality, fullyParsed, type Outcome } from './invariants.ts';

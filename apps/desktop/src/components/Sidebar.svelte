@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SidebarPanel } from '@mdreader/ipc';
+import type { SidebarPanel } from '@markdown/ipc';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 import Files from './Files.svelte';
 import History from './History.svelte';

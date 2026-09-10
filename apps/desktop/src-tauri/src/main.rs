@@ -21,10 +21,10 @@ fn main() -> ExitCode {
     // that turns out to be wrong the bridge needs a console binary of
     // its own. There is no machine to find out on (ADR 0028).
     let args: Vec<String> = std::env::args().collect();
-    if mdreader_app::mcp::bridge::wanted(&args) {
-        let code = mdreader_app::mcp::bridge::run(&context.config().identifier);
+    if markdown_app::mcp::bridge::wanted(&args) {
+        let code = markdown_app::mcp::bridge::run(&context.config().identifier);
         return ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
-    mdreader_app::run(context);
+    markdown_app::run(context);
     ExitCode::SUCCESS
 }

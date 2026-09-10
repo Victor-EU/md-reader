@@ -1,4 +1,4 @@
-import type { Commands, SearchDone, SearchHit, SearchProgress } from '@mdreader/ipc';
+import type { Commands, SearchDone, SearchHit, SearchProgress } from '@markdown/ipc';
 import { basename, dirname } from './paths.ts';
 import { describeError } from './text.ts';
 

@@ -1,6 +1,6 @@
-import type { ExportWrite } from '@mdreader/ipc';
-import { type ImageResolver, parser, renderDocument, toDom } from '@mdreader/markdown';
-import { type Appearance, type Family, type Paper, pageCss, themeById } from '@mdreader/theme';
+import type { ExportWrite } from '@markdown/ipc';
+import { type ImageResolver, parser, renderDocument, toDom } from '@markdown/markdown';
+import { type Appearance, type Family, type Paper, pageCss, themeById } from '@markdown/theme';
 import readCss from '../read.css?inline';
 import type { Reading } from './appearance.ts';
 import { type ImageRules, resolveImage } from './images.ts';
@@ -214,7 +214,7 @@ function page(body: string, options: ExportOptions): string {
     '<meta charset="utf-8">',
     `<meta http-equiv="Content-Security-Policy" content="${POLICY}">`,
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<meta name="generator" content="MD Reader">',
+    '<meta name="generator" content="Markdown">',
     `<title>${escapeText(options.title)}</title>`,
     `<style>\n${css}</style>`,
     '</head>',

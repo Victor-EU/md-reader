@@ -13,7 +13,7 @@ import {
   scanSource,
   textOf,
   toDom,
-} from '@mdreader/markdown';
+} from '@markdown/markdown';
 import type { Enhancer } from './enhance.ts';
 import { Heights } from './heights.ts';
 

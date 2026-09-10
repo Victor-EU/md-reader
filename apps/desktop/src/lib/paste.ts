@@ -1,5 +1,5 @@
-import { isUrl } from '@mdreader/editor-core';
-import { domToMarkdown, linkDestination } from '@mdreader/markdown';
+import { isUrl } from '@markdown/editor-core';
+import { domToMarkdown, linkDestination } from '@markdown/markdown';
 
 /**
  * What a paste or a drop turns out to be (design 4.5).

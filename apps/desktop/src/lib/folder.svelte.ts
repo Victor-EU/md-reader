@@ -1,4 +1,4 @@
-import type { Commands, DirEntry } from '@mdreader/ipc';
+import type { Commands, DirEntry } from '@markdown/ipc';
 import { basename, dirname } from './paths.ts';
 import { describeError } from './text.ts';
 

@@ -321,7 +321,7 @@ mod tests {
     use super::*;
 
     fn temp_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("mdreader-core-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("markdown-core-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
         dir.join(name)
     }

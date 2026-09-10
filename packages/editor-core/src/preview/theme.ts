@@ -1,8 +1,8 @@
 import { HighlightStyle } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
-import { calloutTypeTag, highlightTag, mathTag } from '@mdreader/markdown';
-import { codeHighlight } from '@mdreader/theme';
+import { calloutTypeTag, highlightTag, mathTag } from '@markdown/markdown';
+import { codeHighlight } from '@markdown/theme';
 
 /**
  * The bundled monospace, with the system stacks behind it. The window

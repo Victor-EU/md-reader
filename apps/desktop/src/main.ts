@@ -1,4 +1,4 @@
-import { commands, events, type MenuSection } from '@mdreader/ipc';
+import { commands, events, type MenuSection } from '@markdown/ipc';
 import { getVersion } from '@tauri-apps/api/app';
 import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';

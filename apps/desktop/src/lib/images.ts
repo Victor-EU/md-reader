@@ -1,4 +1,4 @@
-import type { ImageResolver, ImageTarget } from '@mdreader/markdown';
+import type { ImageResolver, ImageTarget } from '@markdown/markdown';
 import { dirname, resolvePath } from './paths.ts';
 
 /**

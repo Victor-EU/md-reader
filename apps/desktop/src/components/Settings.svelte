@@ -1,5 +1,5 @@
 <script lang="ts">
-import { paletteFor } from '@mdreader/theme';
+import { paletteFor } from '@markdown/theme';
 import { MEASURE_RANGE, resolveAppearance, SIZES, THEMES } from '../lib/appearance.ts';
 import { focusScroller } from '../lib/scroller.ts';
 import { describeUpdate } from '../lib/update.ts';
@@ -240,7 +240,7 @@ $effect(() => {
     <section>
       <h2>About</h2>
       <p class="hint">
-        {#if workspace.version === ''}MD Reader{:else}MD Reader {workspace.version}{/if}
+        {#if workspace.version === ''}Markdown{:else}Markdown {workspace.version}{/if}
       </p>
       <div class="field">
         <button type="button" class="choice" onclick={() => workspace.checkForUpdates(true)}>

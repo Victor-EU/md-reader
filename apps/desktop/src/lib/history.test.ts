@@ -1,4 +1,4 @@
-import type { SnapshotAuthor, SnapshotInfo } from '@mdreader/ipc';
+import type { SnapshotAuthor, SnapshotInfo } from '@markdown/ipc';
 import { describe, expect, it } from 'vitest';
 import { authorName, snapshotSize, snapshotTime, versionAuthor } from './history.ts';
 

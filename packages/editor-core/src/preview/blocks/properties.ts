@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import { type EditorView, WidgetType } from '@codemirror/view';
-import { type Property, properties, propertyLine } from '@mdreader/markdown';
+import { type Property, properties, propertyLine } from '@markdown/markdown';
 
 /** The frontmatter block as the panel needs it, read from the current state. */
 export interface FrontmatterModel {

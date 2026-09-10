@@ -51,7 +51,7 @@ pub fn replace(path: &Path, bytes: &[u8], create: Create) -> io::Result<()> {
     // private the temporary file has to be and what the result ends up as.
     let existing = fs::metadata(path).ok();
     let mut builder = tempfile::Builder::new();
-    builder.prefix(".mdreader-").suffix(".tmp");
+    builder.prefix(".markdown-").suffix(".tmp");
     #[cfg(unix)]
     if existing.is_none() && create == Create::AsUser {
         // A document the reader creates here should look like one they made
@@ -251,7 +251,7 @@ mod tests {
     use super::*;
 
     fn temp_path(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("mdreader-atomic-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("markdown-atomic-{}", std::process::id()));
         fs::create_dir_all(&dir).expect("temp dir");
         dir.join(name)
     }
@@ -264,7 +264,7 @@ mod tests {
     /// half-finished save and calls it a leak.
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("mdreader-atomic-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("markdown-atomic-{}-{name}", std::process::id()));
         fs::create_dir_all(&dir).expect("temp dir");
         dir
     }
@@ -278,7 +278,7 @@ mod tests {
         let leftovers: Vec<_> = fs::read_dir(path.parent().expect("dir"))
             .expect("dir")
             .filter_map(Result::ok)
-            .filter(|e| e.file_name().to_string_lossy().starts_with(".mdreader-"))
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".markdown-"))
             .collect();
         assert!(leftovers.is_empty());
     }

@@ -52,7 +52,7 @@ const roles = (items: ReturnType<typeof menu>) =>
 describe('the menu bar', () => {
   it('is the registry, in the order macOS puts it', () => {
     expect(bar().map((section) => section.title)).toEqual([
-      'MD Reader',
+      'Markdown',
       'File',
       'Edit',
       'View',
@@ -86,14 +86,14 @@ describe('the menu bar', () => {
   });
 
   it('puts Settings in the application menu, where macOS keeps it', () => {
-    expect(ids(menu(bar(), 'MD Reader'))).toEqual(['file.settings']);
+    expect(ids(menu(bar(), 'Markdown'))).toEqual(['file.settings']);
     expect(ids(menu(bar(), 'File'))).not.toContain('file.settings');
   });
 
   it('quits through the app rather than through AppKit', () => {
     // The standard Quit is `terminate:`, which reaches the app too late
     // to ask a window for anything. Rust builds this one itself.
-    expect(roles(menu(bar(), 'MD Reader'))).toEqual([
+    expect(roles(menu(bar(), 'Markdown'))).toEqual([
       'about',
       'services',
       'hide',

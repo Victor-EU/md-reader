@@ -104,7 +104,7 @@ function drop(event: DragEvent) {
     {#if workspace.activeId === null}
       <main class="page">
         <div class="blank">
-          <h1>MD Reader</h1>
+          <h1>Markdown</h1>
           <p>Open a markdown file, drop one on the window, or start a new one.</p>
           <!--
             The two ways in, where a window with nothing in it can find

@@ -1,5 +1,5 @@
 [package]
-name = "mdreader-core"
+name = "markdown-core"
 description = "File IO, watcher, history, diff, and search for the markdown app. No Tauri types."
 version.workspace = true
 edition.workspace = true

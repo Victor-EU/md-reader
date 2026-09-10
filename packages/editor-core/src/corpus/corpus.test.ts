@@ -1,4 +1,4 @@
-import { corpusFiles } from '@mdreader/markdown';
+import { corpusFiles } from '@markdown/markdown';
 import { describe, expect, it } from 'vitest';
 import { nodeActions } from './actions.ts';
 import { checkIdentity } from './invariants.ts';

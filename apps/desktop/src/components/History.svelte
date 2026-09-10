@@ -1,5 +1,5 @@
 <script lang="ts">
-import type { SnapshotInfo } from '@mdreader/ipc';
+import type { SnapshotInfo } from '@markdown/ipc';
 import { snapshotSize, snapshotTime, versionAuthor } from '../lib/history.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 
