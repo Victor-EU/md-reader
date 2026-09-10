@@ -10,6 +10,7 @@ import App from './App.svelte';
 // Which pulls in every theme's colours and the bundled faces.
 import './app.css';
 import { watchMenu } from './lib/menu.svelte.ts';
+import { lazyPdfEngine } from './lib/pdf/lazy.ts';
 import { isMac } from './lib/platform.ts';
 import { createEnhancer } from './lib/read/enhance.ts';
 import { createShell } from './lib/shell.svelte.ts';
@@ -17,12 +18,23 @@ import { watchFullScreen } from './lib/titlebar.ts';
 import { tauriUpdater } from './lib/update.ts';
 
 const FILTERS = [{ name: 'Markdown', extensions: ['md', 'markdown', 'mdx', 'txt'] }];
+/**
+ * What Cmd+O offers. A PDF is readable here but never written here, so
+ * it is in the open panel and in neither of the save ones — and it is a
+ * second entry rather than four more extensions on the first, because
+ * the panel's own pop-up is where a reader narrows the list, and
+ * "Markdown" that also means PDF is a lie in a menu.
+ *
+ * `bundle.fileAssociations` deliberately does not claim `.pdf` (ADR
+ * 0035), so this and a drop are the two ways in.
+ */
+const OPEN_FILTERS = [...FILTERS, { name: 'PDF', extensions: ['pdf'] }];
 const PAGE_FILTERS = [{ name: 'HTML', extensions: ['html', 'htm'] }];
 
 const shell = createShell({
   commands,
   pickFiles: async () => {
-    const picked = await open({ multiple: true, directory: false, filters: FILTERS });
+    const picked = await open({ multiple: true, directory: false, filters: OPEN_FILTERS });
     if (picked === null) return [];
     return Array.isArray(picked) ? picked : [picked];
   },
@@ -38,8 +50,13 @@ const shell = createShell({
     void openUrl(url);
   },
   enhancer: createEnhancer({ dark: () => shell.workspace.darkPage }),
-  // Images load over the asset protocol, whose scope Rust widens to each
-  // opened document's folder (design 8). Outside Tauri nothing local loads.
+  // pdf.js, behind the engine port and loaded on the first PDF (ADR
+  // 0035). Only under Tauri: the pane reads the file over the asset
+  // protocol, and a browser build has no such protocol to read it over.
+  pdfEngine: isTauri() ? lazyPdfEngine() : undefined,
+  // Images and PDFs load over the asset protocol, whose scope Rust
+  // widens to each opened file's folder (design 8). Outside Tauri
+  // nothing local loads.
   assetUrl: isTauri() ? (path) => convertFileSrc(path) : undefined,
   // Only the installed app has anywhere to update from: a dev build's
   // version is whatever the config says, and the endpoint would answer
@@ -146,7 +163,9 @@ if (isTauri()) {
   void events.searchDoneEvent(self).listen((event) => shell.workspace.searchDone(event.payload));
   // A tab another window has given up (plan WP 2.5). Rust has already
   // decided this window is the one to take it in.
-  void events.tabArrivedEvent(self).listen((event) => shell.workspace.adoptTab(event.payload));
+  void events.tabArrivedEvent(self).listen((event) => {
+    void shell.workspace.adoptTab(event.payload);
+  });
   // The preferences, changed here or in another window (plan WP 2.6).
   // Not addressed to a window, because they are not a window's: every
   // window applies them, and applies them without writing back.
@@ -194,7 +213,9 @@ async function boot(): Promise<void> {
   if (restore.content) await shell.workspace.restore(restore.content, restore.recents);
   // A window made for a torn-off tab is given it before it is listening,
   // so it asks; asking is also what says it is listening from here on.
-  for (const move of await commands.takeMovedTabs()) shell.workspace.adoptTab(move);
+  // In turn: a PDF among them opens its file before its tab lands,
+  // and tabs should arrive in the order they were handed over.
+  for (const move of await commands.takeMovedTabs()) await shell.workspace.adoptTab(move);
   const paths = await commands.takeLaunchPaths();
   if (paths.length > 0) await shell.workspace.openPaths(paths);
 }

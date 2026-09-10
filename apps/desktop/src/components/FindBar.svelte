@@ -7,6 +7,11 @@ let { workspace, registry }: { workspace: Workspace; registry: CommandRegistry }
 let field: HTMLInputElement | undefined = $state();
 
 const find = $derived(workspace.find);
+/**
+ * A PDF is read here and never written (ADR 0035), so the bar drops
+ * the replace row rather than offering one that refuses.
+ */
+const readOnly = $derived(workspace.activePdf !== null);
 const matches = $derived(workspace.matches);
 /**
  * Its own derivation, not `find.open`: the whole find state is replaced
@@ -125,16 +130,18 @@ function tip(id: string): string {
       >
         ↓
       </button>
-      <button
-        type="button"
-        class="step"
-        aria-pressed={find.replace}
-        title="Replace"
-        aria-label="Replace"
-        onclick={() => workspace.updateFind({ replace: !find.replace })}
-      >
-        ⇄
-      </button>
+      {#if !readOnly}
+        <button
+          type="button"
+          class="step"
+          aria-pressed={find.replace}
+          title="Replace"
+          aria-label="Replace"
+          onclick={() => workspace.updateFind({ replace: !find.replace })}
+        >
+          ⇄
+        </button>
+      {/if}
       <button
         type="button"
         class="step"

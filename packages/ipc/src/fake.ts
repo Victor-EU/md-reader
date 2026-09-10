@@ -21,6 +21,7 @@ import type {
   MenuSection,
   MergeResult,
   Override,
+  PdfInfo,
   PositionEdit,
   ReadOnly,
   Restore,
@@ -515,6 +516,20 @@ export function createFakeIpc(initial: Record<string, string | FakeFile> = {}): 
       return record('convert_document_to_utf8', [path], read(path));
     },
     allowDocumentImages: (path) => record('allow_document_images', [path], ok(null)),
+    // A PDF's bytes never cross the bridge; what Rust answers is how
+    // big the file is, and — by answering at all — that the asset
+    // protocol may now read the folder it is in (ADR 0035). A file that
+    // is not there fails here, which is where a test puts a missing PDF.
+    openPdf: (path) => {
+      const file = files.get(path);
+      return record(
+        'open_pdf',
+        [path],
+        file === undefined
+          ? err<PdfInfo>({ kind: 'read', path, message: 'no such file' })
+          : ok({ byte_len: file.content.length }),
+      );
+    },
     writeAsset: (document, name, data) =>
       record('write_asset', [document, name, data], storeAsset(document, name, atob(data))),
     exportHtml: (path, html, images) =>

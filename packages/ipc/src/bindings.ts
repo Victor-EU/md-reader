@@ -37,11 +37,22 @@ export const commands = {
 	 *  Let the webview load images from a document's folder and below.
 	 * 
 	 *  The asset protocol starts with an empty scope (design 8), and it grows
-	 *  only here, only to the folder of a file the reader has opened. Nothing
-	 *  else in the app can widen it, and nothing outside those folders is
-	 *  reachable from the page.
+	 *  only here and in `open_pdf`, only to the folder of a file the reader
+	 *  has opened. Nothing else in the app can widen it, and nothing outside
+	 *  those folders is reachable from the page.
 	 */
 	allowDocumentImages: (path: string) => typedError<null, Error>(__TAURI_INVOKE("allow_document_images", { path })),
+	/**
+	 *  Take charge of a PDF, without reading a byte of it (ADR 0035).
+	 * 
+	 *  The two things the webview cannot ask, in one round trip: whether the
+	 *  file is there and small enough to take on, and — the answer being yes
+	 *  — permission to read it. The scope call is what `open_document` gets
+	 *  on the way past, and a PDF never goes through `open_document`, so it
+	 *  has to be asked for here or the asset protocol answers 403 and the
+	 *  pane stays blank.
+	 */
+	openPdf: (path: string) => typedError<PdfInfo, Error>(__TAURI_INVOKE("open_pdf", { path })),
 	/**
 	 *  Store an image pasted into a document, beside it in `assets`.
 	 * 
@@ -737,6 +748,11 @@ export type Paper = "white" | "cream" |
 /**  The high-contrast one, dark in a light window as well as a dark. */
 "black";
 
+/**  What the shell learns about a PDF before it hands one to the renderer. */
+export type PdfInfo = {
+	byte_len: number,
+};
+
 /**  One position-based edit the frontend applies as a `CodeMirror` change. */
 export type PositionEdit = {
 	/**  UTF-16 offsets into the document the edit applies to. */
@@ -896,9 +912,10 @@ export type TabArrivedEvent = TabMove;
 
 /**
  *  What a tab is showing. Settings open as a tab rather than a modal
- *  (plan WP 1.9), so not every tab has a document behind it.
+ *  (plan WP 1.9) and a PDF is read by a different engine entirely
+ *  (ADR 0035), so not every tab has a document behind it.
  */
-export type TabKind = "document" | "settings";
+export type TabKind = "document" | "settings" | "pdf";
 
 /**  Which projection of a document a tab was showing (design 4.2). */
 export type TabMode = "read" | "edit" | "source";
@@ -953,6 +970,14 @@ export type TabMove = {
 	mode: TabMode,
 	pinned: boolean,
 	anchor: number,
+	/**
+	 *  Where a PDF was scrolled: the page in front, one-based, and
+	 *  `None` for every tab that is not one (ADR 0035). `anchor` above
+	 *  it is a source offset and stays one; a PDF's document fields
+	 *  travel empty, because the window taking it in opens the file
+	 *  itself rather than being handed a buffer there is none of.
+	 */
+	page: number | null,
 	folded: string[],
 };
 
@@ -987,6 +1012,17 @@ export type TabState = {
 	 *  survives a change of window width; a pixel offset does not.
 	 */
 	anchor?: number,
+	/**
+	 *  Where a PDF was scrolled: the page in front, one-based, and
+	 *  unset for every tab that is not one.
+	 * 
+	 *  Its own field rather than a second meaning for `anchor`, which is
+	 *  documented above as a source offset and is read as one by
+	 *  everything that touches it. A page number written there would be
+	 *  the kind of shortcut that is still being explained two years
+	 *  later (ADR 0035).
+	 */
+	page?: number | null,
 	/**  Heading ids folded in Read mode. */
 	folded?: string[],
 };

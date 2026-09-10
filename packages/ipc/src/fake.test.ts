@@ -201,6 +201,7 @@ describe('fake ipc', () => {
       mode: 'read' as const,
       pinned: false,
       anchor: 0,
+      page: null,
       folded: [],
     };
     // Not dropped anywhere: a window of its own, made for it.
@@ -230,6 +231,7 @@ describe('fake ipc', () => {
       mode: 'read',
       pinned: false,
       anchor: 0,
+      page: null,
       folded: [],
     });
     expect((await ipc.commands.takeMovedTabs()).map((move) => move.path)).toEqual(['/a.md']);

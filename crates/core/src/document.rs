@@ -31,6 +31,17 @@ const UTF8: &str = "utf-8";
 pub const EDITABLE_BYTES: u64 = 10_000_000;
 pub const OPEN_BYTES: u64 = 100_000_000;
 
+/// How large a PDF the app will open (ADR 0035).
+///
+/// Lower than [`OPEN_BYTES`] because a PDF costs more than its own size.
+/// Range requests never engage over the asset protocol — pdf.js only
+/// asks for a byte range of an `http(s)` URL, and the protocol only
+/// offers ranges to a request that already carried one — so the file
+/// arrives whole, and the renderer's own structures sit on top of it.
+/// Sixty-four megabytes is past anything a markdown reader meets beside
+/// a document it was handed.
+pub const PDF_BYTES: u64 = 64_000_000;
+
 /// Why a document cannot be edited, for the one banner that says so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
@@ -215,6 +226,40 @@ pub fn read_document(path: &Path) -> Result<Document, Error> {
     })
 }
 
+/// What the shell learns about a PDF before it hands one to the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+pub struct PdfInfo {
+    #[specta(type = specta_typescript::Number)]
+    pub byte_len: u64,
+}
+
+/// Look at a PDF without reading it.
+///
+/// The bytes themselves go to the webview over the asset protocol, which
+/// is the same road a document's images already travel and the reason
+/// none of this crosses the IPC bridge as base64. What Rust is for here
+/// is the two things a webview cannot ask: whether the file is there,
+/// and whether it is one this app will take on.
+///
+/// # Errors
+/// Fails when the file cannot be read, or is over [`PDF_BYTES`].
+pub fn read_pdf_info(path: &Path) -> Result<PdfInfo, Error> {
+    // Asked of the file rather than of what was read, exactly as
+    // `read_document` asks: refusing a large file should not begin by
+    // pulling it into memory.
+    let size = std::fs::metadata(path)
+        .map_err(|e| read_error(path, &e))?
+        .len();
+    if size > PDF_BYTES {
+        return Err(Error::TooLarge {
+            path: path.to_path_buf(),
+            byte_len: size,
+            limit: PDF_BYTES,
+        });
+    }
+    Ok(PdfInfo { byte_len: size })
+}
+
 /// Why a file just read cannot be edited (design 8). Encoding first: a
 /// file that is both is one the app cannot write at all.
 fn read_only_reason(encoding: &str, byte_len: u64) -> Option<ReadOnly> {
@@ -375,6 +420,45 @@ mod tests {
         let converted = convert_to_utf8(&path).expect("convert");
         assert!(converted.meta.read_only.is_none());
         assert_eq!(converted.content, "café au lait\n");
+    }
+
+    /// ADR 0035: a PDF arrives whole, so it is measured before it is read.
+    #[test]
+    fn a_pdf_is_looked_at_without_being_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("paper.pdf");
+        std::fs::write(&path, b"%PDF-1.7\n").unwrap();
+        let info = read_pdf_info(&path).expect("look");
+        assert_eq!(info.byte_len, 9);
+    }
+
+    #[test]
+    fn a_pdf_over_the_limit_is_refused_rather_than_loaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("huge.pdf");
+        let file = std::fs::File::create(&path).unwrap();
+        // Sparse: the point is that the size is asked of the file rather
+        // than of what was read, so nothing here reads 64 MB.
+        file.set_len(PDF_BYTES + 1).unwrap();
+        drop(file);
+        match read_pdf_info(&path) {
+            Err(Error::TooLarge {
+                byte_len, limit, ..
+            }) => {
+                assert_eq!(byte_len, PDF_BYTES + 1);
+                assert_eq!(limit, PDF_BYTES);
+            }
+            other => panic!("expected TooLarge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_pdf_that_is_not_there_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            read_pdf_info(&dir.path().join("nowhere.pdf")),
+            Err(Error::Read { .. })
+        ));
     }
 
     /// Design 8: above 10 MB the app shows the file but will not edit it.

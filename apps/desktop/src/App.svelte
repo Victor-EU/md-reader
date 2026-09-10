@@ -3,6 +3,7 @@ import Banner from './components/Banner.svelte';
 import EditorPane from './components/EditorPane.svelte';
 import FindBar from './components/FindBar.svelte';
 import Palette from './components/Palette.svelte';
+import PdfPane from './components/PdfPane.svelte';
 import ReadPane from './components/ReadPane.svelte';
 import Settings from './components/Settings.svelte';
 import Sidebar from './components/Sidebar.svelte';
@@ -17,6 +18,7 @@ let { shell }: { shell: Shell } = $props();
 const workspace = $derived(shell.workspace);
 const registry = $derived(shell.registry);
 const settings = $derived(workspace.activeTab?.kind === 'settings');
+const pdf = $derived(workspace.activeTab?.kind === 'pdf');
 
 /**
  * Dress the window (design 11). Three attributes and three custom
@@ -124,6 +126,8 @@ function drop(event: DragEvent) {
       </main>
     {:else if settings}
       <Settings {workspace} />
+    {:else if pdf}
+      <PdfPane {workspace} />
     {:else if workspace.readMode}
       <ReadPane {workspace} />
     {:else}

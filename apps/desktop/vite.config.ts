@@ -1,11 +1,23 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
+import { pdfjsAssets } from './pdfjs-assets.ts';
 
 const host = process.env.TAURI_DEV_HOST;
 const platform = process.env.TAURI_ENV_PLATFORM;
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte(), pdfjsAssets()],
+  // pdf.js ships two builds and this app needs the transpiled one: the
+  // modern build calls `Map.prototype.getOrInsertComputed`, and the
+  // WKWebView that comes with macOS does not have it, so every page
+  // render fails at the first font. `build.target` below cannot help —
+  // it rewrites syntax, not missing methods — and the worker is copied
+  // rather than bundled, so it is switched in `pdfjs-assets.ts` too.
+  // An exact match, so that `pdfjs-dist/legacy/...` is not rewritten
+  // again into itself.
+  resolve: {
+    alias: [{ find: /^pdfjs-dist$/, replacement: 'pdfjs-dist/legacy/build/pdf.mjs' }],
+  },
   // Tauri expects a fixed port and fails if it is taken.
   clearScreen: false,
   server: {

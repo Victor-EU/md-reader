@@ -15,6 +15,13 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
    * tab that would usually have one.
    */
   const hasDoc = () => workspace.activeDoc !== null;
+  /**
+   * Find is the one thing a PDF shares with a document, and it shares
+   * only the bar: what it searches is text extracted from the pages
+   * rather than a buffer (ADR 0035). Replace is not shared, because a
+   * PDF is read here and never written.
+   */
+  const canFind = () => workspace.activeDoc !== null || workspace.activePdf !== null;
   return [
     {
       id: 'file.new',
@@ -108,7 +115,12 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       id: 'file.moveToWindow',
       title: 'Move Tab to New Window',
       group: 'File',
-      enabled: () => workspace.activeTab?.kind === 'document',
+      // A PDF travels as a path rather than as a buffer, but it travels
+      // (ADR 0035). Settings is the tab that stays where it is.
+      enabled: () => {
+        const kind = workspace.activeTab?.kind;
+        return kind === 'document' || kind === 'pdf';
+      },
       run: () => workspace.tearOffActive(),
     },
     {
@@ -209,7 +221,7 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       title: 'Find…',
       group: 'Edit',
       key: 'Mod+F',
-      enabled: hasDoc,
+      enabled: canFind,
       run: () => workspace.openFind(false),
     },
     {

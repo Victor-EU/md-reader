@@ -882,6 +882,110 @@ body,
   outline: none;
 }
 
+/* --- the PDF pane (ADR 0035) --------------------------------------------- */
+
+/*
+ * A column of pages on the window's own ground rather than on the
+ * document paper: the paper here is printed into the file, and putting
+ * the reader's chosen cream behind it would be the app arguing with the
+ * document about what colour it is.
+ */
+.page-pdf {
+  overflow: auto;
+  background: var(--bar-bg);
+}
+
+.page-pdf:focus {
+  outline: none;
+}
+
+/*
+ * Every page is placed against this rather than laid out in flow: what
+ * is in the page is a screenful of them, and the rest is height (plan
+ * WP 2.7).
+ */
+.pdf-sheet {
+  position: relative;
+  width: 100%;
+}
+
+.pdf-page {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  box-shadow: 0 1px 4px var(--shadow);
+}
+
+.pdf-page canvas {
+  display: block;
+}
+
+/*
+ * The selection layer. It sits over the drawn page holding the same
+ * words in the same places, invisible, so that selecting and copying
+ * reach real text rather than pixels. `pre` because a run is a run:
+ * collapsing its spaces would move every glyph after them.
+ */
+.pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  color: transparent;
+  /*
+   * The whole layer multiplies with the page under it, which is what
+   * lets Find's marks sit over drawn glyphs without hiding them. It has
+   * to be here rather than on the marks: each run's span carries a
+   * `scaleX` transform, and a transform makes a stacking context, so a
+   * mark inside one would blend against its own span's nothing.
+   */
+  mix-blend-mode: multiply;
+}
+
+.pdf-text span {
+  position: absolute;
+  transform-origin: 0 0;
+  white-space: pre;
+  cursor: text;
+}
+
+.pdf-text ::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/*
+ * What Find marks: the matched characters, over the drawn ones.
+ *
+ * `multiply` rather than a translucent fill, because the text under the
+ * mark is painted on the canvas and a mark that sat on top of it would
+ * hide the very word the reader was looking for. Two weights, as the
+ * editor's search has: every match, and the one they are on.
+ *
+ * The `color` is reset because a browser's own `mark` rules set one,
+ * and this layer's whole trick is that its text is invisible.
+ */
+.pdf-text mark {
+  background: color-mix(in srgb, var(--highlight) 60%, transparent);
+  color: transparent;
+  border-radius: 1px;
+}
+
+.pdf-text mark.here {
+  background: var(--highlight);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.pdf-trouble {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: var(--muted);
+}
+
 /* --- find and replace ---------------------------------------------------- */
 
 /*

@@ -1,0 +1,8 @@
+{
+  "name": "@markdown/pdf-fixtures",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "description": "Writes the small PDFs the engine adapter's tests open. Plain Node, no dependencies.",
+  "type": "module"
+}

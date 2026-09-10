@@ -224,13 +224,29 @@ fn save_document(
 /// Let the webview load images from a document's folder and below.
 ///
 /// The asset protocol starts with an empty scope (design 8), and it grows
-/// only here, only to the folder of a file the reader has opened. Nothing
-/// else in the app can widen it, and nothing outside those folders is
-/// reachable from the page.
+/// only here and in `open_pdf`, only to the folder of a file the reader
+/// has opened. Nothing else in the app can widen it, and nothing outside
+/// those folders is reachable from the page.
 #[tauri::command]
 #[specta::specta]
 fn allow_document_images(app: tauri::AppHandle, path: PathBuf) -> Result<(), Error> {
     allow_images(&app, &path)
+}
+
+/// Take charge of a PDF, without reading a byte of it (ADR 0035).
+///
+/// The two things the webview cannot ask, in one round trip: whether the
+/// file is there and small enough to take on, and — the answer being yes
+/// — permission to read it. The scope call is what `open_document` gets
+/// on the way past, and a PDF never goes through `open_document`, so it
+/// has to be asked for here or the asset protocol answers 403 and the
+/// pane stays blank.
+#[tauri::command]
+#[specta::specta]
+fn open_pdf(app: tauri::AppHandle, path: PathBuf) -> Result<markdown_core::PdfInfo, Error> {
+    let info = markdown_core::read_pdf_info(&path)?;
+    allow_images(&app, &path)?;
+    Ok(info)
 }
 
 /// Widen the asset protocol scope to a document's folder and below.
@@ -1839,6 +1855,7 @@ pub fn ipc_builder() -> Builder<tauri::Wry> {
             save_document,
             convert_document_to_utf8,
             allow_document_images,
+            open_pdf,
             write_asset,
             import_asset,
             export_html,

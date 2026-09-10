@@ -31,6 +31,7 @@
     "@tauri-apps/plugin-updater": "^2.11.0",
     "katex": "^0.18.7",
     "mermaid": "^11.17.2",
+    "pdfjs-dist": "6.3.289",
     "shiki": "^4.4.3",
     "svelte": "^5.57.0"
   },

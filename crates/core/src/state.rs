@@ -288,13 +288,15 @@ pub struct DocumentState {
 }
 
 /// What a tab is showing. Settings open as a tab rather than a modal
-/// (plan WP 1.9), so not every tab has a document behind it.
+/// (plan WP 1.9) and a PDF is read by a different engine entirely
+/// (ADR 0035), so not every tab has a document behind it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum TabKind {
     #[default]
     Document,
     Settings,
+    Pdf,
 }
 
 /// Which of the sidebar's panels was showing (design 4.1, 4.4).
@@ -329,6 +331,15 @@ pub struct TabState {
     /// Where the view was scrolled, as a source offset. A character
     /// survives a change of window width; a pixel offset does not.
     pub anchor: u32,
+    /// Where a PDF was scrolled: the page in front, one-based, and
+    /// unset for every tab that is not one.
+    ///
+    /// Its own field rather than a second meaning for `anchor`, which is
+    /// documented above as a source offset and is read as one by
+    /// everything that touches it. A page number written there would be
+    /// the kind of shortcut that is still being explained two years
+    /// later (ADR 0035).
+    pub page: Option<u32>,
     /// Heading ids folded in Read mode.
     pub folded: Vec<String>,
 }
@@ -402,6 +413,12 @@ pub struct TabMove {
     pub mode: TabMode,
     pub pinned: bool,
     pub anchor: u32,
+    /// Where a PDF was scrolled: the page in front, one-based, and
+    /// `None` for every tab that is not one (ADR 0035). `anchor` above
+    /// it is a source offset and stays one; a PDF's document fields
+    /// travel empty, because the window taking it in opens the file
+    /// itself rather than being handed a buffer there is none of.
+    pub page: Option<u32>,
     pub folded: Vec<String>,
 }
 
@@ -703,7 +720,8 @@ impl<T: Send + 'static> Drop for Store<T> {
 ///
 /// A file that will not parse is moved aside rather than deleted: it is
 /// the reader's last session, and if we ever lose one it should be
-/// possible to see why.
+/// possible to see why. One repair is tried before that, because there
+/// is one way a perfectly good session file fails to parse.
 fn read<T: DeserializeOwned + Default>(path: &Path) -> T {
     let Ok(text) = fs::read_to_string(path) else {
         return T::default();
@@ -711,6 +729,13 @@ fn read<T: DeserializeOwned + Default>(path: &Path) -> T {
     match serde_json::from_str(&text) {
         Ok(value) => value,
         Err(error) => {
+            if let Some((value, dropped)) = without_unknown_tabs(&text) {
+                eprintln!(
+                    "{}: {error}; carrying on without {dropped} tab(s) this build cannot show",
+                    path.display()
+                );
+                return value;
+            }
             let aside = path.with_extension("json.bad");
             eprintln!(
                 "{} is not readable ({error}); keeping it as {}",
@@ -721,6 +746,50 @@ fn read<T: DeserializeOwned + Default>(path: &Path) -> T {
             T::default()
         }
     }
+}
+
+/// Parse again with any tab this build cannot show taken out of the way.
+///
+/// A session belongs to whichever build wrote it last. Somebody who
+/// tries a newer one and goes back, or who keeps two installed, hands
+/// this one a `kind` it has never heard of — and serde fails the whole
+/// file over it, so two hundred tabs are moved aside because of one
+/// (ADR 0035). Dropping that one tab is the honest answer: the default
+/// variant is `Document`, and a build that guessed that would open a PDF
+/// and read it as text.
+///
+/// It has to happen out here rather than as an attribute on the field.
+/// A `deserialize_with` that filtered the list would say the wire type
+/// and the Rust type differ, and specta would split every type above it
+/// into a serialize half and a deserialize half — the whole session
+/// shape, doubled, in the generated bindings, to pay for a repair the
+/// frontend never sees.
+///
+/// Returns `None` when the file failed to parse for any other reason,
+/// which is what leaves the move-aside in charge of real corruption.
+fn without_unknown_tabs<T: DeserializeOwned>(text: &str) -> Option<(T, usize)> {
+    let mut value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let mut dropped = 0;
+    for window in value.get_mut("windows")?.as_array_mut()? {
+        let Some(tabs) = window
+            .pointer_mut("/content/tabs")
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            continue;
+        };
+        let before = tabs.len();
+        tabs.retain(|tab| match tab.get("kind") {
+            // A tab that does not say is a document, which every build
+            // back to the first one knows how to show.
+            None | Some(serde_json::Value::Null) => true,
+            Some(kind) => TabKind::deserialize(kind).is_ok(),
+        });
+        dropped += before - tabs.len();
+    }
+    if dropped == 0 {
+        return None;
+    }
+    Some((serde_json::from_value(value).ok()?, dropped))
 }
 
 #[cfg(test)]
@@ -1087,5 +1156,70 @@ mod tests {
                 height: 600
             })
         );
+    }
+
+    /// A session written by a build that knows a kind this one does not.
+    fn session_json(kinds: &[&str]) -> String {
+        let tabs: Vec<String> = kinds
+            .iter()
+            .enumerate()
+            .map(|(at, kind)| format!(r#"{{"kind":"{kind}","document":{at}}}"#))
+            .collect();
+        format!(
+            r#"{{"windows":[{{"label":"main","content":{{"documents":[],"tabs":[{}]}}}}],"recents":[]}}"#,
+            tabs.join(",")
+        )
+    }
+
+    #[test]
+    fn a_tab_this_build_cannot_show_costs_only_that_tab() {
+        let dir = dir("unknown-kind");
+        let path = dir.join("session.json");
+        // "quarto" is the fourth `TabKind`, from a build after this one.
+        fs::write(&path, session_json(&["document", "quarto", "pdf"])).expect("write");
+        let read: Session = read(&path);
+        let tabs = &read.windows[0].content.tabs;
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].kind, TabKind::Document);
+        assert_eq!(tabs[1].kind, TabKind::Pdf);
+        // The file is still there: it parsed, so nothing was moved aside.
+        assert!(path.exists());
+        assert!(!dir.join("session.json.bad").exists());
+    }
+
+    #[test]
+    fn a_session_this_build_understands_is_left_exactly_alone() {
+        let dir = dir("known-kinds");
+        let path = dir.join("session.json");
+        fs::write(&path, session_json(&["document", "settings", "pdf"])).expect("write");
+        let read: Session = read(&path);
+        assert_eq!(read.windows[0].content.tabs.len(), 3);
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_session_at_all_is_still_moved_aside() {
+        // The repair is for one shape of trouble and must not swallow
+        // the rest: real corruption keeps the behaviour it had.
+        let dir = dir("corrupt");
+        let path = dir.join("session.json");
+        fs::write(&path, "{ not json at all").expect("write");
+        let read: Session = read(&path);
+        assert!(read.windows.is_empty());
+        assert!(dir.join("session.json.bad").exists());
+    }
+
+    #[test]
+    fn a_pdf_tab_keeps_the_page_it_was_left_on() {
+        let tab = TabState {
+            kind: TabKind::Pdf,
+            page: Some(12),
+            ..TabState::default()
+        };
+        let json = serde_json::to_string(&tab).expect("write");
+        let back: TabState = serde_json::from_str(&json).expect("read");
+        assert_eq!(back.page, Some(12));
+        // And an older session, with no such field, still reads.
+        let older: TabState = serde_json::from_str(r#"{"kind":"document"}"#).expect("read");
+        assert_eq!(older.page, None);
     }
 }

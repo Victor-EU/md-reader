@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { basename, dirname, fileUrlToPath, inside, shortenDir, tabLabels } from './paths.ts';
+import {
+  basename,
+  dirname,
+  fileUrlToPath,
+  inside,
+  isPdfPath,
+  shortenDir,
+  tabLabels,
+} from './paths.ts';
 
 describe('basename and dirname', () => {
   it('handle both separators', () => {
@@ -56,5 +64,20 @@ describe('fileUrlToPath', () => {
     expect(fileUrlToPath('file:///Users/a/my%20notes.md')).toBe('/Users/a/my notes.md');
     expect(fileUrlToPath('file:///C:/Users/a/notes.md')).toBe('C:/Users/a/notes.md');
     expect(fileUrlToPath('https://example.com/a.md')).toBeNull();
+  });
+});
+
+describe('isPdfPath', () => {
+  it('recognises one however it is spelled', () => {
+    expect(isPdfPath('/a/paper.pdf')).toBe(true);
+    expect(isPdfPath('C:\\docs\\Paper.PDF')).toBe(true);
+  });
+
+  it('leaves everything else to open as a document', () => {
+    // Asked of a path the OS handed over, before anything is read: a
+    // file whose name says nothing opens the way it always has.
+    expect(isPdfPath('/a/notes.md')).toBe(false);
+    expect(isPdfPath('/a/pdf')).toBe(false);
+    expect(isPdfPath('/a/paper.pdf.md')).toBe(false);
   });
 });
