@@ -17,7 +17,7 @@ async function dirWith(names) {
 }
 
 describe('the manifest', () => {
-  it('is what the updater expects, one entry per platform', () => {
+  it('is what the updater expects, one entry per key it asks for', () => {
     const out = manifest(
       [{ platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 'sig\n' }],
       { date: '2026-09-09T12:00:00Z', notes: 'Fixes the thing' },
@@ -27,7 +27,11 @@ describe('the manifest', () => {
       notes: 'Fixes the thing',
       pub_date: '2026-09-09T12:00:00.000Z',
       platforms: {
-        'darwin-universal': {
+        'darwin-aarch64': {
+          signature: 'sig',
+          url: `${base}/MD%20Reader.app.tar.gz`,
+        },
+        'darwin-x86_64': {
           signature: 'sig',
           url: `${base}/MD%20Reader.app.tar.gz`,
         },
@@ -49,6 +53,50 @@ describe('the manifest', () => {
       entries: [{ platform: 'linux-x86_64', file: 'app.AppImage', signature: 's' }],
     });
     expect(out.platforms['linux-x86_64'].url).toBe(`${base}/app.AppImage`);
+  });
+
+  it('never leaves a universal macOS bundle under a key nobody asks for', () => {
+    // This is the one the release nearly shipped without. The plugin
+    // looks for `{os}-{arch}-{installer}` and then `{os}-{arch}`, and on
+    // macOS the arch is the machine's own — `aarch64` or `x86_64`. It
+    // never asks for `darwin-universal`. A manifest carrying only that
+    // key updates no Mac at all, and does it quietly: a target it cannot
+    // find is reported to the app as "there is nothing new".
+    const out = manifest([
+      { platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 'sig' },
+    ]);
+    expect(Object.keys(out.platforms).sort()).toEqual(['darwin-aarch64', 'darwin-x86_64']);
+    expect(out.platforms['darwin-universal']).toBeUndefined();
+    // One bundle, so both keys point at the same file and the same
+    // signature — that is what makes publishing it twice honest.
+    expect(out.platforms['darwin-aarch64']).toEqual(out.platforms['darwin-x86_64']);
+    expect(out.platforms['darwin-aarch64'].url).toBe(`${base}/MD%20Reader.app.tar.gz`);
+  });
+
+  it('refuses a universal bundle beside one of the arches it already covers', () => {
+    // Two arguments, one aarch64 Mac. The guard has to look at the keys
+    // the manifest ends up with rather than the ones that were passed
+    // in, or the second of these would silently take the first's place.
+    expect(() =>
+      manifest([
+        { platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 's' },
+        { platform: 'darwin-aarch64', file: 'MD Reader-arm.app.tar.gz', signature: 's' },
+      ]),
+    ).toThrow(/two artifacts claim darwin-aarch64/);
+  });
+
+  it('refuses them in the other order too', () => {
+    expect(() =>
+      manifest([
+        { platform: 'darwin-aarch64', file: 'MD Reader-arm.app.tar.gz', signature: 's' },
+        { platform: 'darwin-universal', file: 'MD Reader.app.tar.gz', signature: 's' },
+      ]),
+    ).toThrow(/two artifacts claim darwin-aarch64/);
+  });
+
+  it('leaves a platform the updater does ask for exactly as it came', () => {
+    const out = manifest([{ platform: 'linux-x86_64', file: 'app.AppImage', signature: 's' }]);
+    expect(Object.keys(out.platforms)).toEqual(['linux-x86_64']);
   });
 
   it('refuses two artifacts for one platform', () => {

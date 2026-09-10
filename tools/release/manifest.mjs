@@ -17,7 +17,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-/** The platform keys the updater looks itself up by. */
+/** The platform keys a build can be handed to us under. */
 export const PLATFORMS = [
   'darwin-universal',
   'darwin-x86_64',
@@ -27,6 +27,33 @@ export const PLATFORMS = [
   'windows-x86_64',
   'windows-aarch64',
 ];
+
+/**
+ * The keys the updater actually asks for, for the platforms we build
+ * under a name it has never heard of.
+ *
+ * tauri-plugin-updater looks itself up by `{os}-{arch}-{installer}` and
+ * then by `{os}-{arch}`, and on macOS the `{arch}` is whatever the
+ * machine running the app is: `aarch64` or `x86_64`. Nothing it asks for
+ * ever spells "universal". So a manifest carrying only `darwin-universal`
+ * is one the updater looks straight past, and every macOS copy of the app
+ * quietly stops receiving updates — it does not fail loudly, it finds no
+ * target and reports there is nothing new.
+ *
+ * A universal bundle does run on both machines, so the honest fix is to
+ * publish it under both names, pointing at the same file and the same
+ * signature. `darwin-universal` stays what the command line and the
+ * workflow matrix say, because that is what was built; the expansion
+ * happens here, where the document is written.
+ */
+export const LOOKUP_KEYS = {
+  'darwin-universal': ['darwin-aarch64', 'darwin-x86_64'],
+};
+
+/** The keys one built artifact is published under. */
+export function lookupKeys(platform) {
+  return LOOKUP_KEYS[platform] ?? [platform];
+}
 
 /**
  * Turn the found artifacts into the document the updater expects.
@@ -48,21 +75,31 @@ export function buildManifest({ version, notes = '', date = new Date(), baseUrl,
         `unknown platform ${entry.platform}; expected one of ${PLATFORMS.join(', ')}`,
       );
     }
-    if (platforms[entry.platform]) {
-      throw new Error(
-        `two artifacts claim ${entry.platform}: the updater would take one at random`,
-      );
-    }
     if (entry.signature.trim() === '') {
       throw new Error(`${entry.file} has an empty signature; the update would be refused`);
     }
-    platforms[entry.platform] = {
+    const published = {
       signature: entry.signature.trim(),
       // The names carry spaces — "MD Reader.app.tar.gz" — and a raw
       // space in a URL is a link that works in a browser and not in the
       // updater's HTTP client.
       url: `${baseUrl.replace(/\/$/, '')}/${encodeURIComponent(entry.file)}`,
     };
+    for (const key of lookupKeys(entry.platform)) {
+      // The clash is on the key the updater asks for rather than on the
+      // one that was passed in, because those are not the same thing:
+      // `darwin-universal` and `darwin-aarch64` are two arguments that
+      // both end up claiming every aarch64 Mac, and only one of them can
+      // have it.
+      if (platforms[key]) {
+        throw new Error(
+          key === entry.platform
+            ? `two artifacts claim ${key}: the updater would take one at random`
+            : `two artifacts claim ${key} (${entry.platform} covers it): the updater would take one at random`,
+        );
+      }
+      platforms[key] = { ...published };
+    }
   }
   return {
     version,

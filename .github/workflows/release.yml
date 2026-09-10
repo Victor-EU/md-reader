@@ -4,6 +4,10 @@ name: Release
 # `git tag v0.2.0 && git push --tags`. The release is left as a draft, so
 # the notes can be written and the installers tried before any running
 # app can see the manifest (plan WP 1.12, and docs/release.md).
+#
+# `workflow_dispatch` is here to re-run a tag whose build failed, not to
+# release a branch, so both jobs check the ref themselves — see the guard
+# on `bundle`. Aim a dispatch at the tag.
 on:
   push:
     tags: ['v*']
@@ -23,6 +27,13 @@ permissions:
 jobs:
   bundle:
     name: bundle (${{ matrix.platform }})
+    # `workflow_dispatch` can be aimed at any ref, and everything below
+    # reads `GITHUB_REF_NAME` as if it were a version: it becomes the
+    # manifest's version number and the name of the release the assets
+    # hang off. Started from a branch, this would sign a build as `main`
+    # and draft a release called `main`. So the ref has to be a version
+    # tag whatever the event was — dispatch it against the tag itself.
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       # No fail-fast: one platform's signing problem should not throw away
       # three other bundles that each took twenty minutes.
@@ -53,7 +64,15 @@ jobs:
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to a commit rather than to `v4`, because a
+      # major-version tag is a branch by another name: it moves whenever
+      # its owner moves it, and this job has the updater private key and
+      # the Developer ID certificate in its environment. What runs beside
+      # those is worth choosing on purpose. The trailing comment says
+      # which version each SHA is, and
+      # `gh api repos/<owner>/<action>/git/ref/tags/v4` is how to move one
+      # forward deliberately.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Fail here, with a sentence, rather than inside a Rust build twenty
       # minutes later. The updater key is required on every platform: a
@@ -143,13 +162,13 @@ jobs:
             -exec cp {} installers/ \;
           ls -l updater installers
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: updater-${{ matrix.platform }}
           path: updater/*
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: installers-${{ matrix.platform }}
           path: installers/*
@@ -158,11 +177,16 @@ jobs:
   publish:
     name: draft the release
     needs: bundle
+    # Said again rather than left to `needs`. This job being skipped
+    # because `bundle` was is a consequence of the guard up there, not
+    # the guard itself, and one edit to `needs` should not be all it
+    # takes to put a release back on a branch.
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: artifacts
 

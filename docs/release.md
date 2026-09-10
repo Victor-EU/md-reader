@@ -107,6 +107,13 @@ The tag starts `release.yml`, which:
    rather than from a list of names somebody maintains;
 4. creates the GitHub release **as a draft**.
 
+The tag is the whole trigger, and the workflow checks: both jobs are
+skipped unless the ref is a `v*` tag. `workflow_dispatch` is still there,
+for re-running a tag whose build fell over, but it has to be aimed at the
+tag rather than at a branch — everything downstream reads the ref as a
+version, so a branch would sign a build as `main` and draft a release
+called `main`.
+
 Then, by hand:
 
 - Download the `.dmg` and open it on a machine that did not build it.
@@ -116,6 +123,23 @@ Then, by hand:
 - **Publish the draft.** That is the moment
   `releases/latest/download/latest.json` starts resolving and every
   running copy of the app is offered the update.
+
+### The two names macOS goes out under
+
+The macOS bundle is universal, but `darwin-universal` is not a name the
+updater ever asks for. It looks itself up as `{os}-{arch}`, and on macOS
+the arch is the machine's own: `darwin-aarch64` or `darwin-x86_64`. A
+manifest carrying only `darwin-universal` therefore updates no Mac at
+all, and does it silently — a target the updater cannot find reads to the
+app as "there is nothing new".
+
+So `latest.json` carries the one universal bundle under **both** of those
+keys, pointing at the same file and the same signature. The workflow
+matrix and the command line still say `darwin-universal`, because that is
+honestly what was built; the two names are made where the manifest is
+written, in `tools/release/manifest.mjs`. It is worth a glance at the
+`cat latest.json` in the workflow log: a published manifest with a
+`darwin-universal` key in it is one that updates no Mac.
 
 ### Backing one out
 

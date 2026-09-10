@@ -1,4 +1,10 @@
 name: CI
+#
+# Actions are pinned to commits, not to `v4`: a major-version tag is a
+# branch by another name. The same pins as the release workflow and the
+# setup action beside it, so there is one answer in the repository to
+# what version of an action runs here. The trailing comment says which
+# version each SHA is.
 
 on:
   push:
@@ -27,7 +33,7 @@ jobs:
         os: [macos-14, windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - run: pnpm check
       - run: cargo fmt --all --check
@@ -41,7 +47,7 @@ jobs:
         os: [macos-14, windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium webkit
@@ -63,12 +69,22 @@ jobs:
     # more over time than any one run of them.
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium webkit
       - run: pnpm bench
-      - uses: actions/upload-artifact@v4
+      # The Rust budget tests carry two numbers each: a loose one for the
+      # unoptimized build `cargo test` makes over in the test job, and the
+      # real one out of the design — 200 ms to merge a megabyte, 150 ms to
+      # align one — which only means anything in an optimized build. Until
+      # this line nothing ever built them that way, so the numbers that
+      # were actually being checked were the ten-times-looser ones, and
+      # the real budgets were prose. They belong here rather than in the
+      # test job: it is a measurement, it wants one runner, and this is
+      # where the measurements are.
+      - run: cargo test -p mdreader-core --locked --release --test merge_budget --test block_budget
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: bench-results
@@ -87,14 +103,14 @@ jobs:
         os: [macos-14, windows-2022, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: ./.github/actions/setup
       # No updater artifacts here: signing them needs the release key,
       # which this workflow has no business holding. Releases are cut by
       # release.yml on a tag.
       - name: Build unsigned bundle
         run: pnpm tauri build --ci --config src-tauri/unsigned.conf.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bundle-${{ matrix.os }}
           path: |
