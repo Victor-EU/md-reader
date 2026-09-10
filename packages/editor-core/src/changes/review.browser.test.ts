@@ -1,7 +1,8 @@
 import { undo } from '@codemirror/commands';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setReviewEffect } from '../state.ts';
-import { createEditor, type Editor } from '../view.ts';
+import { parsedEditor } from '../test-helpers.ts';
+import type { Editor } from '../view.ts';
 import { changes, setChanges } from './markers.ts';
 import type { ChangePart, ChangeRecord } from './records.ts';
 
@@ -35,7 +36,7 @@ describe('Review mode', () => {
     host = document.createElement('div');
     host.style.cssText = 'height: 500px; width: 700px;';
     document.body.appendChild(host);
-    editor = createEditor(host, doc);
+    editor = parsedEditor(host, doc);
   });
 
   afterEach(() => {
@@ -108,7 +109,7 @@ describe('Review mode', () => {
   it('draws the panel above a table live preview has replaced', async () => {
     editor.destroy();
     const table = 'para\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\ntail\n';
-    editor = createEditor(host, table);
+    editor = parsedEditor(host, table);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(host.querySelectorAll('table')).toHaveLength(1);
     const row = table.indexOf('| 1 | 2 |');
@@ -147,7 +148,7 @@ describe('Review mode', () => {
     editor.destroy();
     const words = ['one', 'two', 'three', 'four', 'five', 'six'];
     const text = `${[...words, 'the sentence at the bottom'].join('\n\n')}\n`;
-    editor = createEditor(host, text);
+    editor = parsedEditor(host, text);
     editor.view.dispatch({ effects: setReviewEffect(true) });
     show(
       ...words.map((word) => {

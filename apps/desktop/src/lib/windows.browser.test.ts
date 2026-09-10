@@ -124,9 +124,18 @@ describe('a tab moved to another window', () => {
     const view = there.view;
     if (!view) throw new Error('nothing is mounted');
     expect(view.state.doc.toString()).toBe('One two three.\nand mine\n');
-    // The reader presses Cmd+Z in the window the tab landed in.
+    // The reader presses undo in the window the tab landed in. Which key
+    // that is belongs to the platform the browser thinks it is on, and
+    // CodeMirror resolves `Mod-z` from that, not from the shell's own.
+    const mac = /Mac/.test(navigator.platform);
     view.contentDOM.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', metaKey: true, bubbles: true }),
+      new KeyboardEvent('keydown', {
+        key: 'z',
+        code: 'KeyZ',
+        metaKey: mac,
+        ctrlKey: !mac,
+        bubbles: true,
+      }),
     );
     expect(view.state.doc.toString()).toBe('One two three.\n');
   });

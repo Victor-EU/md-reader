@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createEditor, type Editor } from '../../view.ts';
+import { parsedEditor } from '../../test-helpers.ts';
+import type { Editor } from '../../view.ts';
 
 const doc = [
   'Intro line',
@@ -23,7 +24,7 @@ describe('table widget', () => {
   beforeEach(() => {
     host = document.createElement('div');
     document.body.appendChild(host);
-    editor = createEditor(host, doc);
+    editor = parsedEditor(host, doc);
     editor.view.dispatch({ selection: { anchor: 0 } });
   });
 
@@ -154,7 +155,7 @@ describe('table widget', () => {
     // the write, and a rebuilt widget would refresh the offset by itself.
     const above = `${'Prose above the table, of which there has to be a fair amount. '.repeat(6)}\n\n`;
     editor.destroy();
-    editor = createEditor(host, above + doc);
+    editor = parsedEditor(host, above + doc);
     editor.view.dispatch({ selection: { anchor: 0 } });
     await activate(1, 0);
     const inner = getNested(cell(1, 0) as HTMLElement);

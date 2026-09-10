@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createEditor, type Editor } from '../view.ts';
+import { parsedEditor } from '../test-helpers.ts';
+import type { Editor } from '../view.ts';
 
 const doc = [
   '# Title',
@@ -22,7 +23,7 @@ describe('livePreview', () => {
   beforeEach(() => {
     host = document.createElement('div');
     document.body.appendChild(host);
-    editor = createEditor(host, doc);
+    editor = parsedEditor(host, doc);
     editor.view.dispatch({ selection: { anchor: doc.length } });
   });
 

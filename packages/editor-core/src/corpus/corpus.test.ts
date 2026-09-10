@@ -35,8 +35,12 @@ describe('round-trip corpus (node)', () => {
     ]);
   });
 
+  // Every action over every one of the 200+ files, so these are the
+  // heaviest tests in the suite: seconds on a quiet machine, and a CI
+  // runner is several times slower than that. The default five is a
+  // budget for a unit test, not for this.
   for (const action of nodeActions) {
-    it(`invariants A and B: ${action.name}`, () => {
+    it(`invariants A and B: ${action.name}`, { timeout: 30_000 }, () => {
       const result = runNode(files, [action]);
       expect(result.failures, formatFailures(result.failures)).toEqual([]);
       expect(result.checked).toBeGreaterThan(action.minChecked ?? files.length / 4);

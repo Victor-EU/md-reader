@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createEditor, type Editor } from '../view.ts';
+import { parsedEditor } from '../test-helpers.ts';
+import type { Editor } from '../view.ts';
 import { addConflicts, conflictRegion, conflicts } from './state.ts';
 
 const doc = 'one\ntwo\nthree\n';
@@ -22,7 +23,7 @@ describe('the conflict widget', () => {
     host = document.createElement('div');
     host.style.cssText = 'height: 400px; width: 600px;';
     document.body.appendChild(host);
-    editor = createEditor(host, doc);
+    editor = parsedEditor(host, doc);
   });
 
   afterEach(() => {
@@ -129,7 +130,7 @@ describe('two conflicts that have come together', () => {
     host = document.createElement('div');
     host.style.cssText = 'height: 400px; width: 600px;';
     document.body.appendChild(host);
-    editor = createEditor(host, 'one\nbetween\nthree\n');
+    editor = parsedEditor(host, 'one\nbetween\nthree\n');
     editor.view.dispatch({
       effects: addConflicts.of([conflictRegion(0, 4, 'ONE\n'), conflictRegion(12, 18, 'THREE\n')]),
     });

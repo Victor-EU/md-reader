@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createEditor, type Editor } from '../view.ts';
+import { parsedEditor } from '../test-helpers.ts';
+import type { Editor } from '../view.ts';
 import { changes, changesField, dropChange, setChanges } from './markers.ts';
 import type { ChangeKind, ChangeRecord } from './records.ts';
 
@@ -33,7 +34,7 @@ describe('the change markers', () => {
     host = document.createElement('div');
     host.style.cssText = 'height: 400px; width: 600px;';
     document.body.appendChild(host);
-    editor = createEditor(host, doc);
+    editor = parsedEditor(host, doc);
   });
 
   afterEach(() => {
@@ -124,7 +125,7 @@ describe('the change markers', () => {
   it('draws a bar beside a block live preview has replaced', async () => {
     editor.destroy();
     const table = 'para\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\ntail\n';
-    editor = createEditor(host, table);
+    editor = parsedEditor(host, table);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(host.querySelectorAll('table')).toHaveLength(1);
     const row = table.indexOf('| 1 | 2 |');

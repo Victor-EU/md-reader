@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createEditor, type Editor } from './view.ts';
+import { parsedEditor } from './test-helpers.ts';
+import type { Editor } from './view.ts';
 
 describe('createEditor', () => {
   let host: HTMLDivElement;
@@ -8,7 +9,7 @@ describe('createEditor', () => {
   beforeEach(() => {
     host = document.createElement('div');
     document.body.appendChild(host);
-    editor = createEditor(host, '# Hello\n');
+    editor = parsedEditor(host, '# Hello\n');
   });
 
   afterEach(() => {

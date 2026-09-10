@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { activateCell } from '../preview/table/cell-editor.ts';
 import { escapePipes } from '../preview/table/commands.ts';
 import { tableModel } from '../preview/table/model.ts';
-import { createEditor, type Editor } from '../view.ts';
+import { parsedEditor } from '../test-helpers.ts';
+import type { Editor } from '../view.ts';
 import { checkExactness, checkLocality, type Outcome } from './invariants.ts';
 import { mixSeed, rng } from './rng.ts';
 
@@ -19,6 +20,10 @@ import { mixSeed, rng } from './rng.ts';
 const files = corpusFiles(24);
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+// Each of these mounts, scrolls and drives a real editor once per corpus
+// file, on two engines. Whole seconds on a quiet machine; the default
+// fifteen leaves no room for a runner sharing four cores with the rest of
+// the suite.
 describe('round-trip corpus (browser)', () => {
   let host: HTMLDivElement | null = null;
   let editor: Editor | null = null;
@@ -34,7 +39,7 @@ describe('round-trip corpus (browser)', () => {
     host = document.createElement('div');
     host.style.cssText = 'height: 400px; overflow: hidden;';
     document.body.appendChild(host);
-    editor = createEditor(host, text);
+    editor = parsedEditor(host, text);
     editor.view.dom.style.height = '100%';
     return editor.view;
   }
@@ -50,7 +55,9 @@ describe('round-trip corpus (browser)', () => {
     return view.state;
   }
 
-  it('edits table cells through the nested editor with exact bytes', async () => {
+  it('edits table cells through the nested editor with exact bytes', {
+    timeout: 60_000,
+  }, async () => {
     const failures: string[] = [];
     let checked = 0;
     for (const [fi, file] of files.entries()) {
@@ -111,7 +118,7 @@ describe('round-trip corpus (browser)', () => {
     expect(checked).toBeGreaterThan(5);
   });
 
-  it('composes text in a paragraph without duplication', async () => {
+  it('composes text in a paragraph without duplication', { timeout: 60_000 }, async () => {
     const failures: string[] = [];
     let checked = 0;
     for (const [fi, file] of files.entries()) {

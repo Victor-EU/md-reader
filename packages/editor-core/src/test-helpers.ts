@@ -1,7 +1,8 @@
-import { ensureSyntaxTree } from '@codemirror/language';
+import { ensureSyntaxTree, forceParsing } from '@codemirror/language';
 import { EditorSelection, type EditorState, type Range } from '@codemirror/state';
 import type { Decoration } from '@codemirror/view';
 import { createEditorState, type EditorMode } from './state.ts';
+import { createEditor, type Editor, type EditorOptions } from './view.ts';
 
 /**
  * A state whose syntax tree is complete. `EditorState.create` parses with
@@ -22,6 +23,22 @@ export function parsedState(
   const state = createEditorState(doc, { mode, ...(sel ? { selection: sel } : {}) });
   ensureSyntaxTree(state, doc.length, 10_000);
   return state.update({}).state;
+}
+
+/**
+ * A mounted editor whose syntax tree is complete, the view counterpart of
+ * `parsedState`. The same 20 ms budget applies when a view is built, and
+ * the preview draws what the tree it was handed contains: a runner that
+ * loses the CPU mid-parse mounts a document whose widgets stop partway
+ * down. The app redraws when the background parse catches up, so this is
+ * invisible in use and visible only to a test that asserts in the same
+ * tick. `forceParsing` finishes the parse and dispatches, which is what
+ * makes the preview plugin build over the whole document.
+ */
+export function parsedEditor(parent: HTMLElement, doc = '', options: EditorOptions = {}): Editor {
+  const editor = createEditor(parent, doc, options);
+  forceParsing(editor.view, editor.view.state.doc.length, 10_000);
+  return editor;
 }
 
 /**

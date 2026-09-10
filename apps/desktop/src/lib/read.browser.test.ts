@@ -296,7 +296,12 @@ describe('read mode', () => {
     expect(host.scrollHeight).toBeGreaterThan(10 * host.clientHeight);
   });
 
-  it('builds what the reader scrolls to and lets go of what they leave', async () => {
+  // A screenful at a time to the end of a 400-heading document: the
+  // scroll alone is hundreds of animation frames, which is seconds of
+  // wall clock before any of the building is counted.
+  it('builds what the reader scrolls to and lets go of what they leave', {
+    timeout: 30_000,
+  }, async () => {
     const long = Array.from(
       { length: 400 },
       (_, i) => `## Heading ${i}\n\n${'word '.repeat(60)}`,

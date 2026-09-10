@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createEditor, type Editor } from '../../view.ts';
+import { parsedEditor } from '../../test-helpers.ts';
+import type { Editor } from '../../view.ts';
 import type { PreviewOptions } from './options.ts';
 
 const doc = [
@@ -47,7 +48,7 @@ describe('block widgets', () => {
     enhanced.length = 0;
     host = document.createElement('div');
     document.body.appendChild(host);
-    editor = createEditor(host, doc, { preview });
+    editor = parsedEditor(host, doc, { preview });
     editor.view.dispatch({ selection: { anchor: doc.indexOf('Intro.') } });
   });
 
@@ -80,7 +81,7 @@ describe('block widgets', () => {
 
   it('shows a blocked image as its alt text and says why', () => {
     const text = 'Above.\n\n![x](remote.png)\n';
-    const one = createEditor(document.createElement('div'), text, {
+    const one = parsedEditor(document.createElement('div'), text, {
       preview: { image: () => ({ url: null, blocked: 'remote' }) },
     });
     one.view.dispatch({ selection: { anchor: 0 } });
@@ -105,7 +106,7 @@ describe('block widgets', () => {
   });
 
   it('leaves an unclosed math block as source', () => {
-    const one = createEditor(document.createElement('div'), '$$\nx = 1\n');
+    const one = parsedEditor(document.createElement('div'), '$$\nx = 1\n');
     expect(one.view.dom.querySelector('.mdr-math-block[data-tex]')).toBeNull();
     one.destroy();
   });
@@ -118,7 +119,7 @@ describe('the frontmatter properties panel', () => {
   beforeEach(() => {
     host = document.createElement('div');
     document.body.appendChild(host);
-    editor = createEditor(host, doc, { preview });
+    editor = parsedEditor(host, doc, { preview });
     editor.view.dispatch({ selection: { anchor: doc.indexOf('Intro.') } });
   });
 
@@ -163,7 +164,7 @@ describe('the frontmatter properties panel', () => {
   });
 
   it('falls back to the YAML when the block holds something the panel cannot show', () => {
-    const one = createEditor(document.createElement('div'), '---\na:\n  b: c\n---\n\nx\n');
+    const one = parsedEditor(document.createElement('div'), '---\na:\n  b: c\n---\n\nx\n');
     one.view.dispatch({ selection: { anchor: one.getDoc().indexOf('x') } });
     expect(one.view.dom.querySelector('.mdr-properties')).toBeNull();
     expect(one.view.dom.textContent).toContain('b: c');
@@ -208,7 +209,7 @@ describe('block widgets and the lines below them', () => {
     const host = document.createElement('div');
     host.style.cssText = 'height: 700px; width: 800px; overflow: hidden;';
     document.body.appendChild(host);
-    const one = createEditor(host, text, { preview });
+    const one = parsedEditor(host, text, { preview });
     one.view.dispatch({ selection: { anchor: 0 } });
 
     const line = (n: number) => one.view.state.doc.lineAt(n).number;
