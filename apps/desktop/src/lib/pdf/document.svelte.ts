@@ -100,10 +100,17 @@ export class PdfDoc {
       this.pages = document.pages;
       this.measured.set(1, await document.size(1));
       this.failure = null;
-      // The bookmarks are for the sidebar, and nothing waits on them.
-      void document.outline().then((entries) => {
-        this.outline = entries;
-      });
+      // The bookmarks are for the sidebar, and nothing waits on them —
+      // including for them to arrive, which is why the failure is
+      // swallowed here rather than left to reject into nobody.
+      document
+        .outline()
+        .then((entries) => {
+          this.outline = entries;
+        })
+        .catch(() => {
+          this.outline = [];
+        });
       return document;
     } catch (error) {
       this.failure =
@@ -129,13 +136,25 @@ export class PdfDoc {
     return this.measured.get(page) ?? null;
   }
 
+  /**
+   * A page's size, or page one's if it cannot be had.
+   *
+   * Never rejects. The view asks for this on the way to drawing a page
+   * and cannot wait for the answer, so a document given up underneath it
+   * — a tab closed, a window shut, a PDF dragged to another window —
+   * would otherwise reject into nobody at all.
+   */
   async size(page: number): Promise<PageSize> {
     const known = this.measured.get(page);
     if (known) return known;
     if (!this.document) return this.nominal;
-    const size = await this.document.size(page);
-    this.measured.set(page, size);
-    return size;
+    try {
+      const size = await this.document.size(page);
+      this.measured.set(page, size);
+      return size;
+    } catch {
+      return this.nominal;
+    }
   }
 
   async render(

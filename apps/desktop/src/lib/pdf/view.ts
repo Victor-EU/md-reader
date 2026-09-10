@@ -197,8 +197,23 @@ export class PdfView {
     this.onPlace?.(place);
   }
 
-  /** Put one page in the page, drawing it if it is not already there. */
+  /**
+   * Put one page in the page, drawing it if it is not already there.
+   *
+   * Never rejects: `draw` starts these and does not wait for them, so
+   * anything thrown here would be an unhandled rejection. What can throw
+   * is the engine being given up while a page is on its way — closing
+   * the tab is enough — and that is not something to report.
+   */
   private async show(page: number): Promise<void> {
+    try {
+      await this.build(page);
+    } catch {
+      // The document went while this page was coming.
+    }
+  }
+
+  private async build(page: number): Promise<void> {
     const at = page - 1;
     let held = this.live.get(page);
     if (!held) {
