@@ -343,6 +343,8 @@ importers:
 
   tools/corpus-gen: {}
 
+  tools/pdf-fixtures: {}
+
   tools/release: {}
 
 packages:
