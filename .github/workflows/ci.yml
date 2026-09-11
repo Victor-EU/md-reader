@@ -54,7 +54,12 @@ jobs:
       - uses: ./.github/actions/setup
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium webkit
+      # The suite takes two to four minutes. It has hung twice with nothing
+      # on screen, here and on a Mac, and GitHub's own limit is six hours.
+      # On the step rather than the job: the Rust build after it takes a
+      # quarter of an hour on Windows even with a warm cache.
       - run: pnpm test
+        timeout-minutes: 30
       - run: cargo test --workspace --locked
 
   bench:
