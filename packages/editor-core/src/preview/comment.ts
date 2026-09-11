@@ -1,5 +1,12 @@
 import { type Extension, StateEffect, StateField } from '@codemirror/state';
-import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
+import {
+  Decoration,
+  type DecorationSet,
+  EditorView,
+  ViewPlugin,
+  type ViewUpdate,
+  WidgetType,
+} from '@codemirror/view';
 import type { AnnotationKind } from '@markdown/markdown';
 
 /**
@@ -114,6 +121,53 @@ const commentHover = EditorView.domEventHandlers({
   },
 });
 
+/**
+ * Whether there is room for the notes beside the text (design 4.3): the
+ * space between the end of a line and the edge of the editor, measured,
+ * rather than the width of the window. A sidebar, a wider measure or a
+ * larger size all take that space away, and a window-wide breakpoint put
+ * notes past the edge of the window whenever one of them had.
+ *
+ * The answer is an attribute on the editor rather than a class, because
+ * the editor rewrites its own class list whenever focus moves.
+ */
+const MARGIN_GAP = 24;
+/** What a note needs beside the line, in the text's own ems. */
+const MARGIN_EMS = 8;
+
+const marginRoom = ViewPlugin.fromClass(
+  class {
+    constructor(readonly view: EditorView) {
+      this.measure();
+    }
+
+    update(update: ViewUpdate): void {
+      if (update.geometryChanged) this.measure();
+    }
+
+    measure(): void {
+      this.view.requestMeasure({
+        key: this,
+        read: (view) => {
+          const style = getComputedStyle(view.contentDOM);
+          const lineEnd =
+            view.contentDOM.getBoundingClientRect().right - Number.parseFloat(style.paddingRight);
+          const room = view.scrollDOM.getBoundingClientRect().right - lineEnd;
+          const em = Number.parseFloat(style.fontSize) || 16;
+          return room >= MARGIN_GAP + MARGIN_EMS * em;
+        },
+        write: (wide, view) => {
+          view.dom.toggleAttribute('data-mdr-margin', wide);
+        },
+      });
+    }
+
+    destroy(): void {
+      this.view.dom.removeAttribute('data-mdr-margin');
+    }
+  },
+);
+
 export function commentNotes(): Extension {
-  return [hoveredAnchor, commentHover];
+  return [hoveredAnchor, commentHover, marginRoom];
 }

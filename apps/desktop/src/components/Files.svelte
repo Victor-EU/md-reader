@@ -2,6 +2,7 @@
 import { basename, dirname, shortenDir } from '../lib/paths.ts';
 import type { SearchGroup } from '../lib/search.svelte.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
+import Icon from './Icon.svelte';
 
 let { workspace }: { workspace: Workspace } = $props();
 
@@ -12,6 +13,14 @@ const showing = $derived(search.showing !== '');
 
 let field: HTMLInputElement | undefined = $state();
 let naming: HTMLInputElement | undefined = $state();
+
+/**
+ * How far a row steps in per level, and where its name starts: the
+ * twist, then the file or folder, then the words. The rename field is
+ * put where the words were, so naming a file does not move it.
+ */
+const STEP = 14;
+const indent = (depth: number) => 6 + depth * STEP;
 
 /**
  * Cmd+Shift+F asks for this field. The sidebar it lives in may only be
@@ -101,7 +110,13 @@ const summary = $derived.by(() => {
       instead of a tree (design 4.1).
     -->
     <div class="folder-head">
-      <button type="button" class="act" onclick={() => void workspace.pickAndOpenFolder()}>
+      <span class="folder-name">Recent</span>
+      <button
+        type="button"
+        class="act"
+        title="Open a folder to work in"
+        onclick={() => void workspace.pickAndOpenFolder()}
+      >
         Open Folder…
       </button>
     </div>
@@ -116,6 +131,7 @@ const summary = $derived.by(() => {
             title={path}
             onclick={() => void workspace.openPath(path)}
           >
+            <span class="kind"><Icon name="file" size={14} /></span>
             <span class="row-name">{basename(path)}</span>
             <span class="row-where">{shortenDir(dirname(path), 1)}</span>
           </button>
@@ -127,28 +143,38 @@ const summary = $derived.by(() => {
       <span class="folder-name" title={folder.root}>{folder.name}</span>
       <button
         type="button"
-        class="act"
+        class="act icon"
         title="New file in the selected folder"
+        aria-label="New file in the selected folder"
         onclick={() => void workspace.newFileInFolder()}
       >
-        New
+        <Icon name="plus" size={14} />
       </button>
-      <button type="button" class="act" title="Close this folder" onclick={() => workspace.closeFolder()}>
-        Close
+      <button
+        type="button"
+        class="act icon"
+        title="Close this folder"
+        aria-label="Close this folder"
+        onclick={() => workspace.closeFolder()}
+      >
+        <Icon name="close" size={13} />
       </button>
     </div>
     <div class="find-in-folder">
-      <input
-        bind:this={field}
-        type="text"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="Find in folder"
-        aria-label="Find in folder"
-        value={search.query}
-        oninput={typed}
-        onkeydown={searchKeys}
-      />
+      <label class="search-field">
+        <Icon name="search" size={13} />
+        <input
+          bind:this={field}
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="Find in folder"
+          aria-label="Find in folder"
+          value={search.query}
+          oninput={typed}
+          onkeydown={searchKeys}
+        />
+      </label>
       <button
         type="button"
         class="flag"
@@ -198,7 +224,7 @@ const summary = $derived.by(() => {
             <input
               bind:this={naming}
               class="naming"
-              style="margin-left: {4 + row.depth * 10}px"
+              style="margin-left: {indent(row.depth) + 30}px"
               type="text"
               autocomplete="off"
               spellcheck="false"
@@ -218,8 +244,9 @@ const summary = $derived.by(() => {
             <button
               type="button"
               class="row"
+              class:dir={row.isDir}
               class:selected={folder.selected === row.path}
-              style="padding-left: {4 + row.depth * 10}px"
+              style="padding-left: {indent(row.depth)}px"
               title={row.path}
               aria-expanded={row.isDir ? row.expanded : undefined}
               onclick={() =>
@@ -228,7 +255,10 @@ const summary = $derived.by(() => {
                 if (!row.isDir) folder.renaming = row.path;
               }}
             >
-              <span class="twist">{row.isDir ? (row.expanded ? '▾' : '▸') : ''}</span>
+              <span class="twist" class:open={row.isDir && row.expanded}>
+                {#if row.isDir}<Icon name="chevron" size={12} />{/if}
+              </span>
+              <span class="kind"><Icon name={row.isDir ? 'folder' : 'file'} size={14} /></span>
               <span class="row-name">{row.name}</span>
             </button>
           {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
 import type { CommandRegistry } from '../lib/commands.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
+import Icon from './Icon.svelte';
 
 let { workspace, registry }: { workspace: Workspace; registry: CommandRegistry } = $props();
 
@@ -119,7 +120,7 @@ function tip(id: string): string {
         aria-label="Previous match"
         onclick={() => workspace.findStep(false)}
       >
-        ↑
+        <Icon name="up" />
       </button>
       <button
         type="button"
@@ -128,7 +129,7 @@ function tip(id: string): string {
         aria-label="Next match"
         onclick={() => workspace.findStep(true)}
       >
-        ↓
+        <Icon name="down" />
       </button>
       {#if !readOnly}
         <button
@@ -139,7 +140,7 @@ function tip(id: string): string {
           aria-label="Replace"
           onclick={() => workspace.updateFind({ replace: !find.replace })}
         >
-          ⇄
+          <Icon name="replace" />
         </button>
       {/if}
       <button
@@ -149,7 +150,7 @@ function tip(id: string): string {
         aria-label="Close find"
         onclick={() => workspace.closeFind()}
       >
-        ✕
+        <Icon name="close" size={14} />
       </button>
     </div>
 

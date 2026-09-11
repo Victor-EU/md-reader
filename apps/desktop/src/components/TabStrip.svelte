@@ -1,5 +1,6 @@
 <script lang="ts">
 import type { Workspace } from '../lib/workspace.svelte.ts';
+import Icon from './Icon.svelte';
 
 let { workspace }: { workspace: Workspace } = $props();
 
@@ -122,7 +123,7 @@ function auxclick(event: MouseEvent, id: string) {
           onclick={() => workspace.activate(tab.id)}
           ondblclick={() => workspace.togglePin(tab.id)}
         >
-          {#if tab.pinned}<span class="pin" aria-hidden="true">▪</span>{/if}
+          {#if tab.pinned}<span class="pin" aria-hidden="true"><Icon name="pin" size={12} /></span>{/if}
           {workspace.labels[index]}
           <!-- Only a document can be unsaved, so only a document has a dot. -->
           {#if doc}<span class="dot" class:dirty={doc.dirty} aria-hidden="true">•</span>{/if}
@@ -133,7 +134,7 @@ function auxclick(event: MouseEvent, id: string) {
           aria-label={`Close ${workspace.labels[index]}`}
           onclick={() => workspace.close(tab.id)}
         >
-          ×
+          <Icon name="close" size={12} />
         </button>
       </div>
     {/each}
@@ -145,7 +146,7 @@ function auxclick(event: MouseEvent, id: string) {
     title="New File"
     onclick={() => workspace.newUntitled()}
   >
-    +
+    <Icon name="plus" size={14} />
   </button>
   <div class="rest" data-tauri-drag-region></div>
 </div>

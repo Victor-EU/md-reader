@@ -23,6 +23,38 @@
 
   /* The chrome is the sans, always: it is furniture, not the document. */
   font-family: var(--family-sans);
+
+  /*
+   * The chrome's own grounds, mixed from the palette rather than written
+   * into it, so every theme has them in both appearances: a quiet ground
+   * for a control at rest and a stronger one under the pointer, a thumb
+   * for the choice that is on, and a tint for the row that is chosen.
+   * A tint rather than the accent itself, because white on the accent is
+   * legible in a light window and not in a dark one, where the accent is
+   * the pale colour.
+   */
+  --control: color-mix(in srgb, var(--bar-fg) 6%, transparent);
+  --control-hover: color-mix(in srgb, var(--bar-fg) 10%, transparent);
+  --thumb: var(--active-bg);
+  --thumb-edge:
+    0 0 0 0.5px color-mix(in srgb, var(--bar-fg) 18%, transparent),
+    0 1px 2px color-mix(in srgb, var(--bar-fg) 12%, transparent);
+  --chosen: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* In the dark the thumb is the lighter surface, as a raised thing is. */
+:root[data-appearance="dark"] {
+  --thumb: color-mix(in srgb, var(--bar-fg) 13%, var(--active-bg));
+  --thumb-edge: 0 0 0 0.5px rgb(0 0 0 / 50%), 0 1px 2px rgb(0 0 0 / 30%);
+  --chosen: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance]) {
+    --thumb: color-mix(in srgb, var(--bar-fg) 13%, var(--active-bg));
+    --thumb-edge: 0 0 0 0.5px rgb(0 0 0 / 50%), 0 1px 2px rgb(0 0 0 / 30%);
+    --chosen: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
 }
 
 html,
@@ -70,13 +102,15 @@ body,
 
 .bar.notice .fix {
   flex: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--active-bg);
+  border: 0;
+  border-radius: 6px;
+  background: var(--thumb);
+  box-shadow: var(--thumb-edge);
   color: var(--bar-fg);
   font: inherit;
   font-size: 12px;
-  padding: 2px 8px;
+  font-weight: 500;
+  padding: 3px 10px;
   cursor: default;
 }
 
@@ -195,6 +229,7 @@ body,
 }
 
 .tab .pin {
+  display: flex;
   color: var(--accent);
 }
 
@@ -208,14 +243,18 @@ body,
 }
 
 .tab .close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 5px;
   background: none;
   color: inherit;
-  font-size: 14px;
-  line-height: 1;
-  padding: 2px 6px 4px;
-  margin-right: 4px;
+  padding: 0;
+  margin-right: 5px;
   cursor: default;
   opacity: 0;
 }
@@ -232,19 +271,19 @@ body,
 
 /* The one control the strip has of its own; Cmd+N is the other way in. */
 .new-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
   align-self: center;
   width: 24px;
   height: 24px;
   margin: 0 4px;
-  padding: 0 0 2px;
+  padding: 0;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: none;
   color: var(--muted);
-  font: inherit;
-  font-size: 16px;
-  line-height: 1;
   cursor: default;
 }
 
@@ -274,7 +313,7 @@ body,
 
 .breadcrumb {
   display: flex;
-  gap: 4px;
+  gap: 5px;
   align-items: baseline;
   flex: 1;
   min-width: 0;
@@ -283,43 +322,53 @@ body,
   color: var(--muted);
 }
 
+.breadcrumb .sep {
+  opacity: 0.55;
+}
+
 .crumb.last {
   color: var(--bar-fg);
+  font-weight: 500;
 }
 
 .crumb.muted {
   opacity: 0.7;
 }
 
+/*
+ * The mode switch is a segmented control: a quiet track with the mode
+ * that is on raised out of it, the way the system draws one. The mode is
+ * told apart by its ground rather than by a colour, so it reads the same
+ * in every theme and in both appearances.
+ */
 .modes {
   display: flex;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  overflow: hidden;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--control);
 }
 
 .modes button {
   border: 0;
-  border-left: 1px solid var(--border);
+  border-radius: 5px;
   background: none;
-  color: inherit;
+  color: var(--muted);
   font: inherit;
   font-size: 12px;
-  padding: 3px 10px;
+  font-weight: 500;
+  padding: 2px 11px;
   cursor: default;
 }
 
-.modes button:first-child {
-  border-left: 0;
+.modes button:hover:not([aria-pressed="true"]) {
+  color: var(--bar-fg);
 }
 
 .modes button[aria-pressed="true"] {
-  background: var(--accent);
-  color: #fff;
-}
-
-.modes button:disabled {
-  opacity: 0.4;
+  background: var(--thumb);
+  box-shadow: var(--thumb-edge);
+  color: var(--bar-fg);
 }
 
 /*
@@ -328,60 +377,107 @@ body,
  */
 .annotate {
   display: flex;
-  gap: 3px;
+  gap: 2px;
   align-items: center;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
 }
 
 .tool {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
-  border: 1px solid transparent;
-  border-radius: 4px;
+  border: 0;
+  border-radius: 6px;
   background: none;
-  color: inherit;
+  color: var(--muted);
   font: inherit;
   font-size: 12px;
   cursor: default;
 }
 
-.tool:hover:not(:disabled) {
-  border-color: var(--border);
-  background: var(--hover-bg);
+.tool:hover:not(:disabled),
+.tool[aria-pressed="true"],
+.tool[aria-expanded="true"] {
+  background: var(--control);
+  color: var(--bar-fg);
 }
 
 .tool:disabled {
   opacity: 0.35;
 }
 
+/* The letter with a marker's stroke across its foot, in the highlight's
+   own colour. `isolation` keeps the stroke over the button's ground and
+   under the letter. */
 .tool.highlight {
-  background: var(--highlight);
+  isolation: isolate;
   color: var(--bar-fg);
+  font-weight: 600;
+}
+
+.tool.highlight::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 6px;
+  right: 6px;
+  top: 12px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--highlight);
 }
 
 .tool.strike {
   text-decoration: line-through;
 }
 
+.swatches {
+  display: flex;
+  align-items: center;
+}
+
+/* Five dots, each a meaning with a colour (design 4.3). */
 .tool.swatch {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+}
+
+.tool.swatch::before {
+  content: "";
+  width: 11px;
+  height: 11px;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--swatch) 60%, transparent);
   background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%);
+  transition: transform 120ms ease;
+}
+
+.tool.swatch:hover:not(:disabled) {
+  background: none;
+}
+
+.tool.swatch:hover:not(:disabled)::before {
+  transform: scale(1.25);
 }
 
 .changes {
-  border: 1px solid var(--accent);
-  border-radius: 10px;
-  background: none;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
   font: inherit;
   font-size: 11px;
-  padding: 2px 8px;
+  font-weight: 600;
+  padding: 3px 9px;
+  cursor: default;
+}
+
+.changes:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* --- sidebar ------------------------------------------------------------ */
@@ -403,40 +499,44 @@ body,
   user-select: none;
 }
 
+/* The three panels, as a segmented control like the mode switch. */
 .sidebar-head {
   display: flex;
   gap: 2px;
-  padding: 4px 6px;
-  border-bottom: 1px solid var(--border);
+  margin: 8px 8px 4px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--control);
 }
 
 .sidebar-head button {
+  flex: 1;
   border: 0;
   background: none;
   color: var(--muted);
   font: inherit;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 0;
+  border-radius: 5px;
   cursor: default;
 }
 
-.sidebar-head button:hover {
-  background: var(--hover-bg);
+.sidebar-head button:hover:not([aria-selected="true"]) {
+  color: var(--bar-fg);
 }
 
 .sidebar-head button[aria-selected="true"] {
   color: var(--bar-fg);
-  background: var(--active-bg);
+  background: var(--thumb);
+  box-shadow: var(--thumb-edge);
 }
 
 .outline {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 4px 6px 8px;
 }
 
 /*
@@ -453,27 +553,35 @@ body,
 
 .outline-entry {
   border: 0;
+  border-radius: 6px;
   background: none;
   color: var(--bar-fg);
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 1.35;
   text-align: left;
-  padding: 3px 8px;
+  padding: 4px 8px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   cursor: default;
 }
 
+/* The document's own title, where it has one, heads the list. */
+.outline-entry.top {
+  font-weight: 600;
+}
+
 .outline-entry:hover {
-  background: var(--hover-bg);
+  background: var(--control);
 }
 
 .outline .empty,
 .history .empty,
 .files .empty {
-  margin: 6px 10px;
+  margin: 6px 12px;
   font-size: 12px;
+  color: var(--muted);
 }
 
 /* --- files: the folder tree and the search in it (design 4.1) ------------ */
@@ -485,19 +593,23 @@ body,
   overflow: hidden;
 }
 
+/* The folder's name heads the panel, with what can be done to it beside. */
 .folder-head {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 5px 8px 3px;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding: 2px 8px 0 14px;
 }
 
 .folder-name {
   flex: 1;
   min-width: 0;
-  color: var(--bar-fg);
-  font-size: 12px;
+  color: var(--muted);
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -508,91 +620,148 @@ body,
   background: none;
   color: var(--muted);
   font: inherit;
-  font-size: 11px;
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-size: 11.5px;
+  padding: 3px 7px;
+  border-radius: 5px;
   cursor: default;
-  text-decoration: underline;
-  text-underline-offset: 2px;
   white-space: nowrap;
 }
 
+.files .act.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+}
+
 .files .act:hover {
-  color: var(--accent);
+  background: var(--control);
+  color: var(--bar-fg);
 }
 
 .find-in-folder {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 8px 5px;
-  border-bottom: 1px solid var(--border);
+  gap: 2px;
+  padding: 2px 8px 6px;
 }
 
-.find-in-folder input {
+.search-field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 7px;
+  background: var(--control);
+  color: var(--muted);
+}
+
+.search-field:focus-within {
+  background: var(--page-bg);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.search-field .icon {
+  flex: none;
+}
+
+.search-field input {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--page-bg);
+  border: 0;
+  padding: 0;
+  background: none;
   color: var(--bar-fg);
   font: inherit;
   font-size: 12px;
-  padding: 2px 6px;
+  outline: none;
 }
 
 .find-in-folder .flag {
   flex: none;
-  border: 1px solid transparent;
-  border-radius: 4px;
+  min-width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
   background: none;
   color: var(--muted);
   font: inherit;
   font-size: 11px;
-  padding: 1px 4px;
+  padding: 0 4px;
   cursor: default;
 }
 
+.find-in-folder .flag:hover {
+  background: var(--control);
+}
+
 .find-in-folder .flag[aria-pressed="true"] {
-  border-color: var(--accent);
-  color: var(--bar-fg);
+  background: var(--chosen);
+  color: var(--accent);
 }
 
 .tree {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 2px 6px 8px;
 }
 
+/*
+ * A row is a twist, a picture of what it is, and its name. The chosen
+ * file is tinted rather than filled, and every row is rounded and inset
+ * from the panel's edges, as the system's own sidebars are.
+ */
 .tree .row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 4px;
+  height: 24px;
   border: 0;
+  border-radius: 6px;
   background: none;
   color: var(--bar-fg);
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   text-align: left;
-  padding: 3px 8px;
+  padding: 0 8px;
   cursor: default;
   min-width: 0;
 }
 
 .tree .row:hover {
-  background: var(--hover-bg);
+  background: var(--control);
 }
 
 .tree .row.selected {
-  background: var(--active-bg);
+  background: var(--chosen);
 }
 
 .tree .twist {
-  width: 9px;
+  display: flex;
+  flex: none;
+  width: 12px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.tree .twist.open {
+  transform: rotate(90deg);
+}
+
+.tree .kind {
+  display: flex;
   flex: none;
   color: var(--muted);
-  font-size: 9px;
+}
+
+.tree .row.dir .kind {
+  color: color-mix(in srgb, var(--accent) 75%, var(--muted));
 }
 
 .tree .row-name {
@@ -612,28 +781,31 @@ body,
 }
 
 .naming {
+  height: 22px;
   border: 1px solid var(--accent);
-  border-radius: 3px;
+  border-radius: 5px;
   background: var(--page-bg);
   color: var(--bar-fg);
   font: inherit;
-  font-size: 12px;
-  margin-right: 8px;
-  padding: 1px 4px;
+  font-size: 12.5px;
+  margin: 1px 8px 1px 0;
+  padding: 0 5px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  outline: none;
 }
 
 .results {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding-bottom: 6px;
+  padding: 0 6px 6px;
 }
 
 .result-file {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  margin: 6px 0 1px;
+  margin: 8px 0 2px;
   padding: 0 8px;
   color: var(--bar-fg);
   font-size: 12px;
@@ -663,18 +835,19 @@ body,
   align-items: baseline;
   gap: 6px;
   border: 0;
+  border-radius: 5px;
   background: none;
   color: var(--muted);
   font: inherit;
   font-size: 12px;
   text-align: left;
-  padding: 1px 8px 1px 14px;
+  padding: 2px 8px 2px 10px;
   cursor: default;
   min-width: 0;
 }
 
 .result:hover {
-  background: var(--hover-bg);
+  background: var(--control);
 }
 
 .result .line {
@@ -705,18 +878,19 @@ body,
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 2px 6px 8px;
 }
 
 .history .comparing {
   border: 0;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 6px;
+  margin: 0 0 6px;
+  background: var(--chosen);
   color: var(--bar-fg);
   font: inherit;
-  font-size: 11px;
+  font-size: 11.5px;
   text-align: left;
-  padding: 4px 10px;
+  padding: 6px 10px;
   cursor: default;
 }
 
@@ -726,13 +900,22 @@ body,
   list-style: none;
 }
 
+/*
+ * One line per version: when, who, how big. What can be done with one
+ * comes up over its size while the pointer or the keyboard is on it, so a
+ * column of versions reads as a timeline rather than as a form.
+ */
 .version {
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  position: relative;
+  border-radius: 7px;
+}
+
+.version:hover {
+  background: var(--control);
 }
 
 .version.against {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--chosen);
 }
 
 .version .pick {
@@ -741,17 +924,19 @@ body,
   gap: 6px;
   width: 100%;
   border: 0;
+  border-radius: 7px;
   background: none;
   color: var(--bar-fg);
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   text-align: left;
-  padding: 4px 8px 1px;
+  padding: 6px 8px;
   cursor: default;
 }
 
-.version:hover {
-  background: var(--hover-bg);
+.version .when {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
 }
 
 .version .who {
@@ -766,22 +951,39 @@ body,
 }
 
 .version .acts {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  bottom: 0;
   display: flex;
   gap: 4px;
-  padding: 0 6px 4px;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.version:hover .acts,
+.version:focus-within .acts {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.version:hover .size,
+.version:focus-within .size {
+  visibility: hidden;
 }
 
 .version .acts button {
   border: 0;
-  background: none;
-  color: var(--muted);
+  border-radius: 5px;
+  background: var(--thumb);
+  box-shadow: var(--thumb-edge);
+  color: var(--bar-fg);
   font: inherit;
   font-size: 11px;
-  padding: 1px 4px;
-  border-radius: 3px;
+  font-weight: 500;
+  padding: 2px 8px;
   cursor: default;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .version .acts button:hover {
@@ -818,51 +1020,230 @@ body,
   font-family: var(--family-mono);
 }
 
+/*
+ * What the file says is shown as it says it: a monospace's ligatures
+ * would draw `=>` as an arrow and `<!--` as something else again, which
+ * is exactly the difference Source mode exists to show.
+ */
+.page.source .cm-scroller,
+.page .mdr-fence,
+.page .mdr-code,
+.page .mdr-frontmatter {
+  font-variant-ligatures: none;
+}
+
+/*
+ * The text column is the reader's measure, exactly where Read mode puts
+ * it, so switching modes moves nothing sideways and wraps no line
+ * differently. CodeMirror counts its content box's padding inside the
+ * box and pads every line 6px on the left and 2px on the right; the 56px
+ * and the uneven padding here take those three back out.
+ */
 .page .cm-content {
-  max-width: var(--read-measure);
+  max-width: calc(var(--read-measure) + 56px);
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 32px 26px 32px 22px;
 }
 
 .page .cm-editor.cm-focused {
   outline: none;
 }
 
-.blank {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: var(--page-muted);
-}
-
-.blank h1 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.blank p {
-  margin: 0;
-  font-size: 13px;
-}
-
-.blank .start {
-  margin-top: 10px;
-  padding: 5px 14px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bar-bg);
-  color: var(--bar-fg);
-  font-family: var(--family-sans);
-  font-size: 13px;
+/*
+ * A task's box and a table in the live preview, dressed as Read mode
+ * dresses them (read.css), so the two projections of a document agree.
+ * The table keeps faint lines between its columns while it is being
+ * edited, and no frame: the editor spaces a block widget with padding on
+ * the table itself (see the preview theme), and a frame would sit inside
+ * that padding.
+ */
+.page .mdr-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 1em;
+  height: 1em;
+  margin: 0 0.6em 0 0;
+  vertical-align: -0.15em;
+  border: 1.5px solid color-mix(in srgb, var(--page-fg) 30%, transparent);
+  border-radius: 0.3em;
+  background: var(--page-bg);
   cursor: default;
 }
 
-.blank .start:hover {
-  background: var(--hover-bg);
+.page .mdr-checkbox:checked {
+  border-color: var(--page-accent);
+  background: var(--page-accent);
+}
+
+.page .mdr-checkbox:checked::after {
+  content: "";
+  width: 0.26em;
+  height: 0.5em;
+  margin-top: -0.1em;
+  border: solid var(--page-bg);
+  border-width: 0 0.12em 0.12em 0;
+  transform: rotate(45deg);
+}
+
+.page .mdr-table-widget {
+  border-collapse: separate;
+  border-spacing: 0;
+  line-height: 1.5;
+}
+
+.page .mdr-table-widget th,
+.page .mdr-table-widget td {
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--page-border) 55%, transparent);
+  padding: 0.4em 0.7em;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * A cell wraps at words, never inside one. The editor's own `anywhere`
+ * reaches every cell by inheritance, and lets a column be squeezed
+ * narrower than its longest word: a tight table broke "Medium" in two.
+ */
+.page .mdr-table-widget,
+.page .mdr-table-widget .cm-lineWrapping {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.page .mdr-table-widget :is(th, td):first-child {
+  border-left: 0;
+}
+
+.page .mdr-table-widget th {
+  background: color-mix(in srgb, var(--page-fg) 4%, transparent);
+  border-bottom: 1px solid var(--page-border);
+}
+
+.page .mdr-table-widget tr:nth-child(odd):not(:first-child) {
+  background: color-mix(in srgb, var(--page-fg) 3.5%, transparent);
+}
+
+/*
+ * The window with nothing in it (design 4.1): what the app is, the three
+ * ways in with the keys for them, and the files from last time. It is the
+ * first thing a new reader sees, so it is drawn as a place to start.
+ */
+.blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  overflow-y: auto;
+  color: var(--page-muted);
+  font-family: var(--family-sans);
+}
+
+.blank-icon {
+  width: 84px;
+  height: 84px;
+  margin-bottom: 16px;
+  filter: drop-shadow(0 6px 14px rgb(0 0 0 / 14%));
+}
+
+.blank h1 {
+  margin: 0;
+  color: var(--page-fg);
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.blank p {
+  margin: 6px 0 22px;
+  font-size: 13px;
+}
+
+.blank .starts,
+.blank .recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 280px;
+}
+
+.blank .start,
+.blank .recent-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--page-fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+
+.blank .start:hover,
+.blank .recent-file:hover {
+  background: color-mix(in srgb, var(--page-fg) 6%, transparent);
+}
+
+.blank .start .icon {
+  flex: none;
+  color: var(--page-accent);
+}
+
+.blank .start-label,
+.blank .recent-file .row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blank .start kbd {
+  color: var(--page-muted);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.blank .recent {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--page-border);
+}
+
+.blank h2 {
+  margin: 0 0 4px 12px;
+  color: var(--page-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.blank .recent-file {
+  padding: 6px 12px;
+}
+
+.blank .recent-file .icon {
+  flex: none;
+  color: var(--page-muted);
+}
+
+.blank .recent-file .row-where {
+  flex: none;
+  max-width: 45%;
+  color: var(--page-muted);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --- read mode ---------------------------------------------------------- */
@@ -993,7 +1374,7 @@ body,
  * height it needs: one row, or two once replace is asked for.
  */
 .bar.find {
-  padding: 4px 10px;
+  padding: 5px 10px;
 }
 
 .find .rows {
@@ -1005,25 +1386,27 @@ body,
 
 .find .row {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   align-items: center;
 }
 
 .find .field {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--page-bg);
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--control);
   color: inherit;
   font: inherit;
-  font-size: 12px;
-  padding: 3px 7px;
+  font-size: 12.5px;
+  padding: 0 9px;
 }
 
 .find .field:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
+  outline: none;
+  background: var(--page-bg);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .find .flags {
@@ -1034,13 +1417,17 @@ body,
 .find .flag,
 .find .step,
 .find .apply {
-  border: 1px solid transparent;
-  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
   background: none;
-  color: inherit;
+  color: var(--muted);
   font: inherit;
   font-size: 12px;
-  padding: 2px 6px;
+  padding: 0 7px;
   cursor: default;
 }
 
@@ -1049,27 +1436,41 @@ body,
   min-width: 26px;
 }
 
+.find .step {
+  width: 26px;
+  padding: 0;
+}
+
 .find .flag:hover,
 .find .step:hover,
 .find .apply:hover {
-  background: var(--hover-bg);
+  background: var(--control);
+  color: var(--bar-fg);
 }
 
 .find .flag[aria-pressed="true"],
 .find .step[aria-pressed="true"] {
-  background: var(--accent);
-  color: #fff;
+  background: var(--chosen);
+  color: var(--accent);
 }
 
 .find .apply {
-  border-color: var(--border);
+  background: var(--control);
+  color: var(--bar-fg);
+  padding: 0 10px;
+}
+
+.find .apply:hover {
+  background: var(--control-hover);
 }
 
 /* Wide enough for "1000 of 1000+" so the buttons do not move as you type. */
 .find .summary {
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   min-width: 12ch;
+  margin-right: 4px;
   text-align: right;
 }
 
@@ -1110,18 +1511,20 @@ body,
 
 .reading-panel {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   right: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 280px;
-  padding: 12px;
+  gap: 10px;
+  width: 288px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bar-bg);
-  box-shadow: 0 8px 24px var(--shadow);
+  border-radius: 12px;
+  background: var(--active-bg);
+  box-shadow:
+    0 16px 40px -12px var(--shadow),
+    0 2px 6px -2px var(--shadow);
   font-family: var(--family-sans);
 }
 
@@ -1129,9 +1532,13 @@ body,
   outline: none;
 }
 
+/* Where the settings go, as a segmented control like the mode switch. */
 .reading-panel .scope {
   display: flex;
-  gap: 6px;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--control);
 }
 
 .reading-panel .scope > * {
@@ -1139,10 +1546,21 @@ body,
   justify-content: center;
 }
 
+.reading-panel .scope > button {
+  background: none;
+  color: var(--muted);
+}
+
+.reading-panel .scope > button[aria-checked="true"] {
+  background: var(--thumb);
+  box-shadow: var(--thumb-edge);
+  color: var(--bar-fg);
+}
+
 .reading-panel .hint {
   margin: 0;
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.45;
   color: var(--muted);
 }
 
@@ -1153,8 +1571,8 @@ body,
 }
 
 .reading-panel .field .label {
-  flex: 0 0 54px;
-  font-size: 11px;
+  flex: 0 0 58px;
+  font-size: 11.5px;
   color: var(--muted);
 }
 
@@ -1168,23 +1586,24 @@ body,
   display: inline-flex;
   gap: 4px;
   align-items: center;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--active-bg);
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--control);
   color: var(--bar-fg);
   font-family: inherit;
   font-size: 12px;
   cursor: default;
 }
 
-.reading-panel .choice:hover:not(:disabled) {
-  background: var(--hover-bg);
+.reading-panel .choice:hover:not(:disabled, [aria-checked="true"]) {
+  background: var(--control-hover);
 }
 
 .reading-panel .choice[aria-checked="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--active-bg));
+  background: var(--chosen);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--bar-fg);
 }
 
 .reading-panel .choice:disabled {
@@ -1192,32 +1611,38 @@ body,
 }
 
 .reading-panel .paper {
-  padding: 3px;
+  padding: 4px;
+  border-radius: 50%;
 }
 
 .reading-panel .paper .dab {
-  width: 14px;
-  height: 14px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--bar-fg) 20%, transparent);
+  border-radius: 50%;
 }
 
 .reading-panel .value {
   min-width: 34px;
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .reading-panel input[type="range"] {
   flex: 1;
   min-width: 0;
+  accent-color: var(--accent);
 }
 
 .bar.status {
+  gap: 14px;
+  padding: 3px 12px;
   border-top: 1px solid var(--border);
   border-bottom: none;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .status .cell {
@@ -1236,21 +1661,48 @@ body,
   white-space: nowrap;
 }
 
-/* A cell that does something when it is pressed: the updater's, and the
-   conflict count that takes the reader to the next one. Still a cell in
-   the bar, not a button drawn like one. */
+/* A cell that does something when it is pressed: the updater's, the
+   agent's, and the conflict count that takes the reader to the next one.
+   Still a cell in the bar, not a button drawn like one, until the pointer
+   is on it. */
 .status .cell.act {
   border: 0;
-  padding: 0;
+  margin: -1px -6px;
+  padding: 1px 6px;
+  border-radius: 5px;
   background: none;
-  cursor: pointer;
+  color: inherit;
+  cursor: default;
   font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 .status .cell.act:hover {
+  background: var(--control);
   color: var(--bar-fg);
+}
+
+.status .cell.dirty.act {
+  color: var(--dirty);
+}
+
+/* Whether anything is connected, as a light: grey while nothing is, green
+   while an agent is (design 9). */
+.status .agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.agent.live .agent-dot {
+  background: var(--note-keep);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--note-keep) 22%, transparent);
 }
 
 /* The updater's one cell (plan WP 1.12). It sits after the message so it
@@ -1269,30 +1721,42 @@ body,
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding-top: 12vh;
-  background: rgb(0 0 0 / 15%);
+  padding-top: 14vh;
+  background: rgb(0 0 0 / 18%);
 }
 
 .palette {
-  width: min(620px, 90vw);
-  max-height: 60vh;
+  width: min(640px, 90vw);
+  max-height: 62vh;
   display: flex;
   flex-direction: column;
-  background: var(--bar-bg);
+  background: var(--active-bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 12px 32px var(--shadow);
+  border-radius: 12px;
+  box-shadow:
+    0 24px 64px -16px var(--shadow),
+    0 4px 12px -4px var(--shadow);
   overflow: hidden;
 }
 
-.palette .query {
-  border: 0;
+.palette .query-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.palette .query {
+  flex: 1;
+  min-width: 0;
+  border: 0;
   background: none;
   color: var(--bar-fg);
   font: inherit;
-  font-size: 14px;
-  padding: 10px 12px;
+  font-size: 15px;
+  padding: 14px 0;
 }
 
 .palette .query:focus {
@@ -1302,39 +1766,39 @@ body,
 .palette .rows {
   list-style: none;
   margin: 0;
-  padding: 4px 0;
+  padding: 6px;
   overflow-y: auto;
 }
 
 .palette .row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
   border: 0;
+  border-radius: 7px;
   background: none;
   color: var(--bar-fg);
   font: inherit;
   font-size: 13px;
   text-align: left;
-  padding: 5px 12px;
+  padding: 7px 10px;
   cursor: default;
 }
 
 .palette .row.selected {
-  background: var(--accent);
-  color: #fff;
+  background: var(--chosen);
 }
 
 .palette .row.disabled {
   opacity: 0.45;
 }
 
+/* The letters the query matched, in the accent rather than underlined. */
 .palette .row mark {
   background: none;
-  color: inherit;
-  font-weight: 700;
-  text-decoration: underline;
+  color: var(--accent);
+  font-weight: 650;
 }
 
 .palette .row-label {
@@ -1343,22 +1807,23 @@ body,
 
 .palette .row-detail {
   flex: 1;
-  font-size: 11px;
-  opacity: 0.7;
+  color: var(--muted);
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.palette kbd {
+.palette .row kbd {
+  color: var(--muted);
   font: inherit;
-  font-size: 11px;
-  opacity: 0.8;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
 }
 
 .palette .empty {
   margin: 0;
-  padding: 12px;
+  padding: 14px 16px;
   color: var(--muted);
   font-size: 13px;
 }
@@ -1419,23 +1884,22 @@ body,
   gap: 6px;
   align-items: baseline;
   padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bar-bg);
-  color: var(--bar-fg);
+  border: 0;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--page-fg) 6%, transparent);
+  color: var(--page-fg);
   font-family: var(--family-sans);
   font-size: 13px;
   cursor: default;
 }
 
-.settings .choice:hover:not(:disabled) {
-  background: var(--hover-bg);
+.settings .choice:hover:not(:disabled, [aria-checked="true"]) {
+  background: color-mix(in srgb, var(--page-fg) 10%, transparent);
 }
 
 .settings .choice[aria-checked="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bar-bg));
-  color: var(--bar-fg);
+  background: color-mix(in srgb, var(--page-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--page-accent) 55%, transparent);
 }
 
 .settings .choice:disabled {
@@ -1444,73 +1908,190 @@ body,
 
 .settings .choice .note {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--page-muted);
+}
+
+/* One of a few words, chosen the way the mode switch chooses a mode. */
+.settings .segmented {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--control);
+}
+
+.settings .segmented .choice {
+  padding: 4px 16px;
+  border-radius: 7px;
+  background: none;
+  color: var(--page-muted);
+}
+
+.settings .segmented .choice[aria-checked="true"] {
+  background: var(--thumb);
+  box-shadow: var(--thumb-edge);
+  color: var(--bar-fg);
+}
+
+/* A family's name beside a sample of itself. */
+.settings .face {
+  align-items: center;
+}
+
+.settings .face-sample {
+  margin-right: 2px;
+  font-size: 17px;
+  line-height: 1;
 }
 
 /*
- * The four themes, each wearing itself (plan WP 2.6): the paper it would
- * give this page, its chrome, its accent, and three of its code colours.
- * A theme that is not on has no variables to be read from, so these are
- * written inline from its own file.
+ * The four themes, each wearing itself (plan WP 2.6): a window in
+ * miniature, drawn in the chrome, paper, ink, highlight and code colours
+ * the theme would give this page. A theme that is not on has no variables
+ * to be read from, so these are written inline from its own file.
  */
 .settings .themes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 14px;
 }
 
 .settings .theme {
   display: flex;
   flex-direction: column;
   /*
-   * Both spelt out because a `button` is not an ordinary flex container:
-   * WebKit centres what is inside one, so a strip left to stretch comes
-   * out as a hairline.
+   * Spelt out because a `button` is not an ordinary flex container:
+   * WebKit centres what is inside one, so a preview left to stretch
+   * comes out as narrow as its content.
    */
   align-items: stretch;
-  gap: 6px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bar-bg);
-  color: var(--bar-fg);
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--page-fg);
   font-family: var(--family-sans);
   font-size: 13px;
   text-align: left;
   cursor: default;
 }
 
-.settings .theme:hover {
-  background: var(--hover-bg);
-}
-
-.settings .theme[aria-checked="true"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--bar-bg));
-}
-
-.settings .theme .strip {
+.settings .preview {
   display: flex;
-  width: 100%;
+  flex-direction: column;
+  height: 86px;
   overflow: hidden;
-  height: 22px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: 10px;
+  background: var(--p-paper);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--page-fg) 12%, transparent),
+    0 1px 3px rgb(0 0 0 / 8%);
+  transition:
+    box-shadow 140ms ease,
+    transform 140ms ease;
 }
 
-.settings .theme .strip .band {
+.settings .theme:hover .preview {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--page-fg) 16%, transparent),
+    0 6px 16px rgb(0 0 0 / 10%);
+}
+
+.settings .theme[aria-checked="true"] .preview {
+  box-shadow:
+    0 0 0 2px var(--page-accent),
+    0 0 0 5px color-mix(in srgb, var(--page-accent) 22%, transparent);
+}
+
+.settings .preview-bar {
+  flex: none;
+  height: 15px;
+  background: var(--p-chrome);
+  border-bottom: 1px solid var(--p-edge);
+}
+
+.settings .preview-page {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px 9px;
+}
+
+.settings .preview-title {
+  width: 52%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--p-ink);
+}
+
+.settings .preview-text {
+  position: relative;
+  width: 92%;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--p-ink) 32%, transparent);
+}
+
+.settings .preview-text.short {
+  width: 68%;
+}
+
+.settings .preview-mark {
+  position: absolute;
+  top: -2px;
+  left: 34%;
+  width: 36%;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--p-mark);
+}
+
+.settings .preview-code {
+  display: flex;
+  gap: 4px;
+  margin-top: auto;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--p-code);
+}
+
+.settings .preview-code span {
+  height: 3px;
+  border-radius: 2px;
+}
+
+.settings .preview-code .k {
+  width: 16%;
+  background: var(--p-keyword);
+}
+
+.settings .preview-code .s {
+  width: 36%;
+  background: var(--p-string);
+}
+
+.settings .preview-code .n {
+  width: 10%;
+  background: var(--p-number);
 }
 
 .settings .theme-name {
+  padding-left: 2px;
   font-weight: 600;
 }
 
+.settings .theme[aria-checked="true"] .theme-name {
+  color: var(--page-accent);
+}
+
 .settings .paper .dab {
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  width: 14px;
+  height: 14px;
+  border: 1px solid color-mix(in srgb, var(--page-fg) 22%, transparent);
+  border-radius: 50%;
   align-self: center;
 }
 
@@ -1570,6 +2151,30 @@ body,
 
 .settings .specimen-code code {
   font: inherit;
+}
+
+/* The app's own name and icon head the About block. */
+.settings .identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--family-sans);
+}
+
+.settings .identity img {
+  width: 44px;
+  height: 44px;
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 12%));
+}
+
+.settings .identity .name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.settings .identity .hint {
+  margin: 0;
 }
 
 /* Who built it and why, on the About block. The links are dressed as

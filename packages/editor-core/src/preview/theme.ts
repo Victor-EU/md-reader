@@ -25,10 +25,24 @@ const mono =
  * same colour whichever projection of the document it is seen in.
  */
 export const previewTheme = EditorView.baseTheme({
-  '.mdr-h1': { fontSize: '1.7em', fontWeight: '700', lineHeight: '1.3' },
-  '.mdr-h2': { fontSize: '1.4em', fontWeight: '700', lineHeight: '1.3' },
-  '.mdr-h3': { fontSize: '1.2em', fontWeight: '700' },
-  '.mdr-h4, .mdr-h5, .mdr-h6': { fontWeight: '700' },
+  // Read mode's scale (the app's `read.css`), so a heading is the same
+  // size and weight whichever projection of the document it is seen in,
+  // and switching modes wraps nothing differently.
+  '.mdr-h1': {
+    fontSize: '1.9em',
+    fontWeight: '650',
+    lineHeight: '1.25',
+    letterSpacing: '-0.021em',
+  },
+  '.mdr-h2': {
+    fontSize: '1.5em',
+    fontWeight: '650',
+    lineHeight: '1.25',
+    letterSpacing: '-0.016em',
+  },
+  '.mdr-h3': { fontSize: '1.25em', fontWeight: '650', letterSpacing: '-0.011em' },
+  '.mdr-h4': { fontSize: '1.1em', fontWeight: '650', letterSpacing: '-0.006em' },
+  '.mdr-h5, .mdr-h6': { fontWeight: '650' },
   '.mdr-em': { fontStyle: 'italic' },
   '.mdr-strong': { fontWeight: '700' },
   '.mdr-code, .mdr-math': {
@@ -72,22 +86,21 @@ export const previewTheme = EditorView.baseTheme({
     boxShadow: 'inset 0 -2px 0 0 var(--mdr-link, #2a6ad9)',
     borderRadius: '2px',
   },
-  // Wide enough for a margin: the note leaves the line and sits beside it.
-  '@media (min-width: 1000px)': {
-    '.mdr-comment-widget': {
-      position: 'absolute',
-      left: 'calc(100% + 16px)',
-      top: 'calc(var(--mdr-note-index, 0) * 1.7em)',
-      width: '15ch',
-      margin: '0',
-      whiteSpace: 'normal',
-      display: 'block',
-    },
-    // Laid out as a block, so the flex gap between the kind and the words
-    // is gone and the margin has to be its own.
-    '.mdr-comment-kind': { marginRight: '0.35em' },
-    '.mdr-comment-kind::after': { content: '":"' },
+  // Room for a margin beside the text, as `commentNotes` measures it: the
+  // note leaves the line and sits beside it.
+  '&[data-mdr-margin] .mdr-comment-widget': {
+    position: 'absolute',
+    left: 'calc(100% + 16px)',
+    top: 'calc(var(--mdr-note-index, 0) * 1.7em)',
+    width: '15ch',
+    margin: '0',
+    whiteSpace: 'normal',
+    display: 'block',
   },
+  // Laid out as a block, so the flex gap between the kind and the words
+  // is gone and the margin has to be its own.
+  '&[data-mdr-margin] .mdr-comment-kind': { marginRight: '0.35em' },
+  '&[data-mdr-margin] .mdr-comment-kind::after': { content: '":"' },
   '.mdr-syntax, .mdr-dim, .mdr-quote-mark': { opacity: '0.45' },
   '.mdr-quote': {
     borderLeft: '3px solid var(--mdr-quote, #c9c9c9)',
@@ -126,6 +139,10 @@ export const previewTheme = EditorView.baseTheme({
   '.mdr-bullet': {
     display: 'inline-block',
     width: '1.2em',
+    // An inline block inherits its line's hanging indent and applies it to
+    // its own content, which drew the dot that far left of its box — twice
+    // as far for a nested item, whose indent is twice as deep.
+    textIndent: '0',
     color: 'var(--mdr-muted, #888)',
   },
   '.mdr-checkbox': { margin: '0 0.5em 0 0', verticalAlign: 'middle' },

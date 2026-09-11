@@ -17,7 +17,8 @@ const nothing = $derived(workspace.activePdf ? 'No bookmarks' : 'No headings');
     <button
       type="button"
       class="outline-entry"
-      style="padding-left: {2 + row.level * 10}px"
+      class:top={row.level === 1}
+      style="padding-left: {row.level * 12 - 4}px"
       onclick={() => workspace.goToOutline(row.target)}
     >
       {row.text || '—'}

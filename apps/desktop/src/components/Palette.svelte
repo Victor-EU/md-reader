@@ -2,6 +2,7 @@
 import { type Command, type CommandRegistry, titleOf } from '../lib/commands.ts';
 import { rank } from '../lib/fuzzy.ts';
 import type { FileChoice, Workspace } from '../lib/workspace.svelte.ts';
+import Icon from './Icon.svelte';
 
 let { workspace, registry }: { workspace: Workspace; registry: CommandRegistry } = $props();
 
@@ -155,18 +156,21 @@ function keydown(event: KeyboardEvent) {
   }}
 >
   <div class="palette">
-    <input
-      bind:this={input}
-      class="query"
-      type="text"
-      autocomplete="off"
-      spellcheck="false"
-      placeholder={palette.kind === 'files' ? 'Go to file…' : 'Run a command…'}
-      aria-label={palette.kind === 'files' ? 'Go to file' : 'Run a command'}
-      value={palette.query}
-      oninput={(event) => workspace.setPaletteQuery(event.currentTarget.value)}
-      onkeydown={keydown}
-    />
+    <div class="query-row">
+      <Icon name="search" />
+      <input
+        bind:this={input}
+        class="query"
+        type="text"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder={palette.kind === 'files' ? 'Go to file…' : 'Run a command…'}
+        aria-label={palette.kind === 'files' ? 'Go to file' : 'Run a command'}
+        value={palette.query}
+        oninput={(event) => workspace.setPaletteQuery(event.currentTarget.value)}
+        onkeydown={keydown}
+      />
+    </div>
     {#if rows.length === 0}
       <p class="empty">Nothing matches</p>
     {:else}

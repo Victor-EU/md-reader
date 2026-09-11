@@ -33,6 +33,31 @@
 }
 
 /*
+ * The few marks the page draws for itself, as masks so their colour is
+ * whatever the rule using them says: the fold beside a heading, and the
+ * sign each callout type leads its title with. Inline, like everything
+ * else here, so an exported page carries them without a request.
+ */
+:root {
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3.5 10.5 8 6 12.5'/%3E%3C/svg%3E");
+  --mark-note: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 2.5 13.5 5 6 12.5l-3.25.75.75-3.25z'/%3E%3Cpath d='m9.5 4 2.5 2.5'/%3E%3C/svg%3E");
+  --mark-info: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='M8 7.25v4M8 4.9v.1'/%3E%3C/svg%3E");
+  --mark-abstract: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='2.5' width='10' height='11' rx='1.5'/%3E%3Cpath d='M5.75 6h4.5M5.75 8.5h4.5M5.75 11h2.5'/%3E%3C/svg%3E");
+  --mark-todo: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='m5.5 8.25 1.75 1.75 3.25-3.5'/%3E%3C/svg%3E");
+  --mark-tip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 11.5h4M6.75 14h2.5M8 2a4 4 0 0 0-2.4 7.2c.5.4.65.85.65 1.3v1h3.5v-1c0-.45.15-.9.65-1.3A4 4 0 0 0 8 2z'/%3E%3C/svg%3E");
+  --mark-success: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 8.5 3.25 3.25L13 5'/%3E%3C/svg%3E");
+  --mark-question: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='M6.25 6.4a1.8 1.8 0 0 1 3.5.6c0 1.2-1.75 1.45-1.75 2.6M8 11.4v.1'/%3E%3C/svg%3E");
+  --mark-warning: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M8 2.25 14.25 13.25H1.75z'/%3E%3Cpath d='M8 6.5v3M8 11.2v.1'/%3E%3C/svg%3E");
+  --mark-caution: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.4 1.75h5.2l3.65 3.65v5.2l-3.65 3.65H5.4L1.75 10.6V5.4z'/%3E%3Cpath d='M8 5v3.5M8 10.9v.1'/%3E%3C/svg%3E");
+  --mark-danger: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9.25 1.75 3.5 9h4.25l-1 5.25L12.5 7H8.25z'/%3E%3C/svg%3E");
+  --mark-failure: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='8' cy='8' r='6.25'/%3E%3Cpath d='m5.75 5.75 4.5 4.5m0-4.5-4.5 4.5'/%3E%3C/svg%3E");
+  --mark-bug: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='5' width='6' height='8.5' rx='3'/%3E%3Cpath d='M6.5 5V4a1.5 1.5 0 0 1 3 0v1M8 8v5.5M2.5 9H5m6 0h2.5M3 5.5l2 1.25m8-1.25-2 1.25M3 13l2-1.5m8 1.5-2-1.5'/%3E%3C/svg%3E");
+  --mark-important: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.75 3h10.5v7.5H7.5l-3 2.5v-2.5H2.75z'/%3E%3Cpath d='M8 5.25v2.5M8 9.1v.1'/%3E%3C/svg%3E");
+  --mark-example: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 4h7.25M6 8h7.25M6 12h7.25M2.75 4h.1M2.75 8h.1M2.75 12h.1'/%3E%3C/svg%3E");
+  --mark-quote: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12.5c1.9-.6 3-2 3-4.25V4.5H3v4h3m4 4c1.9-.6 3-2 3-4.25V4.5h-3v4h3'/%3E%3C/svg%3E");
+}
+
+/*
  * The typography of design 11: a measure the reader sets, line height
  * 1.6, and a scale that keeps four heading levels apart without being
  * loud. The size and the measure are settings, so both are variables.
@@ -119,17 +144,26 @@
   margin-top: 0;
 }
 
+/*
+ * Display sizes set a little tighter than the text, as the faces'
+ * designers intend at these sizes; without it a heading reads as body
+ * type blown up rather than as a heading.
+ */
 .read h1 {
   font-size: 1.9em;
+  letter-spacing: -0.021em;
 }
 .read h2 {
   font-size: 1.5em;
+  letter-spacing: -0.016em;
 }
 .read h3 {
   font-size: 1.25em;
+  letter-spacing: -0.011em;
 }
 .read h4 {
   font-size: 1.1em;
+  letter-spacing: -0.006em;
 }
 .read h5,
 .read h6 {
@@ -152,7 +186,15 @@
 }
 
 .mdr-fold::before {
-  content: "▾";
+  content: "";
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: currentColor;
+  -webkit-mask: var(--chevron) center / 75% no-repeat;
+  mask: var(--chevron) center / 75% no-repeat;
+  transform: rotate(90deg);
+  transition: transform 120ms ease;
 }
 
 .mdr-fold:focus-visible {
@@ -165,34 +207,48 @@
 }
 
 .read .folded .mdr-fold::before {
-  content: "▸";
+  transform: none;
 }
 
 .read a {
   color: var(--page-accent);
   text-decoration-color: color-mix(in srgb, var(--page-accent) 40%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
 }
 
+.read a:hover {
+  text-decoration-color: var(--page-accent);
+}
+
+/*
+ * Code is shown as it is written: a monospace's ligatures would draw
+ * `=>` as an arrow and `!=` as a slashed equals, and a reader checking
+ * what a model wrote should see the characters it wrote.
+ */
 .read code {
   font-family: var(--family-mono);
-  font-size: 0.9em;
+  font-size: 0.88em;
+  font-variant-ligatures: none;
 }
 
 .read :not(pre) > code {
   /* The paper's own code ground, not the chrome's: a grey chip on a
      yellow page belongs to a different window. */
   background: var(--code-bg);
-  border-radius: 4px;
-  padding: 0.1em 0.3em;
+  border-radius: 5px;
+  padding: 0.12em 0.36em;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--page-fg) 6%, transparent);
 }
 
 .read pre {
   position: relative;
   background: var(--code-bg);
-  border: 1px solid var(--page-border);
-  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--page-border) 75%, transparent);
+  border-radius: 8px;
   /* Room at the top for the language and the copy button. */
-  padding: 24px 12px 10px;
+  padding: 30px 16px 14px;
+  line-height: 1.55;
   overflow-x: auto;
   /* AI output has long lines; design 11 wraps them by default. */
   white-space: pre-wrap;
@@ -208,7 +264,7 @@
 .read .mdr-code-lang,
 .read .mdr-copy {
   position: absolute;
-  top: 3px;
+  top: 7px;
   font-family: var(--family-sans);
   font-size: 11px;
   line-height: 1.6;
@@ -216,17 +272,20 @@
 }
 
 .read .mdr-code-lang {
-  left: 12px;
+  left: 16px;
   color: var(--page-muted);
+  font-size: 10.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.07em;
 }
 
 .read .mdr-copy {
+  top: 5px;
   right: 8px;
-  padding: 0 6px;
+  padding: 1px 8px;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 5px;
   background: none;
   color: var(--page-muted);
   cursor: default;
@@ -252,8 +311,25 @@
 
 .read blockquote {
   border-left: 3px solid var(--page-border);
-  padding-left: 14px;
+  padding: 0.1em 0 0.1em 1em;
   color: var(--page-muted);
+}
+
+/* A quote's paragraphs keep their spacing between them and none at the
+   edges, where the rule and the padding already are. */
+.read blockquote > :first-child,
+.read .mdr-callout > :nth-child(2) {
+  margin-top: 0;
+}
+
+.read blockquote > :last-child,
+.read .mdr-callout > :last-child {
+  margin-bottom: 0;
+}
+
+.read blockquote p,
+.read .mdr-callout p {
+  margin: 0.45em 0;
 }
 
 /*
@@ -262,89 +338,241 @@
  * the editor's live preview uses, so the two modes agree.
  */
 .read blockquote.mdr-callout {
-  border-left-width: 4px;
+  border-left-width: 3px;
   border-left-color: var(--mdr-callout);
-  background: color-mix(in srgb, var(--mdr-callout) 7%, transparent);
-  border-radius: 0 6px 6px 0;
-  padding: 8px 14px;
+  background: color-mix(in srgb, var(--mdr-callout) 8%, transparent);
+  border-radius: 0 8px 8px 0;
+  padding: 12px 16px;
   color: inherit;
 }
 
+/*
+ * The title leads with its type's sign, in the type's colour: a circled
+ * `i` for information, a triangle for a warning, a lightbulb for a tip.
+ * A type nobody defined gets the note's pencil.
+ */
 .mdr-callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
   font-weight: 650;
   color: var(--mdr-callout);
-  margin-bottom: 0.3em;
+  margin-bottom: 0.35em;
+}
+
+.mdr-callout-title::before {
+  content: "";
+  flex: none;
+  width: 1.05em;
+  height: 1.05em;
+  background: currentColor;
+  -webkit-mask: var(--callout-mark, var(--mark-note)) center / contain no-repeat;
+  mask: var(--callout-mark, var(--mark-note)) center / contain no-repeat;
+}
+
+[data-callout="note"] {
+  --callout-mark: var(--mark-note);
+}
+[data-callout="info"] {
+  --callout-mark: var(--mark-info);
+}
+[data-callout="abstract"] {
+  --callout-mark: var(--mark-abstract);
+}
+[data-callout="todo"] {
+  --callout-mark: var(--mark-todo);
+}
+[data-callout="tip"] {
+  --callout-mark: var(--mark-tip);
+}
+[data-callout="success"] {
+  --callout-mark: var(--mark-success);
+}
+[data-callout="question"] {
+  --callout-mark: var(--mark-question);
+}
+[data-callout="warning"] {
+  --callout-mark: var(--mark-warning);
+}
+[data-callout="caution"] {
+  --callout-mark: var(--mark-caution);
+}
+[data-callout="danger"] {
+  --callout-mark: var(--mark-danger);
+}
+[data-callout="failure"] {
+  --callout-mark: var(--mark-failure);
+}
+[data-callout="bug"] {
+  --callout-mark: var(--mark-bug);
+}
+[data-callout="important"] {
+  --callout-mark: var(--mark-important);
+}
+[data-callout="example"] {
+  --callout-mark: var(--mark-example);
+}
+[data-callout="quote"] {
+  --callout-mark: var(--mark-quote);
 }
 
 /* A folded callout: `details` in place of `blockquote`, same skin. */
 .read details.mdr-callout {
-  border-left: 4px solid var(--mdr-callout);
-  background: color-mix(in srgb, var(--mdr-callout) 7%, transparent);
-  border-radius: 0 6px 6px 0;
-  padding: 8px 14px;
+  border-left: 3px solid var(--mdr-callout);
+  background: color-mix(in srgb, var(--mdr-callout) 8%, transparent);
+  border-radius: 0 8px 8px 0;
+  padding: 12px 16px;
   margin: 0.9em 0;
 }
 
 .read details.mdr-callout > .mdr-callout-title {
   cursor: pointer;
   margin-bottom: 0;
+  list-style: none;
+}
+
+.read details.mdr-callout > .mdr-callout-title::-webkit-details-marker {
+  display: none;
+}
+
+/* Its fold, at the far end of the title, turning as it opens. */
+.read details.mdr-callout > .mdr-callout-title::after {
+  content: "";
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: auto;
+  background: currentColor;
+  opacity: 0.7;
+  -webkit-mask: var(--chevron) center / contain no-repeat;
+  mask: var(--chevron) center / contain no-repeat;
+  transition: transform 120ms ease;
 }
 
 .read details.mdr-callout[open] > .mdr-callout-title {
-  margin-bottom: 0.3em;
+  margin-bottom: 0.35em;
+}
+
+.read details.mdr-callout[open] > .mdr-callout-title::after {
+  transform: rotate(90deg);
 }
 
 .read ul,
 .read ol {
-  padding-left: 1.5em;
+  padding-left: 1.6em;
 }
 
 .read li {
-  margin: 0.15em 0;
+  margin: 0.2em 0;
 }
 
+/* The markers in the page's quieter ink, so the items lead. */
+.read li::marker {
+  color: var(--page-muted);
+}
+
+/*
+ * A task's box sits where the bullet would, and is drawn rather than
+ * left to the platform: the system's checkbox is another size, another
+ * blue and another weight from everything around it. A done item steps
+ * back into the muted ink.
+ */
 .read li.mdr-task {
   list-style: none;
-  margin-left: -1.2em;
+  margin-left: -1.6em;
 }
 
-.read li.mdr-task input {
-  margin-right: 0.4em;
+.read li.mdr-task > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 1em;
+  height: 1em;
+  margin: 0 0.6em 0 0;
+  vertical-align: -0.15em;
+  border: 1.5px solid color-mix(in srgb, var(--page-fg) 30%, transparent);
+  border-radius: 0.3em;
+  background: var(--page-bg);
+  cursor: default;
 }
 
+.read li.mdr-task > input[type="checkbox"]:checked {
+  border-color: var(--page-accent);
+  background: var(--page-accent);
+}
+
+.read li.mdr-task > input[type="checkbox"]:checked::after {
+  content: "";
+  width: 0.26em;
+  height: 0.5em;
+  margin-top: -0.1em;
+  border: solid var(--page-bg);
+  border-width: 0 0.12em 0.12em 0;
+  transform: rotate(45deg);
+}
+
+.read li.mdr-task:has(> input:checked) {
+  color: var(--page-muted);
+}
+
+/*
+ * A table is a panel of its own (design 11): one rounded edge around the
+ * whole, the header row set apart by a rule and a tint, and striping for
+ * the rows in place of a line under every one. The panel is as wide as
+ * its table and no wider, and scrolls inside itself when the table is
+ * wider than the page.
+ */
 .mdr-table-wrap {
   overflow-x: auto;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--page-border);
+  border-radius: 8px;
 }
 
 .read table {
-  border-collapse: collapse;
-  font-size: 0.95em;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.94em;
+  line-height: 1.5;
 }
 
 .read th,
 .read td {
-  border: 1px solid var(--page-border);
-  padding: 4px 10px;
+  border: 0;
+  padding: 0.5em 0.9em;
   text-align: left;
+  vertical-align: top;
   /* Design 11's aligned numerics: a column of figures lines up. */
   font-variant-numeric: tabular-nums;
 }
 
-/* Striping, mixed from the page's own ink so it works on every paper. */
-.read tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--page-fg) 5%, transparent);
+.read th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--page-fg) 4%, transparent);
+  border-bottom: 1px solid var(--page-border);
 }
 
+/* Striping, mixed from the page's own ink so it works on every paper. */
+.read tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--page-fg) 3.5%, transparent);
+}
+
+/* A highlighter's stroke: a little past the letters, and on every line. */
 .read mark {
   background: var(--mark);
   color: inherit;
-  border-radius: 2px;
+  border-radius: 3px;
+  padding: 0.05em 0.12em;
+  margin: 0 -0.12em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 .read hr {
   border: 0;
   border-top: 1px solid var(--page-border);
-  margin: 1.6em 0;
+  margin: 2.2em 0;
 }
 
 .read .mdr-frontmatter {
@@ -360,12 +588,22 @@
   padding: 0;
 }
 
-/* Frontmatter as the properties panel of design 5.1: one row per key. */
+/*
+ * Frontmatter as the properties panel of design 5.1: one row per key, on
+ * a card of its own above the document rather than ruled off like a
+ * quotation. The keys are labels and step back; the values are what the
+ * reader came for.
+ */
 .read .mdr-properties {
   display: grid;
   grid-template-columns: minmax(6em, max-content) 1fr;
-  gap: 2px 14px;
-  font-size: 0.9em;
+  gap: 0.3em 1.4em;
+  padding: 0.85em 1.1em;
+  border-left: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--page-fg) 3.5%, transparent);
+  color: var(--page-fg);
+  font-size: 0.86em;
 }
 
 .read .mdr-property {
@@ -373,20 +611,27 @@
 }
 
 .read .mdr-property-key {
-  font-weight: 600;
+  color: var(--page-muted);
+  font-weight: 500;
 }
 
 .read .mdr-property-value {
   word-break: break-word;
 }
 
-/* Footnotes, where the file puts them. */
+/* Footnotes, where the file puts them, ruled off from the text above. */
 .read .mdr-footnote {
   display: grid;
   grid-template-columns: 2em 1fr;
-  font-size: 0.92em;
+  font-size: 0.9em;
   color: var(--page-muted);
   margin: 0.4em 0;
+}
+
+.read :not(.mdr-footnote) + .mdr-footnote {
+  margin-top: 2.4em;
+  padding-top: 1.2em;
+  border-top: 1px solid var(--page-border);
 }
 
 .read .mdr-footnote + .mdr-footnote {
@@ -421,13 +666,16 @@
 }
 
 /* The inline HTML whitelist of design 5.3, styled as the elements they are. */
+/* A key, drawn as a keycap in the text's own face, as a Mac labels one. */
 .read kbd {
-  font-family: var(--family-mono);
-  font-size: 0.85em;
+  font-family: var(--family-sans);
+  font-size: 0.8em;
+  font-weight: 500;
   border: 1px solid var(--page-border);
   border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 0 4px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--page-fg) 3%, transparent);
+  padding: 0.05em 0.45em;
   white-space: nowrap;
 }
 
@@ -469,11 +717,13 @@
   text-align: center;
   font-family: var(--family-mono);
   font-size: 0.9em;
+  font-variant-ligatures: none;
   color: var(--page-muted);
   white-space: pre-wrap;
 }
 
 .read .mdr-mermaid-done {
+  padding: 0.4em 0;
   white-space: normal;
 }
 

@@ -1496,7 +1496,11 @@ export class Workspace {
       this.pendingConflict = false;
       this.runConflictStep();
     }
-    view.focus();
+    // Cmd+F in Read mode opens the find bar in the same flush that mounts
+    // this view, and the bar has already put the keyboard in its field. A
+    // view that took it back here would send the search the reader is
+    // typing into the document, where autosave would write it.
+    if (!(this.find.open && document.activeElement?.closest('.find'))) view.focus();
   }
 
   /** Mount Read mode for the active tab. */
@@ -3798,6 +3802,17 @@ export class Workspace {
     // for the ones it has not (plan WP 2.7). A change of size or measure
     // is a change to every one of those numbers, so it is told.
     this.reading?.view.remeasure();
+  }
+
+  /**
+   * Draw the diagrams again in the palette just applied (design 11). The
+   * window calls this once it has dressed the root element, rather than
+   * `repaint` calling it, because a diagram's colours are read off the
+   * page as it is dressed — and the system's own light and dark reach the
+   * window without passing through `repaint` at all.
+   */
+  retheme(): void {
+    this.options.enhancer?.retheme?.();
   }
 
   /**

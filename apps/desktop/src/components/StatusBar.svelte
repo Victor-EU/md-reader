@@ -103,11 +103,12 @@ const endpoint = $derived(
   {#if agent !== ''}
     <button
       type="button"
-      class="cell act"
+      class="cell act agent"
+      class:live={workspace.agent.clients > 0}
       title={endpoint}
       onclick={() => void workspace.copyAgentConfig()}
     >
-      {agent}
+      <span class="agent-dot" aria-hidden="true"></span>{agent}
     </button>
   {/if}
   <!--

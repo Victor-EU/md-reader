@@ -132,18 +132,134 @@ async function loadKatex() {
   return module.default;
 }
 
-async function loadMermaid(dark: boolean) {
+async function loadMermaid() {
   const module = await import('mermaid');
-  module.default.initialize({
+  return module.default;
+}
+
+type Engine = Awaited<ReturnType<typeof loadMermaid>>;
+type Rgb = [number, number, number];
+
+/** The palette Mermaid is set up to draw in, as `DiagramTheme.key`. */
+let configured: string | null = null;
+
+/** Every diagram drawn, with its source and the palette it was drawn in. */
+const drawn = new WeakMap<HTMLElement, { source: string; key: string }>();
+
+/**
+ * The same diagrams, to be found again for a change of palette. Weakly,
+ * and not by asking the page: Read mode keeps a block it has scrolled
+ * away from out of the page for a scroll back, and a diagram in one of
+ * those has to come back in whatever palette the page wears by then.
+ */
+const live = new Set<WeakRef<HTMLElement>>();
+
+interface DiagramTheme {
+  /** Everything below as one string, so two palettes compare as one. */
+  key: string;
+  variables: Record<string, string | boolean>;
+  font: string;
+}
+
+function rgb(value: string): Rgb | null {
+  const match = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+  if (!match?.[1]) return null;
+  const digits = match[1].length === 3 ? [...match[1]].map((d) => d + d).join('') : match[1];
+  return [0, 2, 4].map((at) => Number.parseInt(digits.slice(at, at + 2), 16)) as Rgb;
+}
+
+function css(color: Rgb): string {
+  return `#${color.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** `top` laid over `under` at `amount`. */
+function mix(top: Rgb, under: Rgb, amount: number): string {
+  return css(top.map((channel, i) => channel * amount + (under[i] ?? 0) * (1 - amount)) as Rgb);
+}
+
+/**
+ * The page's own palette, in the terms Mermaid's `base` theme takes one
+ * (design 11).
+ *
+ * Mermaid bakes its colours into the SVG it draws, so unlike a fence a
+ * diagram cannot be left to the stylesheet: the colours are read off the
+ * page as it is dressed at the moment of drawing, and a change of theme,
+ * appearance or paper draws the diagrams again (`retheme`). Boxes are the
+ * page's accent at a tint, lines are its quieter ink and labels its text,
+ * all on its own paper and in its own face — so a diagram reads as part
+ * of the document rather than as a picture pasted into it.
+ */
+function diagramTheme(dark: boolean | undefined): DiagramTheme {
+  const style = getComputedStyle(document.documentElement);
+  const read = (name: string, fallback: Rgb): Rgb => rgb(style.getPropertyValue(name)) ?? fallback;
+  const bg = read('--page-bg', [255, 255, 255]);
+  const fg = css(read('--page-fg', [31, 29, 26]));
+  const muted = css(read('--page-muted', [111, 107, 100]));
+  const border = css(read('--page-border', [219, 215, 208]));
+  const code = css(read('--code-bg', [245, 244, 241]));
+  const accent = read('--page-accent', [47, 111, 159]);
+  const isDark = dark ?? 0.2126 * bg[0] + 0.7152 * bg[1] + 0.0722 * bg[2] < 100;
+  const box = mix(accent, bg, isDark ? 0.16 : 0.1);
+  const edge = mix(accent, bg, isDark ? 0.5 : 0.42);
+  const variables = {
+    darkMode: isDark,
+    background: css(bg),
+    fontSize: '14px',
+    primaryColor: box,
+    primaryTextColor: fg,
+    primaryBorderColor: edge,
+    secondaryColor: mix(accent, bg, isDark ? 0.1 : 0.06),
+    secondaryTextColor: fg,
+    secondaryBorderColor: edge,
+    tertiaryColor: code,
+    tertiaryTextColor: fg,
+    tertiaryBorderColor: border,
+    textColor: fg,
+    titleColor: fg,
+    lineColor: muted,
+    mainBkg: box,
+    nodeBorder: edge,
+    clusterBkg: code,
+    clusterBorder: border,
+    edgeLabelBackground: css(bg),
+    noteBkgColor: code,
+    noteTextColor: fg,
+    noteBorderColor: border,
+    actorBkg: box,
+    actorBorder: edge,
+    actorTextColor: fg,
+    actorLineColor: muted,
+    signalColor: fg,
+    signalTextColor: fg,
+    labelBoxBkgColor: code,
+    labelBoxBorderColor: border,
+    labelTextColor: fg,
+    loopTextColor: fg,
+    activationBkgColor: code,
+    activationBorderColor: border,
+    sequenceNumberColor: css(bg),
+  };
+  const font =
+    style.getPropertyValue('--family-sans').trim() || 'ui-sans-serif, system-ui, sans-serif';
+  return { key: JSON.stringify([variables, font]), variables, font };
+}
+
+/** Boxes rounded like every other box on the page, which the palette cannot say. */
+const DIAGRAM_CSS = '.node rect, .cluster rect { rx: 6px; ry: 6px; }';
+
+function configure(engine: Engine, theme: DiagramTheme): void {
+  if (configured === theme.key) return;
+  engine.initialize({
     startOnLoad: false,
     // Untrusted input: a diagram in a document an agent wrote is not a
     // reason to let it into the page as markup.
     securityLevel: 'strict',
-    // The paper's darkness, not the system's: a diagram on the
-    // high-contrast page is on a dark ground in a light window.
-    theme: dark ? 'dark' : 'default',
+    theme: 'base',
+    themeVariables: { ...theme.variables, fontFamily: theme.font },
+    fontFamily: theme.font,
+    themeCSS: DIAGRAM_CSS,
   });
-  return module.default;
+  configured = theme.key;
 }
 
 /**
@@ -184,14 +300,21 @@ export interface Enhancer {
    * every fence, formula and diagram is (plan WP 3.2).
    */
   run(roots: readonly HTMLElement[], options?: EnhanceOptions): Promise<void>;
+  /**
+   * Draw the diagrams on screen again in the palette the page wears now
+   * (design 11). Fences and formulas follow the stylesheet by themselves;
+   * a diagram has its colours baked in, so a change of theme, appearance
+   * or paper has to ask for it.
+   */
+  retheme?(): void;
   destroy(): void;
 }
 
 export interface EnhancerOptions {
   /**
-   * Whether the page is a dark one, asked when Mermaid first loads.
-   * Mermaid bakes its palette into the SVG it produces, so unlike Shiki
-   * it cannot be given both and left to the stylesheet.
+   * Whether the page is a dark one, asked whenever a diagram is drawn.
+   * The paper's darkness, not the system's: a diagram on the
+   * high-contrast page is on a dark ground in a light window.
    */
   dark?: () => boolean;
 }
@@ -287,27 +410,55 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
     }
   }
 
+  /**
+   * Mermaid, loaded once. A load that fails is not a verdict on the
+   * diagrams waiting for it: they are left for the next run over them to
+   * try again, rather than kept as source for the rest of the session.
+   */
+  async function diagramEngine(waiting: readonly HTMLElement[]): Promise<Engine | null> {
+    mermaid ??= loadMermaid();
+    try {
+      return await mermaid;
+    } catch {
+      mermaid = null;
+      for (const node of waiting) node.removeAttribute(DONE);
+      return null;
+    }
+  }
+
+  /** One diagram, in the palette the page is wearing as it is drawn. */
+  async function draw(engine: Engine, node: HTMLElement, source: string): Promise<void> {
+    const theme = diagramTheme(options.dark?.());
+    configure(engine, theme);
+    mermaidCount += 1;
+    try {
+      const { svg } = await engine.render(`mdr-diagram-${mermaidCount}`, source);
+      // Placed even when the block has left the page meanwhile. Read mode
+      // keeps a block it scrolled past and later puts the same element
+      // back without handing it here again, so a diagram skipped for being
+      // out of the page stayed as its source for good.
+      if (!alive) return;
+      const template = document.createElement('template');
+      template.innerHTML = svg;
+      node.replaceChildren(template.content);
+      node.classList.add('mdr-mermaid-done');
+      if (!drawn.has(node)) live.add(new WeakRef(node));
+      drawn.set(node, { source, key: theme.key });
+    } catch (error) {
+      node.classList.add('mdr-mermaid-failed');
+      node.setAttribute('title', error instanceof Error ? error.message : 'diagram failed');
+    }
+  }
+
   async function diagrams(roots: readonly HTMLElement[]): Promise<void> {
     const nodes = targets(roots, '.mdr-mermaid');
     if (nodes.length === 0) return;
     for (const node of nodes) node.setAttribute(DONE, '');
-    mermaid ??= loadMermaid(options.dark?.() ?? false);
-    const engine = await mermaid;
+    const engine = await diagramEngine(nodes);
+    if (engine === null) return;
     for (const node of nodes) {
-      if (!alive || !node.isConnected) continue;
-      const source = node.textContent ?? '';
-      mermaidCount += 1;
-      try {
-        const { svg } = await engine.render(`mdr-diagram-${mermaidCount}`, source);
-        if (!alive || !node.isConnected) continue;
-        const template = document.createElement('template');
-        template.innerHTML = svg;
-        node.replaceChildren(template.content);
-        node.classList.add('mdr-mermaid-done');
-      } catch (error) {
-        node.classList.add('mdr-mermaid-failed');
-        node.setAttribute('title', error instanceof Error ? error.message : 'diagram failed');
-      }
+      if (!alive) return;
+      await draw(engine, node, node.textContent ?? '');
     }
   }
 
@@ -323,6 +474,26 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
         math(roots, run.math ?? 'html'),
         diagrams(roots),
       ]);
+    },
+    retheme() {
+      if (!alive || mermaid === null) return;
+      const key = diagramTheme(options.dark?.()).key;
+      const stale: HTMLElement[] = [];
+      for (const ref of live) {
+        const node = ref.deref();
+        if (node === undefined) live.delete(ref);
+        else if (drawn.get(node)?.key !== key) stale.push(node);
+      }
+      if (stale.length === 0) return;
+      void (async () => {
+        const engine = await diagramEngine([]);
+        if (engine === null) return;
+        for (const node of stale) {
+          if (!alive) return;
+          const was = drawn.get(node);
+          if (was !== undefined) await draw(engine, node, was.source);
+        }
+      })();
     },
     destroy() {
       alive = false;

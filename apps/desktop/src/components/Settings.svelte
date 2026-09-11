@@ -1,5 +1,6 @@
 <script lang="ts">
-import { paletteFor } from '@markdown/theme';
+import { type Paper, paletteFor, paperIsDark } from '@markdown/theme';
+import appIcon from '../../src-tauri/icons/128x128@2x.png';
 import { MEASURE_RANGE, resolveAppearance, SIZES, THEMES } from '../lib/appearance.ts';
 import { focusScroller } from '../lib/scroller.ts';
 import { describeUpdate } from '../lib/update.ts';
@@ -19,30 +20,39 @@ const SPECIMEN =
   'The measure is the number of characters a line holds before it wraps.';
 
 /**
- * The four curated themes (design 11, plan WP 2.6), each shown in the
- * colours it would actually dress the window in.
+ * The four curated themes (design 11, plan WP 2.6), each shown as a
+ * window in miniature, in the colours it would actually dress this one in.
  *
- * The bands are literal hexes out of the theme's own file rather than
- * the variables the page is using, because the point of a swatch is to
+ * The colours are literal hexes out of the theme's own file rather than
+ * the variables the page is using, because the point of a preview is to
  * show the theme that is not on: the variables only ever hold the one
- * that is.
+ * that is. The page's own colours follow the paper, as the page does, so
+ * the black paper shows its dark ink and code in a light window too.
  */
 const appearance = $derived(resolveAppearance(settings.appearance, workspace.systemDark));
-const swatches = $derived(
+const previews = $derived(
   THEMES.map(({ id, theme }) => {
-    const palette = paletteFor(theme, appearance);
+    const chrome = paletteFor(theme, appearance);
+    const page = paletteFor(
+      theme,
+      paperIsDark(appearance, settings.paper as Paper) ? 'dark' : 'light',
+    );
+    const paper = chrome.papers[settings.paper];
     return {
       id,
       name: theme.name,
       description: theme.description,
-      bands: [
-        palette.papers[settings.paper].bg,
-        palette.ui.bg,
-        palette.ui.accent,
-        palette.code.keyword,
-        palette.code.string,
-        palette.code.number,
-      ],
+      style: [
+        `--p-chrome: ${chrome.ui.bg}`,
+        `--p-edge: ${chrome.ui.border}`,
+        `--p-paper: ${paper.bg}`,
+        `--p-ink: ${paper.fg}`,
+        `--p-code: ${paper.code}`,
+        `--p-mark: ${page.ui.highlight}`,
+        `--p-keyword: ${page.code.keyword}`,
+        `--p-string: ${page.code.string}`,
+        `--p-number: ${page.code.number}`,
+      ].join('; '),
     };
   }),
 );
@@ -65,10 +75,11 @@ const AUTOSAVE = [
   { value: false, label: 'Off' },
 ] as const;
 
+/** Each family with its face, so the choice shows what it chooses. */
 const FAMILIES = [
-  { value: 'sans', label: 'Sans', note: 'Inter' },
-  { value: 'serif', label: 'Serif', note: 'Source Serif 4' },
-  { value: 'mono', label: 'Mono', note: 'JetBrains Mono' },
+  { value: 'sans', label: 'Sans', note: 'Inter', face: 'var(--family-sans)' },
+  { value: 'serif', label: 'Serif', note: 'Source Serif 4', face: 'var(--family-serif)' },
+  { value: 'mono', label: 'Mono', note: 'JetBrains Mono', face: 'var(--family-mono)' },
 ] as const;
 
 /** What the updater has to say here, where the version is (WP 1.12). */
@@ -121,7 +132,7 @@ $effect(() => {
     <section>
       <h2 id="theme-heading">Theme</h2>
       <div class="themes" role="radiogroup" aria-labelledby="theme-heading">
-        {#each swatches as choice (choice.id)}
+        {#each previews as choice (choice.id)}
           <button
             type="button"
             class="theme"
@@ -130,10 +141,16 @@ $effect(() => {
             title={choice.description}
             onclick={() => workspace.updateSettings({ theme: choice.id })}
           >
-            <span class="strip" aria-hidden="true">
-              {#each choice.bands as band, i (i)}
-                <span class="band" style="background: {band}"></span>
-              {/each}
+            <span class="preview" style={choice.style} aria-hidden="true">
+              <span class="preview-bar"></span>
+              <span class="preview-page">
+                <span class="preview-title"></span>
+                <span class="preview-text"></span>
+                <span class="preview-text short"><span class="preview-mark"></span></span>
+                <span class="preview-code">
+                  <span class="k"></span><span class="s"></span><span class="n"></span>
+                </span>
+              </span>
             </span>
             <span class="theme-name">{choice.name}</span>
           </button>
@@ -141,7 +158,7 @@ $effect(() => {
       </div>
 
       <h2 id="appearance-heading">Appearance</h2>
-      <div class="row" role="radiogroup" aria-labelledby="appearance-heading">
+      <div class="row segmented" role="radiogroup" aria-labelledby="appearance-heading">
         {#each APPEARANCES as choice (choice.value)}
           <button
             type="button"
@@ -182,11 +199,12 @@ $effect(() => {
         {#each FAMILIES as choice (choice.value)}
           <button
             type="button"
-            class="choice"
+            class="choice face"
             role="radio"
             aria-checked={settings.family === choice.value}
             onclick={() => workspace.updateSettings({ family: choice.value })}
           >
+            <span class="face-sample" style="font-family: {choice.face}" aria-hidden="true">Aa</span>
             {choice.label}
             <span class="note">{choice.note}</span>
           </button>
@@ -250,7 +268,7 @@ $effect(() => {
         document or close the window. The file is what an agent reads, so an unsaved buffer
         is work it cannot see. Off keeps the dirty dot and waits to be asked.
       </p>
-      <div class="row" role="radiogroup" aria-labelledby="autosave-heading">
+      <div class="row segmented" role="radiogroup" aria-labelledby="autosave-heading">
         {#each AUTOSAVE as choice (choice.label)}
           <button
             type="button"
@@ -267,9 +285,15 @@ $effect(() => {
 
     <section class="about">
       <h2>About</h2>
-      <p class="hint">
-        {#if workspace.version === ''}Markdown{:else}Markdown {workspace.version}{/if}
-      </p>
+      <div class="identity">
+        <img src={appIcon} alt="" width="44" height="44" />
+        <div>
+          <p class="name">
+            {#if workspace.version === ''}Markdown{:else}Markdown {workspace.version}{/if}
+          </p>
+          <p class="hint">A viewer and editor for the AI round trip</p>
+        </div>
+      </div>
       <div class="field">
         <button type="button" class="choice" onclick={() => workspace.checkForUpdates(true)}>
           Check for updates

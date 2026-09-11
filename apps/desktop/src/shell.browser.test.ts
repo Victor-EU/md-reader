@@ -190,7 +190,8 @@ describe('tab interactions', () => {
       ?.querySelector('.label')
       ?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     await settle();
-    expect(labels()).toEqual(['▪ c.md •', 'a.md •', 'b.md •']);
+    expect(labels()).toEqual(['c.md •', 'a.md •', 'b.md •']);
+    expect(tabAt(0).querySelector('.pin')).not.toBeNull();
   });
 
   it('shows the dirty dot until the document is saved', async () => {

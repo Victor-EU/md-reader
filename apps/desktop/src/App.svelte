@@ -1,7 +1,9 @@
 <script lang="ts">
+import appIcon from '../src-tauri/icons/128x128@2x.png';
 import Banner from './components/Banner.svelte';
 import EditorPane from './components/EditorPane.svelte';
 import FindBar from './components/FindBar.svelte';
+import Icon from './components/Icon.svelte';
 import Palette from './components/Palette.svelte';
 import PdfPane from './components/PdfPane.svelte';
 import ReadPane from './components/ReadPane.svelte';
@@ -11,7 +13,7 @@ import StatusBar from './components/StatusBar.svelte';
 import TabStrip from './components/TabStrip.svelte';
 import Toolbar from './components/Toolbar.svelte';
 import { applyAppearance } from './lib/appearance.ts';
-import { fileUrlToPath } from './lib/paths.ts';
+import { basename, dirname, fileUrlToPath, shortenDir } from './lib/paths.ts';
 import type { Shell } from './lib/shell.svelte.ts';
 
 let { shell }: { shell: Shell } = $props();
@@ -19,6 +21,9 @@ const workspace = $derived(shell.workspace);
 const registry = $derived(shell.registry);
 const settings = $derived(workspace.activeTab?.kind === 'settings');
 const pdf = $derived(workspace.activeTab?.kind === 'pdf');
+
+/** How many of the last files the blank window offers again. */
+const RECENT = 5;
 
 /**
  * Dress the window (design 11). Three attributes and three custom
@@ -29,6 +34,8 @@ const pdf = $derived(workspace.activeTab?.kind === 'pdf');
  */
 $effect(() => {
   applyAppearance(document.documentElement, workspace.applied, workspace.systemDark);
+  // After the attributes, since a diagram's colours are read off the page.
+  workspace.retheme();
 });
 
 /**
@@ -39,6 +46,11 @@ $effect(() => {
 $effect(() => {
   workspace.nameWindow();
 });
+
+/** A command's keys as the palette shows them, so the two cannot disagree. */
+function keys(id: string): string {
+  return registry.get(id).shortcut;
+}
 
 /**
  * The whole keymap, derived from the command registry. A key the editor
@@ -106,22 +118,52 @@ function drop(event: DragEvent) {
     {#if workspace.activeId === null}
       <main class="page">
         <div class="blank">
+          <img class="blank-icon" src={appIcon} alt="" width="84" height="84" />
           <h1>Markdown</h1>
           <p>Open a markdown file, drop one on the window, or start a new one.</p>
           <!--
-            The two ways in, where a window with nothing in it can find
-            them: a file to write, or a folder to work in (design 4.1).
+            The ways in, where a window with nothing in it can find them: a
+            file to write, one to read, or a folder to work in (design 4.1),
+            each with the keys that do the same from anywhere.
           -->
-          <button type="button" class="start" onclick={() => workspace.newUntitled()}>
-            New File
-          </button>
-          <button
-            type="button"
-            class="start"
-            onclick={() => void workspace.pickAndOpenFolder()}
-          >
-            Open Folder…
-          </button>
+          <div class="starts">
+            <button type="button" class="start" onclick={() => workspace.newUntitled()}>
+              <Icon name="plus" />
+              <span class="start-label">New File</span>
+              <kbd>{keys('file.new')}</kbd>
+            </button>
+            <button type="button" class="start" onclick={() => void workspace.pickAndOpen()}>
+              <Icon name="file" />
+              <span class="start-label">Open File…</span>
+              <kbd>{keys('file.open')}</kbd>
+            </button>
+            <button
+              type="button"
+              class="start"
+              onclick={() => void workspace.pickAndOpenFolder()}
+            >
+              <Icon name="folder" />
+              <span class="start-label">Open Folder…</span>
+              <kbd>{keys('file.openFolder')}</kbd>
+            </button>
+          </div>
+          {#if workspace.recents.length > 0}
+            <nav class="recent" aria-label="Recent files">
+              <h2>Recent</h2>
+              {#each workspace.recents.slice(0, RECENT) as path (path)}
+                <button
+                  type="button"
+                  class="recent-file"
+                  title={path}
+                  onclick={() => void workspace.openPath(path)}
+                >
+                  <Icon name="file" size={14} />
+                  <span class="row-name">{basename(path)}</span>
+                  <span class="row-where">{shortenDir(dirname(path), 1)}</span>
+                </button>
+              {/each}
+            </nav>
+          {/if}
         </div>
       </main>
     {:else if settings}
