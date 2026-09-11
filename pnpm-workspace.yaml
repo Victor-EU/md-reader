@@ -3,4 +3,17 @@ packages:
   - packages/*
   - tools/*
 patchedDependencies:
+  # Two waits in the browser runner's orchestrator have no end: the one for a
+  # test iframe's `load` event, and the one for the tester's `response:` after
+  # it has acknowledged the run. A WebKit frame on a starved machine sometimes
+  # never loads, and the run then sits there for as long as anyone lets it --
+  # six hours of a CI job, in the one that sent us looking. The patch gives
+  # both a deadline, so a frame that never loads fails its file in a minute
+  # instead of holding the suite.
+  #
+  # Reported as https://github.com/vitest-dev/vitest/issues/11243. Bumping
+  # Vitest fails the install here with ERR_PNPM_UNUSED_PATCH, which is the
+  # cue to read that issue: if the release carries the fix, delete this entry
+  # and the patch file; if it does not, re-cut the patch against the new
+  # version with `pnpm patch @vitest/browser`.
   '@vitest/browser@5.0.0': patches/@vitest__browser@5.0.0.patch
