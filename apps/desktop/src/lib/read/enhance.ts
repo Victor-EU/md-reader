@@ -6,6 +6,12 @@
  * no code, no math and no diagrams never pays for them, and a slow diagram
  * never delays the page. Every element is marked when it is done, so a
  * second pass over the same chunk is free.
+ *
+ * A marked element is finished even if it leaves the page before its
+ * renderer gets to it. Read mode keeps a block it has scrolled past and
+ * later puts the same element back without handing it here again, so a
+ * block skipped for being out of the page stayed plain code, TeX or
+ * diagram source for good.
  */
 
 import { tokenClass, tokenOfColor, tokenTheme, tokenThemeName } from '@markdown/theme';
@@ -353,7 +359,7 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
     shiki ??= loadShiki();
     const { highlighter, loaded } = await shiki;
     for (const block of blocks) {
-      if (!alive || !block.isConnected) continue;
+      if (!alive) return;
       const id = languageId(block.closest('pre')?.dataset.lang ?? '');
       if (id === null) continue;
       const fresh = !loaded.has(id);
@@ -361,7 +367,7 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
         await highlighter.loadLanguage(await LANGUAGES[id]());
         loaded.add(id);
       }
-      if (!alive || !block.isConnected) continue;
+      if (!alive) return;
       const source = block.textContent ?? '';
       try {
         const { tokens } = highlighter.codeToTokens(source, {
@@ -395,7 +401,7 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
     katex ??= loadKatex();
     const render = await katex;
     for (const node of nodes) {
-      if (!alive || !node.isConnected) continue;
+      if (!alive) return;
       try {
         render.render(node.dataset.tex ?? '', node, {
           displayMode: node.classList.contains('mdr-math-block'),
@@ -433,10 +439,6 @@ export function createEnhancer(options: EnhancerOptions = {}): Enhancer {
     mermaidCount += 1;
     try {
       const { svg } = await engine.render(`mdr-diagram-${mermaidCount}`, source);
-      // Placed even when the block has left the page meanwhile. Read mode
-      // keeps a block it scrolled past and later puts the same element
-      // back without handing it here again, so a diagram skipped for being
-      // out of the page stayed as its source for good.
       if (!alive) return;
       const template = document.createElement('template');
       template.innerHTML = svg;

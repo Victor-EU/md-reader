@@ -230,11 +230,9 @@ function page(body: string, options: ExportOptions): string {
  * Render `source` as a page, and say which images it wants.
  *
  * The document is built in the window rather than in a fragment because
- * that is what the enhancers need: all three check that the element they
- * are about to write to is still connected, and Mermaid measures text to
- * lay a diagram out. So it goes into the page out of sight, and comes
- * out again as soon as it has been read back — including when something
- * in the middle of it throws.
+ * Mermaid measures text to lay a diagram out. So it goes into the page
+ * out of sight, and comes out again as soon as it has been read back —
+ * including when something in the middle of it throws.
  */
 export async function exportPage(options: ExportOptions): Promise<ExportedPage> {
   const doc = options.document ?? document;

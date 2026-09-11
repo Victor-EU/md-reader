@@ -120,6 +120,27 @@ describe('enhancers', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(code.innerHTML).toBe(html);
   });
+
+  /**
+   * Read mode keeps a block it has scrolled past, and later puts the same
+   * element back without handing it here again. A block that leaves the
+   * page before its renderer gets to it has to be finished all the same,
+   * or it stays plain code, TeX or diagram source for good.
+   */
+  it('finishes a block that left the page before its renderer got to it', async () => {
+    const code = host.querySelector('pre[data-lang="js"] code') as HTMLElement;
+    const inline = host.querySelector('.mdr-math') as HTMLElement;
+    const diagram = host.querySelector('.mdr-mermaid') as HTMLElement;
+    const done = enhancer.run([host]);
+    // Out of the page at once, which is before any of the three renderers
+    // can have reached it: even a library already loaded is waited for.
+    host.remove();
+    await done;
+    document.body.appendChild(host);
+    expect(code.querySelector('span.tok-keyword')).not.toBeNull();
+    expect(inline.querySelector('.katex')).not.toBeNull();
+    expect(diagram.querySelector('svg'), diagram.getAttribute('title') ?? '').not.toBeNull();
+  }, 60_000);
 });
 
 describe('highlighting on a busy machine', () => {
