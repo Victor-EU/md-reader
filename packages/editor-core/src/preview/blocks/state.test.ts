@@ -1,4 +1,4 @@
-import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
+import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { parsedState } from '../../test-helpers.ts';
@@ -121,9 +121,9 @@ describe('blockWidgetsField over a parse cut short', () => {
   const open = (state: EditorState) =>
     state.update({ effects: setActiveCell.of({ table, row: 1, col: 0, cursor: 'end' }) }).state;
 
-  it('keeps the open table as it was until the parse reaches it again', () => {
+  it('reaches the open table and leaves the one below it alone', () => {
     const before = open(parsedState(doc, 0));
-    const widget = tableAt(before, table);
+    const below = tableAt(before, 53);
     // A keystroke in the open cell, on a machine that loses the CPU for it.
     const typed = starved(
       () =>
@@ -132,15 +132,40 @@ describe('blockWidgetsField over a parse cut short', () => {
           effects: setActiveCell.of({ table, row: 1, col: 0, cursor: 'keep' }),
         }).state,
     );
+    // The transaction's own parse stopped short of both tables, and neither
+    // table went anywhere for it.
     expect(syntaxTree(typed).length).toBeLessThan(table);
     expect(widgets(typed)).toEqual([
       [10, 40],
       [54, 71],
     ]);
-    expect(tableAt(typed, table)).toBe(widget);
-    ensureSyntaxTree(typed, typed.doc.length, 10_000);
-    const caught = typed.update({}).state;
-    expect(tableAt(caught, table)?.source).toContain('| 1x |');
+    // The open one is parsed the rest of the way, so the cell being typed in
+    // is drawn where the letter just went.
+    expect(tableAt(typed, table)?.source).toContain('| 1x |');
+    // The one below is nobody's open cell; it keeps the widget it had until
+    // the background parse gets there.
+    expect(tableAt(typed, 54)).toBe(below);
+  });
+
+  /**
+   * Tab off the last cell writes a row, and the parse that would put it in a
+   * tree can be cut short like any other. The widget has to gain the row
+   * anyway: the cell editor mounts in it, and a letter typed into a row that
+   * is not drawn is a letter the reader loses.
+   */
+  it('gains a row added past where the parse stopped', () => {
+    const before = open(parsedState(doc, 0));
+    const row = 1;
+    const grown = starved(
+      () =>
+        before.update({
+          changes: { from: doc.indexOf('| 1 | 2 |') + '| 1 | 2 |'.length, insert: '\n|  |  |' },
+          effects: setActiveCell.of({ table, row: row + 1, col: 0, cursor: 'end' }),
+        }).state,
+    );
+    expect(syntaxTree(grown).length).toBeLessThan(table);
+    expect(tableAt(grown, table)?.model.rows).toHaveLength(3);
+    expect(tableAt(grown, table)?.active).toEqual({ table, row: 2, col: 0, cursor: 'end' });
   });
 
   it('moves the open cell in a table the parse has not reached yet', () => {

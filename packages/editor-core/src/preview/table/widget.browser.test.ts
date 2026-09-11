@@ -301,6 +301,29 @@ describe('table widget', () => {
     expect(cell(3, 0)?.classList.contains('mdr-cell-active')).toBe(true);
   });
 
+  /**
+   * Tab off the last cell writes a row that is not in any tree yet, and the
+   * parse that would put it there can be cut short like any other. The row
+   * is in the document either way, and the letter typed into it next has to
+   * land in it.
+   */
+  it('keeps the letter typed into a row Tab added past where the parse stopped', async () => {
+    const above = `${'Prose above the table, of which there has to be a fair amount. '.repeat(6)}\n\n`;
+    editor.destroy();
+    editor = parsedEditor(host, above + doc);
+    editor.view.dispatch({ selection: { anchor: 0 } });
+    await activate(2, 1);
+    const inner = getNested(cell(2, 1) as HTMLElement);
+    starved(() =>
+      inner.contentDOM.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })),
+    );
+    expect(editor.view.state.doc.toString()).toContain('| c \\| d |\n|  |  |\n');
+    const td = cell(3, 0);
+    expect(td).not.toBeNull();
+    starved(() => typeInCell(getNested(td as HTMLElement), 'x'));
+    expect(editor.view.state.doc.toString()).toContain('| c \\| d |\n| x |  |\n');
+  });
+
   it('pads a row added with Tab so typed text sits between spaces', async () => {
     await activate(2, 1);
     nested()?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
