@@ -21,6 +21,13 @@ export default defineConfig({
         test: {
           name: 'markdown-browser',
           include: ['packages/markdown/src/**/*.browser.test.ts'],
+          // One browser project at a time, after the node ones. Every
+          // project at once is six browsers and forty pages on this Mac,
+          // twelve on CI's three cores, and a starved WebKit sometimes
+          // never finishes loading a test's frame -- which Vitest waits
+          // for without a limit, so the run hangs until something kills
+          // it. Groups run lowest first; projects in one group run together.
+          sequence: { groupOrder: 1 },
           browser: {
             enabled: true,
             headless: true,
@@ -57,6 +64,7 @@ export default defineConfig({
         test: {
           name: 'editor-core-browser',
           include: ['packages/editor-core/src/**/*.browser.test.ts'],
+          sequence: { groupOrder: 2 },
           browser: {
             enabled: true,
             headless: true,

@@ -51,6 +51,9 @@ export default defineConfig({
   test: {
     name: 'desktop-browser',
     include: ['src/**/*.browser.test.ts'],
+    // Last of the browser groups, after markdown and editor-core: see the
+    // note in the root config on what all of them at once does to WebKit.
+    sequence: { groupOrder: 3 },
     browser: {
       enabled: true,
       headless: true,
