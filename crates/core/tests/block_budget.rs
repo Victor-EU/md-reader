@@ -30,6 +30,20 @@ const BUDGET_MS: u128 = if cfg!(debug_assertions) { 4_000 } else { 150 };
 /// marks land a third of a second later than usual.
 const WORST_MS: u128 = if cfg!(debug_assertions) { 20_000 } else { 700 };
 
+/// Five times the budget on a runner whose cores are shared with other
+/// work, which is what `BENCH_RUNNER=shared` says (ADR 0038). The
+/// numbers below are measured on the machine they were written on, and
+/// the shared runner measures anything from that to ten times it: what
+/// plan 7.4 asks of it is to catch a disaster, not to flake on a busy
+/// machine.
+fn bound(ms: u128) -> u128 {
+    if std::env::var("BENCH_RUNNER").is_ok_and(|runner| runner == "shared") {
+        ms * 5
+    } else {
+        ms
+    }
+}
+
 /// About a megabyte of ordinary prose, as the blocks it flattens to:
 /// short sections of a heading and a paragraph.
 fn document(seed: usize) -> Vec<Block> {
@@ -110,10 +124,8 @@ fn a_one_megabyte_external_change_aligns_within_the_budget() {
     let old = document(7);
     let new = revise(&old, 6, "REVISED");
     let took = timed("scattered changes", &old, &new);
-    assert!(
-        took < BUDGET_MS,
-        "{took} ms is over the {BUDGET_MS} ms budget"
-    );
+    let budget = bound(BUDGET_MS);
+    assert!(took < budget, "{took} ms is over the {budget} ms budget");
 }
 
 /// The worst case: nothing survives. It has to stay inside the budget by
@@ -127,10 +139,8 @@ fn half_the_paragraphs_revised_stays_within_the_budget() {
     let old = document(7);
     let new = revise(&old, 2, "REVISED");
     let took = timed("every second block", &old, &new);
-    assert!(
-        took < BUDGET_MS,
-        "{took} ms is over the {BUDGET_MS} ms budget"
-    );
+    let budget = bound(BUDGET_MS);
+    assert!(took < budget, "{took} ms is over the {budget} ms budget");
 }
 
 /// Nothing survives. It has to stay inside the budget by giving up
@@ -143,10 +153,8 @@ fn a_rewrite_gives_up_rather_than_working_harder() {
     let old = document(7);
     let new = written(99, "Sentence");
     let took = timed("a rewrite", &old, &new);
-    assert!(
-        took < BUDGET_MS,
-        "{took} ms is over the {BUDGET_MS} ms budget"
-    );
+    let budget = bound(BUDGET_MS);
+    assert!(took < budget, "{took} ms is over the {budget} ms budget");
 }
 
 /// The worst case, and the one no cheap bound sees coming: the same
@@ -164,7 +172,8 @@ fn the_same_material_in_another_order_is_the_worst_case() {
         .count();
     println!("{shared} of {} blocks are in both", old.len());
     let took = timed("another order", &old, &new);
-    assert!(took < WORST_MS, "{took} ms is over the {WORST_MS} ms bound");
+    let worst = bound(WORST_MS);
+    assert!(took < worst, "{took} ms is over the {worst} ms bound");
 }
 
 /// The common case while somebody is typing: the frontend has matched
@@ -175,5 +184,5 @@ fn one_edited_paragraph_costs_what_one_paragraph_costs() {
     let middle = old.len() / 2;
     let new = revise(&old[middle..=middle], 1, "TYPED");
     let took = timed("one paragraph", &old[middle..=middle], &new);
-    assert!(took < 5, "{took} ms for one block");
+    assert!(took < bound(5), "{took} ms for one block");
 }

@@ -15,6 +15,20 @@ use markdown_core::{apply, merge3};
 
 const BUDGET_MS: u128 = if cfg!(debug_assertions) { 2_000 } else { 200 };
 
+/// Five times the budget on a runner whose cores are shared with other
+/// work, which is what `BENCH_RUNNER=shared` says (ADR 0038). The
+/// numbers below are measured on the machine they were written on, and
+/// the shared runner measures anything from that to ten times it: what
+/// plan 7.4 asks of it is to catch a disaster, not to flake on a busy
+/// machine.
+fn bound(ms: u128) -> u128 {
+    if std::env::var("BENCH_RUNNER").is_ok_and(|runner| runner == "shared") {
+        ms * 5
+    } else {
+        ms
+    }
+}
+
 /// About a megabyte of ordinary prose: short paragraphs under headings.
 fn document(seed: usize) -> String {
     let mut text = String::with_capacity(1_050_000);
@@ -71,10 +85,8 @@ fn a_one_megabyte_external_change_merges_within_the_budget() {
     let ours = revise(&base, 400, "OURS");
     let theirs = revise(&base, 37, "THEIRS");
     let took = timed("scattered changes on both sides", &base, &ours, &theirs);
-    assert!(
-        took < BUDGET_MS,
-        "{took} ms is over the {BUDGET_MS} ms budget"
-    );
+    let budget = bound(BUDGET_MS);
+    assert!(took < budget, "{took} ms is over the {budget} ms budget");
 }
 
 /// The worst case for a line diff: nothing survives. It has to stay
@@ -85,10 +97,8 @@ fn a_full_rewrite_stays_within_the_budget() {
     let ours = revise(&base, 400, "OURS");
     let theirs = document(99);
     let took = timed("a full rewrite", &base, &ours, &theirs);
-    assert!(
-        took < BUDGET_MS,
-        "{took} ms is over the {BUDGET_MS} ms budget"
-    );
+    let budget = bound(BUDGET_MS);
+    assert!(took < budget, "{took} ms is over the {budget} ms budget");
 }
 
 /// A clean buffer taking a whole external write is the common case, and
@@ -98,8 +108,6 @@ fn a_clean_buffer_takes_a_one_megabyte_write_within_the_budget() {
     let base = document(7);
     let theirs = revise(&base, 37, "THEIRS");
     let took = timed("into a clean buffer", &base, &base, &theirs);
-    assert!(
-        took < BUDGET_MS,
-        "{took} ms is over the {BUDGET_MS} ms budget"
-    );
+    let budget = bound(BUDGET_MS);
+    assert!(took < budget, "{took} ms is over the {budget} ms budget");
 }
