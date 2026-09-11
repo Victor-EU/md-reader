@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileNameFrom, proposeFileName } from './naming.ts';
+import { fileNameFrom, proposeFileName, renamedFile, untitledNumber } from './naming.ts';
 
 describe('a heading as a file name', () => {
   it('keeps the words, the spaces and the case', () => {
@@ -71,5 +71,47 @@ describe('what the save panel opens with', () => {
 
   it('always proposes something, even with nothing to go on', () => {
     expect(proposeFileName(null, '')).toBe('Untitled.md');
+  });
+});
+
+describe('a file renamed from the toolbar', () => {
+  it('keeps the extension when the reader types only a name', () => {
+    expect(renamedFile('strategy', 'plan.md')).toBe('strategy.md');
+    expect(renamedFile('plan', 'notes.txt')).toBe('plan.txt');
+  });
+
+  it('takes a name that already ends in it as it is', () => {
+    expect(renamedFile('strategy.md', 'plan.md')).toBe('strategy.md');
+    expect(renamedFile('Strategy.MD', 'plan.md')).toBe('Strategy.MD');
+  });
+
+  it('lets the reader move between the extensions the app opens', () => {
+    expect(renamedFile('plan.markdown', 'plan.md')).toBe('plan.markdown');
+  });
+
+  it('does not take a dot inside the name for an extension', () => {
+    expect(renamedFile('Q3.2026', 'plan.md')).toBe('Q3.2026.md');
+    expect(renamedFile('v1.2 notes', 'plan.md')).toBe('v1.2 notes.md');
+  });
+
+  it('leaves a file that had no extension without one', () => {
+    expect(renamedFile('CHANGES', 'README')).toBe('CHANGES');
+    expect(renamedFile('env', '.env')).toBe('env');
+  });
+
+  it('trims what the field had around the name', () => {
+    expect(renamedFile('  strategy ', 'plan.md')).toBe('strategy.md');
+  });
+});
+
+describe('the names the app hands out', () => {
+  it('reads the number back out of one', () => {
+    expect(untitledNumber('Untitled 3')).toBe(3);
+    expect(untitledNumber('Untitled')).toBe(0);
+  });
+
+  it('does not count a name the reader chose, whatever it ends in', () => {
+    expect(untitledNumber('Plan 2026')).toBeNull();
+    expect(untitledNumber('Untitled 3 draft')).toBeNull();
   });
 });

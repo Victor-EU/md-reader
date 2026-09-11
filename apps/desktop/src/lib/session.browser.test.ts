@@ -159,6 +159,21 @@ describe('what a window remembers', () => {
     ]);
   });
 
+  it('brings one back under the name the reader gave it', async () => {
+    workspace.newUntitled();
+    const doc = workspace.activeDoc;
+    if (!doc) throw new Error('nothing open');
+    await workspace.renameDoc(doc, 'Plan 2026');
+
+    const next = relaunch();
+    await next.restore(workspace.sessionState());
+    expect(next.activeDoc?.label).toBe('Plan 2026');
+    // A name somebody chose is not one of the app's numbers, however it
+    // ends: the next new document is not `Untitled 2027`.
+    next.newUntitled();
+    expect(next.tabs.map((tab) => next.doc(tab).label)).toEqual(['Plan 2026', 'Untitled 1']);
+  });
+
   it('brings two views of one document back as two views of one buffer', async () => {
     await workspace.openPath('/a/one.md');
     workspace.duplicateView();

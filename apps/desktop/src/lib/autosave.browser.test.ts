@@ -386,6 +386,23 @@ describe('a new file', () => {
     expect(suggested).toBe('Untitled 1.md');
   });
 
+  it('proposes the name the reader gave it ahead of its heading', async () => {
+    workspace.newUntitled();
+    workspace.mount(host);
+    type('# The fast path\n');
+    const doc = workspace.activeDoc;
+    if (!doc) throw new Error('nothing open');
+    // Named in the toolbar (ADR 0037), which is not a save: the first
+    // save is still where the reader says where the file goes.
+    await workspace.renameDoc(doc, 'Team brief');
+    expect(workspace.labels).toEqual(['Team brief']);
+    expect(writes()).toBe(0);
+
+    saveTarget = null;
+    await workspace.save();
+    expect(suggested).toBe('Team brief.md');
+  });
+
   it('is autosaved from its first save on', async () => {
     workspace.newUntitled();
     workspace.mount(host);

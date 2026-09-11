@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { mount, tick, unmount } from 'svelte';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.svelte';
 // The real stylesheet: layout, and the scrolling the read pane depends on.
 import './app.css';
@@ -146,6 +146,106 @@ describe('the window', () => {
     target.querySelector('.frame')?.dispatchEvent(event);
     await settle();
     expect(labels()).toEqual(['dropped.md •']);
+  });
+});
+
+/**
+ * The name at the end of the toolbar's path (ADR 0037), as the reader
+ * meets it. What a name does to a file is in `folder.browser.test.ts`.
+ */
+describe('the name in the toolbar', () => {
+  const title = () => target.querySelector<HTMLElement>('.toolbar .title');
+  const field = () => target.querySelector<HTMLInputElement>('.toolbar .title input');
+
+  /** Type over the name, then press a key, the way the field is used. */
+  async function rename(text: string, key = 'Enter') {
+    const input = field();
+    if (!input) throw new Error('the name is not a field');
+    input.value = text;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    await settle();
+  }
+
+  async function openPlan() {
+    start({ '/w/plan.md': '# Plan\n' });
+    await shell.workspace.openPath('/w/plan.md');
+    await settle();
+  }
+
+  it('becomes a field when clicked, with the name chosen and not the extension', async () => {
+    await openPlan();
+    click('.toolbar .title');
+    await settle();
+    const input = field();
+    expect(input?.value).toBe('plan.md');
+    expect(document.activeElement).toBe(input);
+    expect([input?.selectionStart, input?.selectionEnd]).toEqual([0, 4]);
+  });
+
+  it('renames the file on Enter, and the tab goes with it', async () => {
+    await openPlan();
+    click('.toolbar .title');
+    await settle();
+    await rename('strategy');
+    expect(ipc.files.has('/w/strategy.md')).toBe(true);
+    expect(field()).toBeNull();
+    expect(title()?.textContent?.trim()).toBe('strategy.md');
+    expect(activeLabel()).toBe('strategy.md •');
+  });
+
+  it('names a new document, and Escape leaves it as it was', async () => {
+    start();
+    await press('KeyN');
+    click('.toolbar .title');
+    await settle();
+    expect(field()?.value).toBe('Untitled 1');
+    await rename('Team brief', 'Escape');
+    expect(activeLabel()).toBe('Untitled 1 •');
+
+    click('.toolbar .title');
+    await settle();
+    await rename('Team brief');
+    expect(activeLabel()).toBe('Team brief •');
+    // A name is not a save: there is still nowhere for it to be.
+    expect(ipc.calls.map((call) => call.command)).not.toContain('save_document');
+  });
+
+  it('keeps the name when the reader clicks away, and not when they only leave the app', async () => {
+    start();
+    await press('KeyN');
+    click('.toolbar .title');
+    await settle();
+    const input = field();
+    if (!input) throw new Error('the name is not a field');
+    input.value = 'Minutes';
+    const focused = vi.spyOn(document, 'hasFocus');
+    try {
+      // Another app in front: the field is still here to come back to.
+      focused.mockReturnValue(false);
+      input.blur();
+      await settle();
+      expect(field()).toBe(input);
+      // A click somewhere else in the window.
+      focused.mockReturnValue(true);
+      input.focus();
+      input.blur();
+      await settle();
+    } finally {
+      focused.mockRestore();
+    }
+    expect(field()).toBeNull();
+    expect(activeLabel()).toBe('Minutes •');
+  });
+
+  it('opens the same field from Rename…', async () => {
+    start();
+    await press('KeyN');
+    shell.registry.run('file.rename');
+    await settle();
+    const input = field();
+    expect(document.activeElement).toBe(input);
+    expect(input?.selectionEnd).toBe('Untitled 1'.length);
   });
 });
 

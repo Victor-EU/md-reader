@@ -80,7 +80,7 @@ Modeled on a browser window.
 
 - **Tab strip** at the top. Each tab is one document view. Tabs show the file name, a dirty dot, and a pin state. Drag to reorder. Drag out of the window to tear into a new window. Middle-click closes. Overflow scrolls horizontally with the active tab kept visible.
 - **Shortcuts:** written as Cmd here; Ctrl on Windows and Linux throughout. Cmd+T new tab (opens quick open), Cmd+W close, Cmd+Shift+T reopen closed, Cmd+1..9 jump, Cmd+Shift+[ and ] cycle, Cmd+N new untitled document, Cmd+O open a file from disk, Cmd+Shift+N new window. Files can also be dropped onto the window.
-- **Toolbar** under the tabs, kept minimal: a breadcrumb path, the mode switch (Read, Edit, Source), the annotation tools, and a "Changes" badge that appears when there are unreviewed external changes.
+- **Toolbar** under the tabs, kept minimal: a breadcrumb path ending in the document's name, which is renamed by clicking it (ADR 0037), the mode switch (Read, Edit, Source), the annotation tools, and a "Changes" badge that appears when there are unreviewed external changes.
 - **Command palette:** Cmd+P for files, Cmd+Shift+P for commands. This replaces the address bar.
 - **Sidebar** (toggle Cmd+Shift+B): folder tree when a folder is open, recent files otherwise. A second panel shows the outline of the current document. Cmd+Shift+F searches the open folder.
 - **Status bar:** word count, cursor position in source mode, encoding and line ending, autosave state, and the MCP connection indicator when an agent is attached.
@@ -164,7 +164,7 @@ None of these are novel, and all of them are expected. Missing any one of them b
 - Find and replace with regex. Native spell check from the webview.
 - Heading folding. Outline navigation. Cmd+= and Cmd+- zoom.
 - Smart typography is off by default. AI output already contains the characters it means.
-- **New files.** Cmd+N opens an untitled tab that is immediately editable. The first save asks for a location once, defaulting to the open folder or the folder of the active document, with a file name proposed from the first heading. After that autosave applies as usual. In the sidebar, "New file" creates `Untitled.md` in the selected folder and starts a rename. Untitled tabs survive session restore so nothing typed is lost.
+- **New files.** Cmd+N opens an untitled tab that is immediately editable. The first save asks for a location once, defaulting to the open folder or the folder of the active document, with a file name proposed from the name the reader gave it in the toolbar, or failing that from the first heading. After that autosave applies as usual. In the sidebar, "New file" creates `Untitled.md` in the selected folder and starts a rename. Untitled tabs survive session restore so nothing typed is lost.
 
 ---
 

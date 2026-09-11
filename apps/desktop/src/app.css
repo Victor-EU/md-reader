@@ -311,12 +311,19 @@ body,
   background: var(--active-bg);
 }
 
+/*
+ * The padding is room for the name's hover and its field's ring to be
+ * drawn in, since the path clips whatever would run past it; the margin
+ * gives the room back, so nothing in the bar moves for it.
+ */
 .breadcrumb {
   display: flex;
   gap: 5px;
   align-items: baseline;
   flex: 1;
   min-width: 0;
+  padding: 4px 8px;
+  margin: -4px -8px;
   overflow: hidden;
   white-space: nowrap;
   color: var(--muted);
@@ -329,6 +336,70 @@ body,
 .crumb.last {
   color: var(--bar-fg);
   font-weight: 500;
+}
+
+/*
+ * The name, which is also where it is changed (ADR 0037). At rest it is
+ * the words and nothing else. The padding is what the hover and the
+ * field are drawn in, and the margin takes it back out again, all but
+ * two pixels on the left: the room the field's ring needs to clear the
+ * separator before it.
+ */
+.title {
+  padding: 1px 4px;
+  margin: -1px -4px -1px -2px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  cursor: default;
+}
+
+button.title:hover {
+  background: var(--hover-bg);
+}
+
+/*
+ * An input has no width of its own to grow with, so the field takes
+ * one from an invisible copy of what it says, laid in the same cell.
+ */
+.title.naming {
+  display: inline-grid;
+  grid-template-columns: minmax(0, max-content);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  background: var(--page-bg);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.title.naming::after,
+.title.naming .name-field {
+  grid-area: 1 / 1;
+  padding: 1px 4px;
+  font: inherit;
+  font-weight: 500;
+}
+
+.title.naming::after {
+  content: attr(data-typed) " ";
+  visibility: hidden;
+  overflow: hidden;
+  white-space: pre;
+}
+
+.title.naming .name-field {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--bar-fg);
+  outline: none;
+  user-select: text;
 }
 
 .crumb.muted {

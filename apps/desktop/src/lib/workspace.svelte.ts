@@ -114,7 +114,7 @@ import { describeExport, exportPage } from './export.ts';
 import { Folder } from './folder.svelte.ts';
 import { snapshotTime } from './history.ts';
 import { imageResolver } from './images.ts';
-import { proposeFileName } from './naming.ts';
+import { proposeFileName, renamedFile, untitledNumber } from './naming.ts';
 import { bookmarkRow, headingRow, type OutlineRow, type OutlineTarget } from './outline.ts';
 import { imageLink, isImagePath, pastePlan, toBase64 } from './paste.ts';
 import {
@@ -377,12 +377,6 @@ function inPlainField(view: EditorView | null): boolean {
   return !view?.dom.contains(active);
 }
 
-/** `Untitled 3` -> 3, so a new document does not reuse a restored name. */
-function untitledNumber(name: string): number {
-  const digits = /(\d+)$/.exec(name);
-  return digits === null ? 0 : Number(digits[1]);
-}
-
 /**
  * A hunk the merge could not decide, as a region of the buffer after the
  * hunks it could decide have been applied to it.
@@ -506,6 +500,11 @@ export class Workspace {
     query: '',
     index: 0,
   });
+  /**
+   * How many times `Rename…` has asked the toolbar for its name field
+   * (ADR 0037). A count rather than a flag, so every ask is answered.
+   */
+  renameAsked = $state(0);
 
   /**
    * What every view of every document carries. A paste or a drop is the
@@ -1380,7 +1379,7 @@ export class Workspace {
       return;
     }
     const name = move.untitled_name ?? 'Untitled';
-    if (path === null) this.untitledCount = Math.max(this.untitledCount, untitledNumber(name));
+    if (path === null) this.untitledCount = Math.max(this.untitledCount, untitledNumber(name) ?? 0);
     const doc = this.newDoc(move.text, {
       ...(path === null ? { untitledName: name } : { path }),
       ...(move.meta === null ? {} : { meta: move.meta }),
@@ -1901,11 +1900,15 @@ export class Workspace {
 
   /**
    * What the save panel opens on for a document with no file yet
-   * (design 4.5, scenario S8): a name from its first heading, in a
-   * folder this window is already working in.
+   * (design 4.5, scenario S8): the name the reader gave it in the
+   * toolbar, or else one from its first heading, in a folder this
+   * window is already working in.
    */
   private saveTarget(doc: Doc): string {
-    const name = proposeFileName(this.firstHeading(doc), doc.untitledName);
+    // A name the reader chose is the name; the heading is only the best
+    // guess at one (ADR 0037).
+    const chosen = untitledNumber(doc.untitledName) === null ? doc.untitledName : null;
+    const name = proposeFileName(chosen ?? this.firstHeading(doc), doc.untitledName);
     const folder = this.saveFolder();
     return folder === '' ? name : resolvePath(folder, name);
   }
@@ -2424,19 +2427,24 @@ export class Workspace {
   fileRenamed(event: FileRenamed): void {
     const doc = this.docFor(event.from);
     if (!doc) return;
+    this.renamed(doc, event.from, event.to);
+    this.status = `${basename(event.from)} is now ${basename(event.to)}`;
+  }
+
+  /** Everything that knew the document by its old path, told its new one. */
+  private renamed(doc: Doc, from: string, to: string): void {
     // The override is keyed by path, and this is the same document under
     // another one: move it rather than leave it on a name nothing has.
     if (doc.reading !== null) {
-      void this.options.commands.setDocumentOverride(event.from, {});
-      void this.options.commands.setDocumentOverride(event.to, doc.reading);
+      void this.options.commands.setDocumentOverride(from, {});
+      void this.options.commands.setDocumentOverride(to, doc.reading);
     }
-    doc.path = event.to;
-    if (doc.meta) doc.meta = { ...doc.meta, path: event.to };
-    this.remember(event.to);
+    doc.path = to;
+    if (doc.meta) doc.meta = { ...doc.meta, path: to };
+    this.remember(to);
     // The watcher follows the file itself when it can see where it went.
     // Asking again costs a read and covers the case where it could not.
-    void this.options.commands.watch(event.to);
-    this.status = `${basename(event.from)} is now ${basename(event.to)}`;
+    void this.options.commands.watch(to);
   }
 
   // --- what the reader has seen -------------------------------------------
@@ -3486,6 +3494,38 @@ export class Workspace {
     if (this.activeDoc?.path === to) this.setMode('edit');
   }
 
+  /**
+   * The name at the end of the path, typed over (ADR 0037).
+   *
+   * A file is renamed where it is, by the same call as the sidebar's
+   * rename and refused in the same words when the name is taken. A
+   * document with no file yet is only called something else: naming it
+   * is not saving it, and the first save proposes what it is called.
+   *
+   * Nothing is said when it works. The reader is looking at the new name.
+   */
+  async renameDoc(doc: Doc, typed: string): Promise<void> {
+    const name = typed.trim();
+    if (doc.ephemeral || name === '') return;
+    const from = doc.path;
+    if (from === null) {
+      if (name === doc.untitledName) return;
+      doc.untitledName = name;
+      this.touch();
+      return;
+    }
+    const to = await this.folder.rename(from, renamedFile(name, basename(from)));
+    // The watcher can have reported the rename first, and then there is
+    // nothing left to follow.
+    if (to !== null && doc.path === from) this.renamed(doc, from, to);
+  }
+
+  /** `Rename…` from the menu or the palette: the toolbar answers with its field. */
+  askRename(): void {
+    const doc = this.activeDoc;
+    if (doc !== null && !doc.ephemeral) this.renameAsked += 1;
+  }
+
   // --- the outline and the sidebar ----------------------------------------
 
   toggleSidebar(): void {
@@ -3731,7 +3771,7 @@ export class Workspace {
   private async restoreDoc(entry: DocumentState): Promise<Doc | null> {
     if (entry.untitled) {
       const { name, text } = entry.untitled;
-      this.untitledCount = Math.max(this.untitledCount, untitledNumber(name));
+      this.untitledCount = Math.max(this.untitledCount, untitledNumber(name) ?? 0);
       const doc = this.newDoc(text, { untitledName: name });
       // This text has never been to a file, so the dirty dot belongs on
       // it exactly as it did before the restart. `reviewed` stays where

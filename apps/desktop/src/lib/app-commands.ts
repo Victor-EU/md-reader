@@ -45,6 +45,19 @@ export function appCommands(workspace: Workspace): CommandSpec[] {
       enabled: () => workspace.canSave,
       run: () => workspace.save(),
     },
+    // The name at the end of the path is a field when it is clicked (ADR
+    // 0037). This is the same field from the keyboard, and from where a
+    // Mac reader looks for Rename.
+    {
+      id: 'file.rename',
+      title: 'Rename…',
+      group: 'File',
+      enabled: () => {
+        const doc = workspace.activeDoc;
+        return doc !== null && !doc.ephemeral;
+      },
+      run: () => workspace.askRename(),
+    },
     // The folder workspace (design 4.1, scenario S6). Cmd+Shift+O is
     // Cmd+O with more of the same gesture in it: the open panel, asking
     // for a folder rather than a file.

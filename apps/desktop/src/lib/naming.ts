@@ -68,3 +68,35 @@ export function proposeFileName(heading: string | null, fallback: string): strin
     (heading === null ? null : fileNameFrom(heading)) ?? fileNameFrom(fallback) ?? 'Untitled';
   return KNOWN.test(name) ? name : `${name}${EXTENSION}`;
 }
+
+/**
+ * The names the app hands out itself, `Untitled 3`, as opposed to one
+ * the reader typed over it in the toolbar (ADR 0037).
+ */
+const GIVEN = /^Untitled(?: (\d+))?$/;
+
+/**
+ * The number in a name the app gave a document, so that a new one does
+ * not reuse a restored one. Null for a name the reader chose, which is
+ * not one of the app's numbers however it happens to end.
+ */
+export function untitledNumber(name: string): number | null {
+  const given = GIVEN.exec(name);
+  return given === null ? null : Number(given[1] ?? 0);
+}
+
+/**
+ * A file's new name, typed over the old one in the toolbar (ADR 0037).
+ *
+ * The reader is renaming the document, not changing what kind of file
+ * it is, so a name typed without the extension keeps the one the file
+ * had. Moving between the extensions the app opens is left to them.
+ */
+export function renamedFile(typed: string, old: string): string {
+  const name = typed.trim();
+  const dot = old.lastIndexOf('.');
+  // A leading dot is the whole name of a dotfile, not an extension.
+  const extension = dot > 0 ? old.slice(dot) : '';
+  if (extension === '' || KNOWN.test(name)) return name;
+  return name.toLowerCase().endsWith(extension.toLowerCase()) ? name : `${name}${extension}`;
+}

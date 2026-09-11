@@ -5,6 +5,7 @@ import { segments } from '../lib/paths.ts';
 import type { Workspace } from '../lib/workspace.svelte.ts';
 import Icon from './Icon.svelte';
 import Reading from './Reading.svelte';
+import Title from './Title.svelte';
 
 let { workspace, registry }: { workspace: Workspace; registry: CommandRegistry } = $props();
 
@@ -69,17 +70,23 @@ function tip(id: string): string {
   <nav class="breadcrumb" aria-label="Path" title={doc?.path ?? ''}>
     {#if doc === null}
       <span class="crumb muted">{nothing}</span>
-    {:else if crumbs.length === 0}
-      <span class="crumb last">{doc.untitledName}</span>
     {:else}
       {#if clipped}
         <span class="crumb" aria-hidden="true">…</span>
         <span class="sep" aria-hidden="true">›</span>
       {/if}
-      {#each crumbs as crumb, i (i)}
-        {#if i > 0}<span class="sep" aria-hidden="true">›</span>{/if}
-        <span class="crumb" class:last={i === crumbs.length - 1}>{crumb}</span>
+      {#each crumbs.slice(0, -1) as crumb, i (i)}
+        <span class="crumb">{crumb}</span>
+        <span class="sep" aria-hidden="true">›</span>
       {/each}
+      <!--
+        The folders say where the file is; the name is the one part of the
+        path the reader can change from here (ADR 0037). Keyed by document,
+        so a field left open on one never turns up on the next.
+      -->
+      {#key doc}
+        <Title {workspace} {doc} />
+      {/key}
     {/if}
   </nav>
 

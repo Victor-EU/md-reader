@@ -144,8 +144,12 @@ export class Doc {
    * document are read in the same type.
    */
   reading = $state<Override | null>(null);
-  /** `Untitled 1` until the first save gives the document a path. */
-  readonly untitledName: string;
+  /**
+   * What a document with no file is called: `Untitled 1`, until the
+   * reader types a name over it in the toolbar or the first save gives
+   * it a path (ADR 0037).
+   */
+  untitledName = $state('Untitled');
   /**
    * A view of a past version rather than a document (plan WP 2.3). It
    * has no file, it is never saved, and the session does not carry it:

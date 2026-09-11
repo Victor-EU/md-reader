@@ -147,6 +147,66 @@ describe('new files in the tree', () => {
   });
 });
 
+/**
+ * The name at the end of the toolbar's path, typed over (ADR 0037). The
+ * field is the toolbar's; what a name does to the file is here.
+ */
+describe('the name in the toolbar', () => {
+  function front() {
+    const doc = workspace.activeDoc;
+    if (!doc) throw new Error('nothing open');
+    return doc;
+  }
+
+  const asked = (command: string) => ipc.calls.filter((call) => call.command === command).length;
+
+  it('renames the file where it is, keeping what kind of file it is', async () => {
+    await workspace.openPath('/w/plan.md');
+    await workspace.renameDoc(front(), 'strategy');
+    expect(ipc.files.has('/w/strategy.md')).toBe(true);
+    expect(ipc.files.has('/w/plan.md')).toBe(false);
+    expect(front().path).toBe('/w/strategy.md');
+    expect(workspace.labels).toEqual(['strategy.md']);
+    expect(ipc.watching.has('/w/strategy.md')).toBe(true);
+    // The reader is looking at the new name, so the status line has
+    // nothing to add to it.
+    expect(workspace.status).not.toContain('is now');
+  });
+
+  it('moves the row in the tree with it', async () => {
+    await workspace.openFolder('/w');
+    await workspace.openFile('/w/plan.md');
+    await workspace.renameDoc(front(), 'strategy');
+    expect(rows()).toEqual(['notes', 'strategy.md']);
+  });
+
+  it('refuses a name that is taken, and leaves the file where it was', async () => {
+    await workspace.openPath('/w/notes/cats.md');
+    await workspace.renameDoc(front(), 'deep');
+    expect(front().path).toBe('/w/notes/cats.md');
+    expect(ipc.files.has('/w/notes/cats.md')).toBe(true);
+    expect(workspace.status).toContain('already');
+  });
+
+  it('asks nothing of the disk for a name that is empty or unchanged', async () => {
+    await workspace.openPath('/w/plan.md');
+    await workspace.renameDoc(front(), '   ');
+    await workspace.renameDoc(front(), 'plan');
+    await workspace.renameDoc(front(), 'plan.md');
+    expect(asked('rename_path')).toBe(0);
+    expect(front().path).toBe('/w/plan.md');
+  });
+
+  it('calls a document with no file something else, and writes nothing', async () => {
+    workspace.newUntitled();
+    await workspace.renameDoc(front(), '  Team brief ');
+    expect(workspace.labels).toEqual(['Team brief']);
+    expect(front().path).toBeNull();
+    expect(asked('save_document')).toBe(0);
+    expect(asked('rename_path')).toBe(0);
+  });
+});
+
 describe('Cmd+P over the folder', () => {
   it('offers the folder after the tabs, and never a file twice', async () => {
     await workspace.openFolder('/w');
