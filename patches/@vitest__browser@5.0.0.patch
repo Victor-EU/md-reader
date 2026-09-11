@@ -1,0 +1,52 @@
+diff --git a/dist/client/__vitest_browser__/orchestrator-M9828UZ-.js b/dist/client/__vitest_browser__/orchestrator-M9828UZ-.js
+index decc6b0ddc9531d7309bfb1aad608a2d24ccedaf..8df66721851ffb5472d9d7523a69e33204f01948 100644
+--- a/dist/client/__vitest_browser__/orchestrator-M9828UZ-.js
++++ b/dist/client/__vitest_browser__/orchestrator-M9828UZ-.js
+@@ -148,7 +148,10 @@ var IframeOrchestrator = class {
+ 		const iframe = this.createTestIframe(iframeId);
+ 		container.appendChild(iframe);
+ 		await new Promise((resolve, reject) => {
+-			iframe.onload = () => {
++			const loadTimeout = getIframeTimeout();
++		let loadTimer = setTimeout(() => reject(this.dispatchIframeError(new Error(`The iframe "${iframeId}" did not load within ${loadTimeout}ms. The browser never fired its load event; without this the run waits for ever.`))), loadTimeout);
++		iframe.onload = () => {
++			clearTimeout(loadTimer);
+ 				const href = this.getIframeHref(iframe);
+ 				debug("iframe loaded with href", href);
+ 				if (href !== iframe.src) reject(this.dispatchIframeError(/* @__PURE__ */ new Error(`Cannot connect to the iframe. Did you change the location or submitted a form? If so, don't forget to call \`event.preventDefault()\` to avoid reloading the page.
+@@ -169,6 +172,7 @@ Received URL: ${href || "unknown due to CORS"}\nExpected: ${iframe.src}`)));
+ 				}
+ 			};
+ 			iframe.onerror = (e) => {
++			clearTimeout(loadTimer);
+ 				if (typeof e === "string") reject(this.dispatchIframeError(new Error(e)));
+ 				else if (e instanceof ErrorEvent) reject(this.dispatchIframeError(e.error));
+ 				else reject(this.dispatchIframeError(/* @__PURE__ */ new Error(`Cannot load the iframe ${iframeId}.`)));
+@@ -325,13 +329,16 @@ Received URL: ${href || "unknown due to CORS"}\nExpected: ${iframe.src}`)));
+ 		});
+ 		return new Promise((resolve, reject) => {
+ 			let ackTimer;
++			let responseTimer;
+ 			const cleanupEvents = () => {
+ 				clearTimeout(ackTimer);
++				clearTimeout(responseTimer);
+ 				channel.removeEventListener("message", onReceived);
+ 				this.eventTarget.removeEventListener("iframeerror", onError);
+ 				events.delete(event.event);
+ 			};
+ 			const timeout = getIframeTimeout();
++			const responseTimeout = timeout * 10;
+ 			ackTimer = setTimeout(() => {
+ 				cleanupEvents();
+ 				reject(/* @__PURE__ */ new Error(`The iframe "${event.iframeId}" did not acknowledge the "${event.event}" message within ${timeout}ms. The tester might have crashed, been removed, or be blocked by a long synchronous task.`));
+@@ -340,6 +347,10 @@ Received URL: ${href || "unknown due to CORS"}\nExpected: ${iframe.src}`)));
+ 				if (e.data.iframeId !== event.iframeId || e.data.messageId !== messageId) return;
+ 				if (e.data.event === `ack:${event.event}`) {
+ 					clearTimeout(ackTimer);
++					responseTimer = setTimeout(() => {
++						cleanupEvents();
++						reject(new Error(`The iframe "${event.iframeId}" acknowledged the "${event.event}" message but never answered it within ${responseTimeout}ms. The tester may have lost its connection to Vitest.`));
++					}, responseTimeout);
+ 					return;
+ 				}
+ 				if (e.data.event === `response:${event.event}`) {
