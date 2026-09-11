@@ -794,6 +794,21 @@ export class ReadView {
     while (this.alive && !this.finished && this.pos <= offset) this.discover(50, WALK_STEP);
     const at = this.slotAt(offset);
     if (at === null) return;
+    // And a screenful past it, or the page ends before the block can
+    // reach the top of the window.
+    while (
+      this.alive &&
+      !this.finished &&
+      this.heights.total < this.heights.upto(at) + this.parent.clientHeight
+    ) {
+      this.discover(50, WALK_STEP);
+    }
+    // The gaps still stand for what had been walked when the page was
+    // last drawn, and a scroll past the end of that page stops at its
+    // end. A place asked for before the idle walk got there — a tab
+    // mounted and sent straight back to where the reader was — came
+    // back as the block a screenful above wherever that end fell.
+    this.paint();
     this.parent.scrollTop = Math.max(
       0,
       this.body.offsetTop + this.padTop + this.heights.upto(at) - SCROLL_MARGIN,
