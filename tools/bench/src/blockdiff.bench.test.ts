@@ -3,6 +3,7 @@ import { createEditorState } from '@markdown/editor-core';
 import { commonBlocks, flattenBlocks, generateDocument, parser } from '@markdown/markdown';
 import { afterEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
+import { ms } from './runner.ts';
 
 /**
  * The frontend half of the semantic diff budget (plan WP 2.2): an
@@ -106,7 +107,7 @@ describe('the semantic diff, frontend half', () => {
       };
       results.push(row);
       console.log(JSON.stringify(row));
-      expect(row.scan, `${label} flatten and send`).toBeLessThan(BUDGET_MS);
+      expect(row.scan, `${label} flatten and send`).toBeLessThan(ms(BUDGET_MS));
     });
   }
 

@@ -31,6 +31,10 @@ export default defineConfig({
     // between a bench run alone and the same bench run beside the
     // others.
     fileParallelism: false,
+    // Said by the workflow, not guessed from `CI`: the pinned machines of
+    // plan 1.1 would run under CI too, and their numbers are the ones the
+    // budgets are about (ADR 0038).
+    provide: { sharedRunner: process.env.BENCH_RUNNER === 'shared' },
     browser: {
       enabled: true,
       headless: true,

@@ -5,6 +5,7 @@ import { server } from 'vitest/browser';
 // The read view the app mounts, not a copy of it: what is measured here has
 // to be the code that runs.
 import { ReadView } from '../../../apps/desktop/src/lib/read/view.ts';
+import { ms } from './runner.ts';
 
 /**
  * Open to first paint in Read mode, which the Phase 1 gate budgets at
@@ -129,16 +130,18 @@ describe('read mode first paint', () => {
       results.push(row);
       console.log(JSON.stringify(row));
       view.destroy();
-      expect(row.firstPaint, `${label} first paint`).toBeLessThan(budget);
+      expect(row.firstPaint, `${label} first paint`).toBeLessThan(ms(budget));
       expect(complete, `${label} reached the end`).toBe(true);
       // The page holds a window onto the document, not the document.
       expect(row.blocks, `${label} blocks in the page`).toBeLessThan(200);
-      expect(row.jump, `${label} scroll`).toBeLessThan(JUMP_BUDGET_MS);
-      expect(row.jumpMax, `${label} worst scroll`).toBeLessThan(JUMP_BUDGET_MS * 3);
+      expect(row.jump, `${label} scroll`).toBeLessThan(ms(JUMP_BUDGET_MS));
+      expect(row.jumpMax, `${label} worst scroll`).toBeLessThan(ms(JUMP_BUDGET_MS * 3));
       // A document nothing has parsed is what a launch has; a window
       // that took a minute to find the end of one would be a problem the
       // first paint alone would not show.
-      expect(row.walk, `${label} reaching the end`).toBeLessThan(bytes < 5_000_000 ? 2_000 : 8_000);
+      expect(row.walk, `${label} reaching the end`).toBeLessThan(
+        ms(bytes < 5_000_000 ? 2_000 : 8_000),
+      );
     });
   }
 });

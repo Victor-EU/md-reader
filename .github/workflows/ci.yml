@@ -65,9 +65,12 @@ jobs:
     # them. macOS is the platform the app is developed and released on
     # first, so it is the one whose numbers mean something here.
     #
-    # The thresholds in `tools/bench/src` are set from what the harness
-    # measures with room over the top, which is what plan 7.4 asks of a
-    # shared runner: catch a disaster, do not flake on a busy machine.
+    # The budgets in `tools/bench/src` are measured on the machine they
+    # were written on. This runner is three shared cores, and from one run
+    # of the same build to the next it measures anything from that
+    # machine's numbers to ten times them, so it holds every time budget
+    # five times over (ADR 0038): what plan 7.4 asks of a shared runner,
+    # which is to catch a disaster and not to flake on a busy machine.
     # The results are kept as an artifact because the numbers are worth
     # more over time than any one run of them.
     runs-on: macos-15
@@ -77,6 +80,8 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install --with-deps chromium webkit
       - run: pnpm bench
+        env:
+          BENCH_RUNNER: shared
       # The Rust budget tests carry two numbers each: a loose one for the
       # unoptimized build `cargo test` makes over in the test job, and the
       # real one out of the design — 200 ms to merge a megabyte, 150 ms to

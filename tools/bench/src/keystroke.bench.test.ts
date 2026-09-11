@@ -3,6 +3,7 @@ import { createEditor } from '@markdown/editor-core';
 import { generateDocument } from '@markdown/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
+import { ms } from './runner.ts';
 
 /**
  * Keystroke latency with live preview on, p95 over two hundred keystrokes
@@ -144,7 +145,7 @@ describe('keystroke latency', () => {
         };
         results.push(row);
         console.log(JSON.stringify(row));
-        expect(row.workP95, `${label} ${where} work p95`).toBeLessThan(budget);
+        expect(row.workP95, `${label} ${where} work p95`).toBeLessThan(ms(budget));
       }
       editor.destroy();
     });

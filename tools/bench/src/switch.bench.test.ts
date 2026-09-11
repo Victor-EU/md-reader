@@ -3,6 +3,7 @@ import { generateDocument } from '@markdown/markdown';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { server } from 'vitest/browser';
 import { Workspace } from '../../../apps/desktop/src/lib/workspace.svelte.ts';
+import { ms } from './runner.ts';
 
 /**
  * What it costs to open a document and to change how it is shown (plan
@@ -166,16 +167,18 @@ describe('coming to a document', () => {
       // `open` is reported and not budgeted: most of it at this size is
       // the fake's own hashing of the file, and what an open really
       // costs is `read-paint.bench.test.ts`, which has no fake in it.
-      expect(row.count, `${label} word count`).toBeLessThan(AGAIN_BUDGET_MS);
-      expect(row.countAgain, `${label} word count again`).toBeLessThan(AGAIN_BUDGET_MS);
-      expect(row.outline, `${label} outline`).toBeLessThan(AGAIN_BUDGET_MS);
-      expect(row.outlineAgain, `${label} outline again`).toBeLessThan(AGAIN_BUDGET_MS);
+      expect(row.count, `${label} word count`).toBeLessThan(ms(AGAIN_BUDGET_MS));
+      expect(row.countAgain, `${label} word count again`).toBeLessThan(ms(AGAIN_BUDGET_MS));
+      expect(row.outline, `${label} outline`).toBeLessThan(ms(AGAIN_BUDGET_MS));
+      expect(row.outlineAgain, `${label} outline again`).toBeLessThan(ms(AGAIN_BUDGET_MS));
       expect(row.edited, `${label} word count after a keystroke`).toBeLessThan(
-        EDITED_BUDGET_MS[label] ?? 300,
+        ms(EDITED_BUDGET_MS[label] ?? 300),
       );
-      expect(row.toEdit, `${label} to edit`).toBeLessThan(MOUNT_BUDGET_MS);
-      expect(row.toRead, `${label} to read`).toBeLessThan(READ_BUDGET_MS[label] ?? MOUNT_BUDGET_MS);
-      expect(row.toSource, `${label} to source`).toBeLessThan(RECONFIGURE_BUDGET_MS);
+      expect(row.toEdit, `${label} to edit`).toBeLessThan(ms(MOUNT_BUDGET_MS));
+      expect(row.toRead, `${label} to read`).toBeLessThan(
+        ms(READ_BUDGET_MS[label] ?? MOUNT_BUDGET_MS),
+      );
+      expect(row.toSource, `${label} to source`).toBeLessThan(ms(RECONFIGURE_BUDGET_MS));
     });
   }
 });

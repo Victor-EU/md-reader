@@ -6,6 +6,7 @@ import { server } from 'vitest/browser';
 // The shell the app runs, not a copy of it: what is measured here has to
 // be the code that runs.
 import { Workspace } from '../../../apps/desktop/src/lib/workspace.svelte.ts';
+import { ms } from './runner.ts';
 
 /**
  * A session of two hundred tabs (plan WP 3.3).
@@ -172,10 +173,10 @@ describe('a session of two hundred tabs', () => {
     // any of them but paths: no document goes back the way it came.
     expect(row.calls, 'calls to Rust').toBeLessThan(TABS * 2 + 10);
     expect(row.argBytes, 'bytes sent to Rust').toBeLessThan(TABS * 100);
-    expect(row.restore, 'restoring the window').toBeLessThan(RESTORE_BUDGET_MS);
-    expect(row.firstP95, 'first visit p95').toBeLessThan(OPEN_BUDGET_MS);
-    expect(row.againP95, 'going back p95').toBeLessThan(SWITCH_BUDGET_MS);
-    expect(row.serialize, 'serializing the session').toBeLessThan(25);
-    expect(row.close, 'closing every tab').toBeLessThan(150);
+    expect(row.restore, 'restoring the window').toBeLessThan(ms(RESTORE_BUDGET_MS));
+    expect(row.firstP95, 'first visit p95').toBeLessThan(ms(OPEN_BUDGET_MS));
+    expect(row.againP95, 'going back p95').toBeLessThan(ms(SWITCH_BUDGET_MS));
+    expect(row.serialize, 'serializing the session').toBeLessThan(ms(25));
+    expect(row.close, 'closing every tab').toBeLessThan(ms(150));
   });
 });
