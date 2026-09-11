@@ -1572,6 +1572,31 @@ body,
   font: inherit;
 }
 
+/* Who built it and why, on the About block. The links are dressed as
+   Read mode dresses a link, because they leave the app the same way. */
+.settings .maker {
+  margin: 1.2em 0 0;
+  font-family: var(--family-sans);
+  font-size: 13px;
+}
+
+.settings .maker a {
+  margin-left: 0.6em;
+  color: var(--page-accent);
+  text-decoration-color: color-mix(in srgb, var(--page-accent) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.settings .maker a:hover {
+  text-decoration-color: var(--page-accent);
+}
+
+.settings .thesis {
+  max-width: 34em;
+  margin: 0.8em 0 0;
+  font-size: 0.9em;
+}
+
 .settings .colophon {
   margin: 2.4em 0 0;
   font-family: var(--family-sans);

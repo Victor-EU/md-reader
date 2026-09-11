@@ -591,6 +591,30 @@ describe('the updater in the chrome', () => {
     expect(about?.textContent).toContain('Markdown 0.1.0');
     expect(about?.textContent).toContain('Check for updates');
   });
+
+  it('says who built it, and its links leave for the browser', async () => {
+    const opened: string[] = [];
+    start({}, { openExternal: (url) => opened.push(url) });
+    shell.workspace.openSettings();
+    await settle();
+    const about = target.querySelector('.settings .about') as HTMLElement;
+    expect(about.textContent).toContain('Built by Victor Zhang.');
+    expect(about.textContent).toContain('which John Gruber created in 2004');
+    const links = [...about.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual([
+      'https://victorzhang.io/',
+      'https://www.linkedin.com/in/victor-yuchi-zhang/',
+      'https://github.com/Victor-EU/markdown',
+    ]);
+    // The webview never navigates (design 6.2): the click is taken over
+    // and handed to the system browser, and the page is still here.
+    const source = about.querySelector('a[href*="github"]') as HTMLAnchorElement;
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    source.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(opened).toEqual(['https://github.com/Victor-EU/markdown']);
+    expect(target.querySelector('.settings .about')).not.toBeNull();
+  });
 });
 
 /**

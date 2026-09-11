@@ -74,6 +74,34 @@ const FAMILIES = [
 /** What the updater has to say here, where the version is (WP 1.12). */
 const update = $derived(describeUpdate(workspace.update));
 
+/** Where the person who built this can be found. */
+const LINKS = [
+  { href: 'https://victorzhang.io/', label: 'victorzhang.io' },
+  { href: 'https://www.linkedin.com/in/victor-yuchi-zhang/', label: 'LinkedIn' },
+  { href: 'https://github.com/Victor-EU/markdown', label: 'Source' },
+] as const;
+
+/** Why it exists, in the author's words. The README carries the same. */
+const THESIS = [
+  'I am a big fan of the Markdown format, which John Gruber created in 2004. It is ' +
+    'simple and elegant. I started using a lot of Markdown files once I began building ' +
+    'with AI agents: they are perfect for ' +
+    'writing designs and plans and for recording status and bugs, for me and for the ' +
+    'agent alike. For now, they are the perfect human-machine interface.',
+  'I used VS Code to read them, but it is too heavy and overbuilt for that, and I did ' +
+    'not find anything I liked. So I built this simple viewer and editor. It also serves ' +
+    'as my note taker.',
+];
+
+/**
+ * A link on this page goes to the system browser like a link in Read
+ * mode does (design 6.2); the webview itself never navigates away.
+ */
+function follow(event: MouseEvent, href: string) {
+  event.preventDefault();
+  workspace.openLink(href, true);
+}
+
 const smallest = $derived(settings.size <= (SIZES[0] ?? 0));
 const largest = $derived(settings.size >= (SIZES.at(-1) ?? 0));
 
@@ -237,7 +265,7 @@ $effect(() => {
       </div>
     </section>
 
-    <section>
+    <section class="about">
       <h2>About</h2>
       <p class="hint">
         {#if workspace.version === ''}Markdown{:else}Markdown {workspace.version}{/if}
@@ -248,6 +276,15 @@ $effect(() => {
         </button>
         {#if update !== ''}<span class="value">{update}</span>{/if}
       </div>
+      <p class="maker">
+        Built by Victor Zhang.
+        {#each LINKS as link (link.href)}
+          <a href={link.href} onclick={(event) => follow(event, link.href)}>{link.label}</a>
+        {/each}
+      </p>
+      {#each THESIS as paragraph (paragraph)}
+        <p class="thesis">{paragraph}</p>
+      {/each}
     </section>
 
     <p class="colophon">

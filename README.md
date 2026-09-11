@@ -7,6 +7,23 @@ Markdown viewer and editor for the AI round trip.
 - [Decision records](docs/adr/)
 - [Releasing](docs/release.md)
 
+## About
+
+Built by [Victor Zhang](https://victorzhang.io/)
+([LinkedIn](https://www.linkedin.com/in/victor-yuchi-zhang/)). The source
+is at [github.com/Victor-EU/markdown](https://github.com/Victor-EU/markdown).
+
+I am a big fan of the Markdown format, which
+[John Gruber](https://daringfireball.net/projects/markdown/) created in
+2004. It is simple and elegant. I started using a lot of Markdown files
+once I began building with AI agents: they are perfect for writing designs
+and plans and for recording status and bugs, for me and for the agent
+alike. For now, they are the perfect human-machine interface.
+
+I used VS Code to read them, but it is too heavy and overbuilt for that,
+and I did not find anything I liked. So I built this simple viewer and
+editor. It also serves as my note taker.
+
 ## Layout
 
 ```
