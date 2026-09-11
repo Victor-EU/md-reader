@@ -1028,6 +1028,18 @@ export class Workspace {
   activate(id: string | null): void {
     if (id === this.activeId) return;
     const leaving = this.activeTab ? this.docOf(this.activeTab) : null;
+    // The view in front is taken down here, while it is still in the
+    // window, as `remove` does for a tab that closes. Its pane cannot be
+    // left to do it. When the next tab needs a different pane (Settings,
+    // a PDF, Read mode after Edit or back), Svelte takes this one out of
+    // the window before it runs the teardown inside it, and by then the
+    // view has no scroll position left to read. Read, Edit and PDFs all
+    // came back at the top after a visit to Settings. The epoch moves so
+    // that a reader who comes straight back still gets a view built.
+    this.unmount();
+    this.unmountRead();
+    this.unmountPdf();
+    this.epoch += 1;
     this.activeId = id;
     this.countNow();
     // A search is about one document, and a PDF's hits are page numbers

@@ -815,7 +815,11 @@ export class ReadView {
   /** The source offset of the first block on screen, for a mode switch. */
   topOffset(): number {
     if (this.slots.length === 0) return 0;
-    const target = this.parent.scrollTop - this.body.offsetTop - this.padTop + SCROLL_MARGIN;
+    // A pixel of slack. WebKit keeps a scroll position in whole pixels,
+    // so a block `scrollToOffset` put at the top could read back as a
+    // fraction of a pixel below it, and this answered with the block
+    // before: every trip to another tab and back moved the reader up one.
+    const target = this.parent.scrollTop - this.body.offsetTop - this.padTop + SCROLL_MARGIN + 1;
     for (let i = this.heights.indexAt(target); i < this.slots.length; i++) {
       const slot = this.slots[i] as Slot;
       if (!slot.empty && !slot.under) return slot.from;

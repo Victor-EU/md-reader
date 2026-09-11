@@ -1,3 +1,4 @@
+import { EditorView } from '@codemirror/view';
 import { createFakeIpc, type FakeIpc } from '@markdown/ipc/fake';
 import { mount, tick, unmount } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -615,6 +616,72 @@ describe('the updater in the chrome', () => {
     expect(click.defaultPrevented).toBe(true);
     expect(opened).toEqual(['https://github.com/Victor-EU/markdown']);
     expect(target.querySelector('.settings .about')).not.toBeNull();
+  });
+});
+
+/**
+ * Where the reader is in a document, kept across a visit to another kind
+ * of tab. Settings replaces the page outright rather than showing another
+ * document in it, and a place read off a page already out of the window
+ * is the top of it — which is where Read and Edit both came back.
+ */
+describe('the reader’s place', () => {
+  const LONG = Array.from(
+    { length: 120 },
+    (_, i) => `## Heading ${i}\n\n${'word '.repeat(50)}`,
+  ).join('\n\n');
+  const HEADING = LONG.indexOf('## Heading 60');
+
+  /** Long enough for the editor to measure what a scroll brought in. */
+  async function frames() {
+    for (let i = 0; i < 2; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  beforeEach(async () => {
+    start({ '/long.md': LONG });
+    // A window with a height of its own, so the page is a scroller.
+    target.style.height = '600px';
+    await shell.workspace.openPath('/long.md');
+    await settle();
+  });
+
+  it('is kept in Read mode across a change of theme in Settings', async () => {
+    const tab = shell.workspace.activeId as string;
+    shell.workspace.readView?.scrollToOffset(HEADING);
+    // The same block reads back, which WebKit's whole-pixel scroll
+    // positions once made the block before it.
+    expect(shell.workspace.readView?.topOffset()).toBe(HEADING);
+
+    shell.workspace.openSettings();
+    await settle();
+    shell.workspace.updateSettings({ appearance: 'dark' });
+    await settle();
+    shell.workspace.activate(tab);
+    await settle();
+    expect(shell.workspace.readView?.topOffset()).toBe(HEADING);
+  });
+
+  it('is kept in Edit mode across a visit to Settings', async () => {
+    const tab = shell.workspace.activeId as string;
+    shell.workspace.setMode('edit');
+    await settle();
+    const view = () => shell.workspace.view as EditorView;
+    /** The line at the top edge of the page. */
+    const top = () => {
+      const edge = view().scrollDOM.getBoundingClientRect().top - view().documentTop + 2;
+      return view().state.doc.lineAt(view().lineBlockAtHeight(edge).from).number;
+    };
+    view().dispatch({ effects: EditorView.scrollIntoView(HEADING, { y: 'start', yMargin: 0 }) });
+    await frames();
+    const line = view().state.doc.lineAt(HEADING).number;
+    expect(top()).toBe(line);
+
+    shell.workspace.openSettings();
+    await settle();
+    shell.workspace.activate(tab);
+    await settle();
+    await frames();
+    expect(top()).toBe(line);
   });
 });
 
