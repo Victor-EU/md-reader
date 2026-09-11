@@ -1387,7 +1387,7 @@ export class Workspace {
       restore: move.state,
     });
     doc.base = Text.of(move.base.split('\n'));
-    doc.reviewed = Text.of(move.reviewed.split('\n'));
+    doc.adoptReviewed(Text.of(move.reviewed.split('\n')));
     const tab = this.addTab(doc, move.mode);
     tab.selection = doc.state.selection;
     tab.anchor = { offset: Math.min(move.anchor, doc.state.doc.length), y: 0 };
@@ -1715,6 +1715,7 @@ export class Workspace {
       }
       if (!tr.docChanged) continue;
       changed = true;
+      doc.follow(tr);
       // Tabs that are not mounted keep their own cursor; map it through.
       for (const other of this.tabs) {
         if (other.id !== mounted.tab.id && other.docId === doc.id) {
@@ -2349,6 +2350,7 @@ export class Workspace {
     const reading = this.reading?.tab.docId === doc.id && transaction.docChanged;
     if (reading) this.unmountRead();
     doc.state = transaction.state;
+    doc.follow(transaction);
     for (const tab of this.tabs) {
       if (tab.docId !== doc.id) continue;
       tab.selection = tab.selection.map(transaction.changes);
@@ -2650,8 +2652,11 @@ export class Workspace {
    * typing sends a paragraph and not a document.
    */
   private async pushChanges(doc: Doc): Promise<void> {
+    // What arrived and has since been put back is nothing to show.
+    doc.settle();
     // Nothing has happened since they last looked, which is the state a
-    // document is opened in and the one a save leaves it in.
+    // document is opened in, the one a save leaves it in, and -- what they
+    // type being theirs -- the one they are in while they write.
     if (doc.baseline === doc.state.doc) {
       this.showChanges(doc, []);
       return;
@@ -2814,7 +2819,9 @@ export class Workspace {
     }).state;
     const edit = plan(based);
     if (!edit) return false;
-    doc.state = based.update({ ...edit, userEvent }).state;
+    const annotated = based.update({ ...edit, userEvent });
+    doc.state = annotated.state;
+    doc.follow(annotated);
     // The editor is not mounted here, so this is the one edit that does
     // not pass through `applyTransactions` on its way to the buffer.
     this.scheduleAutosave(doc);
@@ -2915,6 +2922,7 @@ export class Workspace {
       state: doc.state,
       dispatch: (tr: Transaction) => {
         doc.state = tr.state;
+        doc.follow(tr);
       },
     };
     if (!toggleTaskAt(target, offset)) return false;

@@ -35,6 +35,10 @@ export default defineConfig({
       '@tauri-apps/api/window',
       '@tauri-apps/plugin-dialog',
       '@tauri-apps/plugin-opener',
+      // The same for this one, which the shell only ever took types from
+      // until `document.svelte.ts` began reusing a parse (ADR 0036). The
+      // first run after that reloaded under seven WebKit files at once.
+      '@lezer/common',
     ],
     // pdf.js is the opposite case: it is one prebuilt file of two and a
     // half megabytes, so there is nothing to pre-bundle and the

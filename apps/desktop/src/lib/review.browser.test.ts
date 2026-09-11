@@ -86,6 +86,25 @@ describe('Review mode', () => {
     expect(workspace.activeDoc?.text).toBe('ONE\n\nthe cat sat down\n\nthree\n');
   });
 
+  /**
+   * Revert puts back what arrived and nothing the reader wrote: a word
+   * they have added to the paragraph since is theirs, and stays (ADR
+   * 0036). It used to go back with the paragraph.
+   */
+  it('puts back what arrived and keeps what the reader wrote beside it', async () => {
+    await workspace.openPath('/a/one.md');
+    edit();
+    await rewritten('one\n\nthe cat stood up\n\nthree\n');
+    workspace.view?.dispatch({ changes: { from: 'one\n\n'.length, insert: 'Yes, ' } });
+    // A scan, waited for: stopping a comparison nobody started asks for one.
+    await workspace.compareWith(null);
+    workspace.view?.dispatch({ selection: { anchor: 'one\n\nYes, the'.length } });
+    expect(workspace.revertHere()).toBe(true);
+    expect(workspace.activeDoc?.text).toBe('one\n\nYes, the cat sat down\n\nthree\n');
+    await workspace.compareWith(null);
+    expect(workspace.unreviewed).toBe(0);
+  });
+
   it('says so when the cursor is not in a change', async () => {
     await workspace.openPath('/a/one.md');
     edit();

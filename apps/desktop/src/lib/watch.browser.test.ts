@@ -325,6 +325,19 @@ describe('a file that goes away', () => {
  */
 const three = 'one\n\ntwo\n\nthree\n';
 
+/**
+ * A scan, waited for. Stopping a comparison asks for one, and asking
+ * when nothing is being compared is harmless.
+ */
+const rescan = () => workspace.compareWith(null);
+
+/** The text of each change the last scan found, in the buffer as it is now. */
+function marked(): string[] {
+  const doc = workspace.activeDoc;
+  if (!doc) throw new Error('no document');
+  return doc.changes.map((record) => doc.state.doc.sliceString(record.from, record.to));
+}
+
 describe('what the reader has seen', () => {
   it('counts what arrived and stops counting once it is marked reviewed', async () => {
     open({ '/a/one.md': three });
@@ -335,6 +348,76 @@ describe('what the reader has seen', () => {
     workspace.markReviewed();
     expect(workspace.unreviewed).toBe(0);
     expect(workspace.status).toBe('Marked as reviewed');
+  });
+
+  /**
+   * The marks are for what changed under the reader, and what they type
+   * is not that: they know what they wrote (ADR 0036). Typing into a new
+   * document is the first thing anybody does with one.
+   */
+  it('does not mark what the reader types', async () => {
+    workspace.newUntitled();
+    edit();
+    workspace.view?.dispatch({ changes: { from: 0, insert: 'Test test test' } });
+    const doc = workspace.activeDoc;
+    // What they have seen is what is there, so a scan has nothing to do.
+    expect(doc?.baseline).toBe(doc?.state.doc);
+    await rescan();
+    expect(workspace.unreviewed).toBe(0);
+    await drawn();
+    expect(host.querySelectorAll('.cm-change')).toHaveLength(0);
+  });
+
+  /**
+   * Scenario S4 as the design words it: the reader's unsaved edit is
+   * untouched, and only what the agent rewrote is marked. The merge is
+   * told where the agent's word goes, which is what Rust's would say.
+   */
+  it('marks what the agent wrote and not what the reader typed before it', async () => {
+    open({ '/a/one.md': three }, (_base, ours) => {
+      const at = ours.indexOf('three');
+      return { changes: [{ from: at, to: at + 'three'.length, insert: 'THREE' }], conflicts: [] };
+    });
+    await workspace.openPath('/a/one.md');
+    edit();
+    workspace.view?.dispatch({ changes: { from: 'one'.length, insert: ' more' } });
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\ntwo\n\nTHREE\n'));
+    expect(workspace.activeDoc?.text).toBe('one more\n\ntwo\n\nTHREE\n');
+    expect(marked()).toEqual(['THREE']);
+  });
+
+  it('goes on marking only what arrived while the reader types round it', async () => {
+    open({ '/a/one.md': three });
+    await workspace.openPath('/a/one.md');
+    edit();
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\nTWO\n\nthree\n'));
+    const end = 'one\n\nTWO\n\nthree'.length;
+    workspace.view?.dispatch({
+      changes: [
+        { from: 0, insert: 'Well, ' },
+        { from: end, insert: ' more' },
+      ],
+    });
+    await rescan();
+    expect(workspace.activeDoc?.text).toBe('Well, one\n\nTWO\n\nthree more\n');
+    expect(marked()).toEqual(['TWO']);
+  });
+
+  /**
+   * A merge brings whole lines, so the line after the ones that arrived
+   * is not theirs: a sentence begun at the head of it is the reader's.
+   */
+  it('leaves the line after a paragraph that arrived to the reader', async () => {
+    open({ '/a/one.md': three }, (_base, ours) => {
+      const at = ours.indexOf('three');
+      return { changes: [{ from: at, to: at, insert: 'new\n\n' }], conflicts: [] };
+    });
+    await workspace.openPath('/a/one.md');
+    edit();
+    await workspace.externalChange(ipc.externalWrite('/a/one.md', 'one\n\ntwo\n\nnew\n\nthree\n'));
+    workspace.view?.dispatch({ changes: { from: 'one\n\ntwo\n\nnew\n\n'.length, insert: 'and ' } });
+    await rescan();
+    expect(marked()).toEqual(['new']);
   });
 
   it('draws the change in the gutter', async () => {

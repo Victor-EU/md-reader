@@ -1,7 +1,14 @@
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language';
-import { EditorState, type Extension, type Text } from '@codemirror/state';
+import {
+  ChangeSet,
+  type ChangeSpec,
+  EditorState,
+  type Extension,
+  type Text,
+  type Transaction,
+} from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import type { Tree } from '@lezer/common';
+import { type ChangedRange, type Tree, TreeFragment } from '@lezer/common';
 import {
   type ChangeRecord,
   createEditorState,
@@ -102,7 +109,15 @@ export class Doc {
   state: EditorState = $state.raw(EMPTY);
   /** The content on disk as we last saw it: the base for a merge (WP 1.7). */
   base: Text = $state.raw(EMPTY.doc);
-  /** What the reader has already seen; the Changes badge counts from here. */
+  /**
+   * What the reader has already seen, or written themselves; the Changes
+   * badge counts from here.
+   *
+   * Their own typing moves it as they type (ADR 0036). The marks are for
+   * what changed under them, and nobody needs telling what they have
+   * just written, so what is left between this and the buffer is only
+   * what arrived from outside: a write merged in from disk or an agent.
+   */
   reviewed: Text = $state.raw(EMPTY.doc);
   /**
    * A version out of the history the reader has asked to be shown
@@ -186,6 +201,25 @@ export class Doc {
    * out, or null when it has never run out on this document.
    */
   private unparsed: number | null = null;
+  /**
+   * What arrived from outside since `reviewed`, as the edits that take it
+   * to the buffer `follow` last saw, or null once that is not known.
+   *
+   * Kept as edits rather than worked out from the two texts, because
+   * every keystroke asks where the text that arrived is, and a diff is a
+   * scan's worth of work to answer that.
+   */
+  private arrived: ChangeSet | null = ChangeSet.empty(0);
+  /** The buffer `arrived` leads to: how an edit that went round `follow` shows. */
+  private followed: Text = EMPTY.doc;
+  /**
+   * The last parse of the baseline, as fragments the next one can reuse.
+   *
+   * While something is waiting to be reviewed, the reader's typing makes
+   * a new baseline at every pause, and parsing a megabyte of it from
+   * nothing costs 150 to 200 milliseconds each time (plan WP 3.3).
+   */
+  private reuse: { of: Text; fragments: readonly TreeFragment[] } | null = null;
 
   constructor(text: string, options: DocOptions = {}) {
     this.path = options.path ?? null;
@@ -202,12 +236,12 @@ export class Doc {
       (options.restore === undefined ? null : editorStateFromJSON(options.restore, config)) ??
       createEditorState(text, config);
     this.base = this.state.doc;
-    this.reviewed = this.state.doc;
+    this.caughtUp(this.state.doc);
   }
 
   /**
    * The version the marks are measured against: a snapshot the reader
-   * picked out of the history, or what they last said they had seen.
+   * picked out of the history, or what they have seen and written.
    */
   get baseline(): Text {
     return this.against ?? this.reviewed;
@@ -231,10 +265,17 @@ export class Doc {
    * This side has no tree of its own — it is a snapshot, not a buffer —
    * so where it is not in hand it is parsed headlessly, with the same
    * parser the editor uses, which is what makes the two lists
-   * comparable.
+   * comparable. What the last such parse found is reused wherever the
+   * text has not changed since (ADR 0036).
    */
   baselineBlocks(): DocBlock[] {
-    return this.blocksFor(this.baseline, (source) => flattenBlocks(parser.parse(source), source));
+    const baseline = this.baseline;
+    return this.blocksFor(baseline, (source) => {
+      const kept = this.reuse;
+      const tree = parser.parse(source, kept?.of === baseline ? kept.fragments : []);
+      this.reuse = { of: baseline, fragments: TreeFragment.addTree(tree) };
+      return flattenBlocks(tree, source);
+    });
   }
 
   /** Read afresh on every widget, so a toggle needs no new state. */
@@ -360,11 +401,15 @@ export class Doc {
    * A save on a timer does not, so the marks on a write that arrived
    * from somebody else stay where they are until it has been read
    * (design 4.4) rather than being cleared by a clock.
+   *
+   * Nor does one the reader typed through, where the buffer has moved
+   * on since the bytes were taken: what they typed is theirs already,
+   * and what arrived before it stays marked rather than being guessed at.
    */
   markSaved(written: Text, seen: boolean): void {
     this.base = written;
-    if (seen) {
-      this.reviewed = written;
+    if (seen && written === this.state.doc) {
+      this.caughtUp(written);
       // Unless the marks are answering another question, in which case
       // the save has not answered it.
       if (this.against === null) this.changes = [];
@@ -377,7 +422,7 @@ export class Doc {
    * gutter marks from here on is what happened after this moment.
    */
   markReviewed(): void {
-    this.reviewed = this.state.doc;
+    this.caughtUp(this.state.doc);
     // The reader has seen the buffer, which answers whatever comparison
     // they had set up; leaving it on would keep marking a document they
     // have just said they are done with.
@@ -390,6 +435,164 @@ export class Doc {
   compareWith(text: Text | null, id: string | null): void {
     this.against = text;
     this.againstId = text === null ? null : id;
+  }
+
+  /**
+   * What the reader had seen, as the window this document came from
+   * says it (plan WP 2.5).
+   *
+   * Only the text crosses, not which of the difference arrived and which
+   * the reader typed. Where there is no difference that does not matter;
+   * where there is, everything since is marked -- their typing included
+   * -- until they next say they have looked.
+   */
+  adoptReviewed(text: Text): void {
+    if (text.eq(this.state.doc)) {
+      this.caughtUp(this.state.doc);
+      return;
+    }
+    this.reviewed = text;
+    this.followed = this.state.doc;
+    this.arrived = null;
+  }
+
+  /**
+   * Keep what the reader has seen in step with what they do (ADR 0036).
+   *
+   * Every transaction that moves the buffer comes through here, in order.
+   * One that arrived from outside is added to `arrived`. One of the
+   * reader's own is made to `reviewed` as well, unless it touches text
+   * that arrived: a word typed into an agent's new paragraph is more of
+   * that paragraph, and stays marked with it.
+   */
+  follow(tr: Transaction): void {
+    if (!tr.docChanged) return;
+    // A transaction that went round this, by a path that set the state
+    // some other way, leaves `arrived` describing a buffer that is not
+    // there. From then on the reader's typing is marked like everything
+    // else, until they next say they have looked.
+    const arrived = this.followed === tr.startState.doc ? this.arrived : null;
+    this.followed = tr.state.doc;
+    if (arrived === null) {
+      this.arrived = null;
+    } else if (tr.isUserEvent('external')) {
+      this.arrived = arrived.compose(tr.changes);
+    } else if (arrived.empty) {
+      // Nothing is waiting on the reader, which is nearly always: what
+      // they have seen is what is there.
+      this.caughtUp(tr.state.doc);
+    } else {
+      this.carry(arrived, tr);
+      // Putting text back is how what arrived goes away again: the write
+      // undone, or Revert pressed on one of its changes.
+      if (tr.isUserEvent('undo') || tr.isUserEvent('redo') || tr.isUserEvent('revert')) {
+        this.tidy();
+      }
+    }
+  }
+
+  /**
+   * Make `arrived` fit for a scan: still about this buffer, and pared
+   * down to what differs.
+   */
+  settle(): void {
+    if (this.followed !== this.state.doc) this.arrived = null;
+    this.tidy();
+  }
+
+  /** The reader has seen `text`, and nothing in it is waiting on them. */
+  private caughtUp(text: Text): void {
+    this.reviewed = text;
+    this.followed = text;
+    this.arrived = ChangeSet.empty(text.length);
+    this.reuse = null;
+  }
+
+  /**
+   * Make the reader's edit to what they have seen as well, where it is
+   * theirs.
+   *
+   * The edit is in the buffer's positions and `reviewed` has its own, so
+   * it goes back through what arrived, undone; the undoing then goes
+   * forward past the edit, and that is what `arrived` becomes. The parts
+   * of the edit that touch what arrived are added to it instead.
+   */
+  private carry(arrived: ChangeSet, tr: Transaction): void {
+    const start = tr.startState.doc;
+    const stretches: [number, number][] = [];
+    arrived.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+      stretches.push([fromB, toB]);
+    });
+    const mine: ChangeSpec[] = [];
+    const theirs: ChangeSpec[] = [];
+    // Adjacent edits are reported as one, so each is wholly one or the other.
+    tr.changes.iterChanges((from, to, _fromB, _toB, insert) => {
+      const touching = stretches.some(([a, b]) => touches(start, from, to, a, b));
+      (touching ? theirs : mine).push({ from, to, insert });
+    });
+    if (mine.length === 0) {
+      this.arrived = arrived.compose(tr.changes);
+      return;
+    }
+    const ours = ChangeSet.of(mine, start.length);
+    const back = arrived.invert(this.reviewed);
+    const seen = ours.map(back);
+    const reviewed = seen.apply(this.reviewed);
+    this.arrived = back
+      .map(ours, true)
+      .invert(ours.apply(start))
+      .compose(ChangeSet.of(theirs, start.length).map(ours));
+    this.keep(seen, reviewed);
+    this.reviewed = reviewed;
+  }
+
+  /**
+   * Take off each edit in `arrived` what it left as it was at either end,
+   * and drop the ones that left everything as it was: a write undone, a
+   * change reverted, a word typed back. What stays is what differs, which
+   * is also what the reader's next edit is measured against.
+   */
+  private tidy(): void {
+    const arrived = this.arrived;
+    if (arrived === null || arrived.empty) return;
+    const reviewed = this.reviewed;
+    const specs: ChangeSpec[] = [];
+    arrived.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      const was = reviewed.sliceString(fromA, toA);
+      const now = inserted.toString();
+      if (was === now) return;
+      const most = Math.min(was.length, now.length);
+      let head = 0;
+      while (head < most && was.charCodeAt(head) === now.charCodeAt(head)) head += 1;
+      let tail = 0;
+      while (
+        tail < most - head &&
+        was.charCodeAt(was.length - 1 - tail) === now.charCodeAt(now.length - 1 - tail)
+      )
+        tail += 1;
+      specs.push({
+        from: fromA + head,
+        to: toA - tail,
+        insert: now.slice(head, now.length - tail),
+      });
+    });
+    const tidied = ChangeSet.of(specs, reviewed.length);
+    if (tidied.empty) this.caughtUp(this.followed);
+    else this.arrived = tidied;
+  }
+
+  /** Carry the last parse of the baseline through an edit made to it. */
+  private keep(edit: ChangeSet, to: Text): void {
+    const kept = this.reuse;
+    if (kept?.of !== this.reviewed) {
+      this.reuse = null;
+      return;
+    }
+    const ranges: ChangedRange[] = [];
+    edit.iterChangedRanges((fromA, toA, fromB, toB) => {
+      ranges.push({ fromA, toA, fromB, toB });
+    });
+    this.reuse = { of: to, fragments: TreeFragment.applyChanges(kept.fragments, ranges) };
   }
 
   /**
@@ -427,9 +630,23 @@ export class Doc {
       extra: this.configured(),
     });
     this.base = this.state.doc;
-    this.reviewed = this.state.doc;
+    this.caughtUp(this.state.doc);
     this.against = null;
     this.againstId = null;
     this.changes = [];
   }
+}
+
+/**
+ * Whether an edit of the reader's, `from` to `to` in `doc`, touches a
+ * stretch `a` to `b` that arrived from outside (ADR 0036).
+ *
+ * Overlapping it does, and so does meeting it at either end, bar one
+ * case: an edit that starts where the stretch stops, when the stretch
+ * stops at the end of a line. A merge brings whole lines, so that edit
+ * is at the start of the next line, which is the reader's own.
+ */
+function touches(doc: Text, from: number, to: number, a: number, b: number): boolean {
+  if (to < a || from > b) return false;
+  return from !== b || (b > 0 && doc.sliceString(b - 1, b) !== '\n');
 }

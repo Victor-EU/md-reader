@@ -144,7 +144,7 @@ Every document has a local history. Snapshots are taken:
 
 Each snapshot records content, timestamp, and author: `user`, `external`, or a named agent when the write came over MCP.
 
-Per document, the app tracks a **last reviewed** snapshot. The gutter shows change markers for everything that differs between last reviewed and the current buffer. "Mark reviewed" advances the pointer. This is the mechanism behind "what did the AI change since I looked".
+Per document, the app tracks a **last reviewed** snapshot. The gutter shows change markers for everything that differs between last reviewed and the current buffer. "Mark reviewed" advances the pointer, and so does the reader's own typing, as they type: they know what they wrote, so only what arrived from outside (a write from disk or from an agent) is ever marked (ADR 0036). This is the mechanism behind "what did the AI change since I looked".
 
 **Review mode** (Cmd+Shift+R) walks through changes one at a time with inline old and new text, like a track-changes view. Each change can be reverted individually.
 
