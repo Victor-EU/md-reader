@@ -16,7 +16,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use ignore::WalkBuilder;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
-use notify::{RecommendedWatcher, RecursiveMode};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
@@ -297,20 +297,7 @@ impl Folder {
         let skip = ignores(&root);
         let watch = new_debouncer(DEBOUNCE, None, move |result: DebounceEventResult| {
             let Ok(events) = result else { return };
-            let mut dirs: Vec<PathBuf> = Vec::new();
-            for path in events.iter().flat_map(|event| event.paths.iter()) {
-                let here = path
-                    .strip_prefix(&real)
-                    .map_or_else(|_| path.clone(), |rest| shown.join(rest));
-                if noise(&skip, &shown, &here) {
-                    continue;
-                }
-                if let Some(dir) = here.parent().map(Path::to_path_buf)
-                    && !dirs.contains(&dir)
-                {
-                    dirs.push(dir);
-                }
-            }
+            let dirs = listings(events.iter().map(|each| &each.event), &real, &shown, &skip);
             if dirs.is_empty() {
                 return;
             }
@@ -379,18 +366,66 @@ fn ignores(root: &Path) -> Gitignore {
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 
+/// The folders whose listings a batch of events may have changed: the one
+/// each changed path is in, once each, and none the tree does not show.
+///
+/// Paths come back under the name the reader opened, `shown`, from where
+/// the watch found them, `real`: a folder reached through a symlink is
+/// watched at its real location, and every temporary folder on macOS is
+/// one.
+fn listings<'a>(
+    events: impl IntoIterator<Item = &'a Event>,
+    real: &Path,
+    shown: &Path,
+    skip: &Gitignore,
+) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    // Opening a file changes no listing. inotify reports every open, a
+    // folder's too, and the watch opens each folder under the root as it
+    // starts, which on Linux read as a change to the root.
+    let changes = events
+        .into_iter()
+        .filter(|event| !matches!(event.kind, EventKind::Access(_)));
+    for path in changes.flat_map(|event| event.paths.iter()) {
+        let here = path
+            .strip_prefix(real)
+            .map_or_else(|_| path.clone(), |rest| shown.join(rest));
+        if noise(skip, shown, &here) {
+            continue;
+        }
+        if let Some(dir) = here.parent().map(Path::to_path_buf)
+            && !dirs.contains(&dir)
+        {
+            dirs.push(dir);
+        }
+    }
+    dirs
+}
+
 /// Whether a changed path is one the folder does not contain anyway.
 fn noise(skip: &Gitignore, root: &Path, path: &Path) -> bool {
     let Ok(relative) = path.strip_prefix(root) else {
         return true;
     };
+    // The root itself, which is listed in a folder the tree does not
+    // show. FSEvents can report its making to a watch that began a moment
+    // after it, and the folder above it was what came back.
+    if relative.as_os_str().is_empty() {
+        return true;
+    }
     if relative
         .components()
         .any(|part| part.as_os_str().to_string_lossy().starts_with('.'))
     {
         return true;
     }
-    skip.matched_path_or_any_parents(path, false).is_ignore()
+    // `build/` ignores a folder and not a file of that name, so the rules
+    // have to be told which this is. Asked as a file, the folder itself —
+    // made again by a clean build, or touched by the file written into it
+    // — was never ignored. A path that is gone cannot say, and is asked
+    // about as a file: the worst of that is one listing read again.
+    skip.matched_path_or_any_parents(path, path.is_dir())
+        .is_ignore()
 }
 
 /// A name for a file the reader is about to make, refused if it is a
@@ -678,6 +713,7 @@ mod tests {
         })
         .expect("open");
         assert_eq!(folder.root(), dir.path());
+        quiet(&recv);
         fs::write(dir.path().join("b.md"), "b").expect("write");
         let change = recv
             .recv_timeout(Duration::from_secs(5))
@@ -696,18 +732,80 @@ mod tests {
         use std::sync::mpsc::channel;
 
         let dir = folder(&[(".gitignore", "build/\n"), ("a.md", "a")]);
-        fs::create_dir_all(dir.path().join("build")).expect("folder");
         let (send, recv) = channel();
         let _folder = Folder::open(dir.path(), move |change| {
             let _unused = send.send(change);
         })
         .expect("open");
+        quiet(&recv);
+        // The folder itself as well as what is written into it: a clean
+        // build begins by making `target/` again.
+        fs::create_dir(dir.path().join("build")).expect("folder");
         fs::write(dir.path().join("build/out.js"), "x").expect("write");
         fs::write(dir.path().join(".hidden"), "x").expect("write");
         assert_eq!(
             recv.recv_timeout(Duration::from_millis(800)),
             Err(RecvTimeoutError::Timeout)
         );
+    }
+
+    /// Wait out whatever the fixture's own making is still reported as.
+    /// `FSEvents` can hand a new watch what was written a moment before it
+    /// began, and that is not what a test of the watch is about.
+    fn quiet(recv: &std::sync::mpsc::Receiver<FolderChange>) {
+        while recv.recv_timeout(Duration::from_secs(1)).is_ok() {}
+    }
+
+    /// What the platforms' watches report that changes no listing the
+    /// tree shows, without a watch to wait on: each of these once came
+    /// back as a change to one.
+    #[test]
+    fn a_change_is_the_listing_it_is_in_and_nothing_the_tree_does_not_show() {
+        use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind};
+
+        let dir = folder(&[
+            (".gitignore", "build/\n"),
+            ("build/out.js", "x"),
+            ("notes/b.md", "b"),
+            ("notes/build", "a file, not a folder"),
+        ]);
+        let root = dir.path();
+        let skip = ignores(root);
+        let event = |kind, path: PathBuf| Event::new(kind).add_path(path);
+        let unseen = [
+            // inotify reports every open, a folder's included.
+            event(
+                EventKind::Access(AccessKind::Open(AccessMode::Any)),
+                root.join("notes"),
+            ),
+            // An ignored folder made again, and written into, which
+            // Windows reports as a change to the folder.
+            event(EventKind::Create(CreateKind::Folder), root.join("build")),
+            event(EventKind::Modify(ModifyKind::Any), root.join("build")),
+            event(
+                EventKind::Create(CreateKind::File),
+                root.join("build/out.js"),
+            ),
+            // The root's own making, which FSEvents can report late.
+            event(EventKind::Create(CreateKind::Folder), root.to_path_buf()),
+            event(EventKind::Create(CreateKind::File), root.join(".hidden")),
+        ];
+        assert_eq!(listings(&unseen, root, root, &skip), Vec::<PathBuf>::new());
+        let seen = [
+            event(EventKind::Create(CreateKind::File), root.join("notes/b.md")),
+            event(EventKind::Create(CreateKind::File), root.join("c.md")),
+            event(EventKind::Modify(ModifyKind::Any), root.join("notes/b.md")),
+        ];
+        assert_eq!(
+            listings(&seen, root, root, &skip),
+            [root.join("notes"), root.to_path_buf()]
+        );
+        // `build/` is a rule about folders, and this one is a file.
+        let file = [event(
+            EventKind::Create(CreateKind::File),
+            root.join("notes/build"),
+        )];
+        assert_eq!(listings(&file, root, root, &skip), [root.join("notes")]);
     }
 
     #[test]
