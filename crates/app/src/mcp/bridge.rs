@@ -298,6 +298,9 @@ async fn collect(body: &mut hyper::body::Incoming) -> String {
 /// the by-hand pass checks that both halves land in the same folder.
 #[must_use]
 pub fn app_data_dir(identifier: &str) -> Option<PathBuf> {
+    // Windows keeps app data under a variable of its own, so only the
+    // other two rules start from the home folder.
+    #[cfg(unix)]
     let home = || std::env::var_os("HOME").map(PathBuf::from);
     #[cfg(target_os = "macos")]
     {
@@ -305,7 +308,6 @@ pub fn app_data_dir(identifier: &str) -> Option<PathBuf> {
     }
     #[cfg(target_os = "windows")]
     {
-        let _unused = home;
         std::env::var_os("APPDATA")
             .map(PathBuf::from)
             .map(|dir| dir.join(identifier))
