@@ -1,6 +1,6 @@
-import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Text } from '@codemirror/state';
 import type { SyntaxNode } from '@lezer/common';
+import { treeReaching } from '../tree.ts';
 
 export type Align = 'left' | 'center' | 'right' | null;
 
@@ -123,20 +123,19 @@ export function tableModel(node: SyntaxNode, doc: Text): TableModel | null {
   };
 }
 
-/** The `Table` node whose range contains `pos`, if any. */
+/**
+ * The `Table` node whose range contains `pos`, if any. The table can be
+ * past where the last transaction's parse ran out of time, and is no less a
+ * table for it: the lookup parses as far as `pos` when it has to, rather
+ * than tell the cell editor there is no table and have it throw the
+ * reader's keystroke away.
+ */
 export function tableNodeAt(state: EditorState, pos: number): SyntaxNode | null {
-  for (
-    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, 1);
-    node;
-    node = node.parent
-  ) {
+  const tree = treeReaching(state, pos);
+  for (let node: SyntaxNode | null = tree.resolveInner(pos, 1); node; node = node.parent) {
     if (node.name === 'Table') return node;
   }
-  for (
-    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1);
-    node;
-    node = node.parent
-  ) {
+  for (let node: SyntaxNode | null = tree.resolveInner(pos, -1); node; node = node.parent) {
     if (node.name === 'Table') return node;
   }
   return null;

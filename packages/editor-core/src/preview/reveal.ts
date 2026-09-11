@@ -1,5 +1,6 @@
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState } from '@codemirror/state';
+import type { Tree } from '@lezer/common';
 import { blockUnits, hasInlineContent, inlineUnits, loneImage } from './nodes.ts';
 
 export interface RevealRange {
@@ -22,9 +23,13 @@ export interface RevealRange {
  *
  * Every decision about what is hidden flows from this list, which is why
  * it is tested as a table and kept free of any view or DOM dependency.
+ *
+ * The tree is the state's own unless the caller holds one that has been
+ * parsed further (see `treeReaching`): the block widgets are built from
+ * such a tree when the state's stops short of them, and what the selection
+ * reveals has to be read off the same tree the widgets come from.
  */
-export function revealRanges(state: EditorState): RevealRange[] {
-  const tree = syntaxTree(state);
+export function revealRanges(state: EditorState, tree: Tree = syntaxTree(state)): RevealRange[] {
   const found: RevealRange[] = [];
   for (const range of state.selection.ranges) {
     tree.iterate({

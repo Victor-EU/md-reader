@@ -1,3 +1,4 @@
+import { forceParsing, syntaxTree } from '@codemirror/language';
 import { EditorView } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parsedEditor } from '../../test-helpers.ts';
@@ -171,6 +172,69 @@ describe('table widget', () => {
     expect(editor.view.state.doc.toString()).toBe(
       `A line from elsewhere\n\n${above}${doc.replace('| a |', '| axy |')}`,
     );
+  });
+
+  /**
+   * CodeMirror parses for 20 ms after a transaction and hands over the tree
+   * it has when they are up; the background parse does the rest a tenth of
+   * a second later at the soonest. A machine that loses the CPU at the wrong
+   * moment stops that parse above the table, and for that tenth of a second
+   * there was no table for the cell editor to find: the next letter went
+   * nowhere.
+   */
+  it('keeps taking keystrokes when the parse after a write stops above the table', async () => {
+    const above = `${'Prose above the table, of which there has to be a fair amount. '.repeat(6)}\n\n`;
+    editor.destroy();
+    editor = parsedEditor(host, above + doc);
+    editor.view.dispatch({ selection: { anchor: 0 } });
+    await activate(1, 0);
+    getNested(cell(1, 0) as HTMLElement).dispatch({ selection: { anchor: 1 } });
+    const write = 'A line from elsewhere\n\n';
+    starved(() =>
+      editor.view.dispatch({ changes: { from: 0, insert: write }, userEvent: 'external.change' }),
+    );
+    expect(syntaxTree(editor.view.state).length).toBeLessThan((write + above).length);
+    typeInCell(getNested(cell(1, 0) as HTMLElement), 'x');
+    expect(editor.view.state.doc.toString()).toBe(write + above + doc.replace('| a |', '| ax |'));
+  });
+
+  /**
+   * The same cut on the parse after the reader's own keystroke. The table
+   * was rebuilt from a tree that stopped above it, which is to say taken
+   * away, and the cell being typed in went with it.
+   */
+  it('keeps the cell open when the parse after a keystroke stops above the table', async () => {
+    await activate(1, 0);
+    const td = cell(1, 0) as HTMLElement;
+    const inner = getNested(td);
+    inner.dispatch({ selection: { anchor: 1 } });
+    starved(() => typeInCell(inner, 'x'));
+    expect(syntaxTree(editor.view.state).length).toBeLessThan(doc.indexOf('| Name'));
+    expect(cell(1, 0)).toBe(td);
+    expect(getNested(td)).toBe(inner);
+    expect(document.activeElement).toBe(inner.contentDOM);
+    typeInCell(inner, 'y');
+    expect(editor.view.state.doc.toString()).toBe(doc.replace('| a |', '| axy |'));
+  });
+
+  /**
+   * A table kept through a keystroke the parse did not reach is rebuilt
+   * when the parse catches up. By then the cell has what was typed into
+   * it, and the rebuild must not trim a space the reader has just typed at
+   * its end back off.
+   */
+  it('keeps a typed space when the parse catches up with it', async () => {
+    await activate(1, 0);
+    const inner = getNested(cell(1, 0) as HTMLElement);
+    inner.dispatch({ selection: { anchor: 1 } });
+    starved(() => typeInCell(inner, ' '));
+    expect(syntaxTree(editor.view.state).length).toBeLessThan(doc.indexOf('| Name'));
+    // What the background parse does a moment later: finish, and hand the tree over.
+    forceParsing(editor.view, editor.view.state.doc.length, 10_000);
+    expect(syntaxTree(editor.view.state).length).toBe(editor.view.state.doc.length);
+    expect(inner.state.doc.toString()).toBe('a ');
+    typeInCell(inner, 'b');
+    expect(editor.view.state.doc.toString()).toBe(doc.replace('| a |', '| a b |'));
   });
 
   /**
@@ -357,6 +421,22 @@ function typeInCell(inner: EditorView, text: string): void {
       selection: { anchor: at.from + ch.length },
       userEvent: 'input.type',
     });
+  }
+}
+
+/**
+ * Run `fn` on a clock that jumps a second at every reading: a machine that
+ * loses the CPU while a time budget is being spent, made repeatable.
+ * CodeMirror's 20 ms parse after a transaction stops after its first step.
+ */
+function starved<T>(fn: () => T): T {
+  const real = Date.now;
+  let reads = 0;
+  Date.now = () => real.call(Date) + reads++ * 1000;
+  try {
+    return fn();
+  } finally {
+    Date.now = real;
   }
 }
 

@@ -125,8 +125,6 @@ export class CellEditorManager {
    * occupy, so a rebase lands after them instead of in front of them.
    */
   private cellStart: number | null = null;
-  /** True while this manager's own nested change is being dispatched on the outer view. */
-  private rebasing = false;
 
   constructor(private readonly outer: EditorView) {}
 
@@ -139,10 +137,13 @@ export class CellEditorManager {
     const cell = model.rows[active.row]?.cells[active.col];
     const text = cell ? cellText(this.outer.state.doc, cell) : '';
     if (this.nested && this.td === td) {
-      // Our own rebase, already verified against the document: the nested view
-      // is the truth about its own edge blanks, and `text` has had them trimmed
+      // A nested view that still reads back as the document over its span is
+      // the truth about its own edge blanks, and `text` has had them trimmed
       // off, so overwriting with it here is what used to eat typed spaces.
-      if (this.rebasing && this.nestedMatchesDoc(cell)) return;
+      // That is so after our own rebase, and after a rebuild that comes late:
+      // a table the parse had not reached keeps its widget through the
+      // keystrokes, and is rebuilt when the parse catches up with them.
+      if (active.cursor === 'keep' && this.nestedMatchesDoc(cell)) return;
       this.resync(text, active.cursor);
       this.cellStart = cell?.from ?? null;
       return;
@@ -307,17 +308,12 @@ export class CellEditorManager {
         continue;
       }
       const userEvent = tr.annotation(Transaction.userEvent);
-      this.rebasing = true;
-      try {
-        this.outer.dispatch({
-          changes: rebaseCellChanges(from, tr.changes),
-          effects: setActiveCell.of({ ...active, cursor: 'keep' }),
-          ...(userEvent ? { userEvent } : {}),
-          scrollIntoView: false,
-        });
-      } finally {
-        this.rebasing = false;
-      }
+      this.outer.dispatch({
+        changes: rebaseCellChanges(from, tr.changes),
+        effects: setActiveCell.of({ ...active, cursor: 'keep' }),
+        ...(userEvent ? { userEvent } : {}),
+        scrollIntoView: false,
+      });
     }
   }
 

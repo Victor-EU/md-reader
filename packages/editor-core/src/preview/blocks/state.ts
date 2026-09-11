@@ -7,6 +7,7 @@ import { type RevealRange, revealRanges } from '../reveal.ts';
 import { tableModel } from '../table/model.ts';
 import { activeCellField, setActiveCell } from '../table/state.ts';
 import { TableWidget } from '../table/widget.ts';
+import { parsedTo, treeReaching } from '../tree.ts';
 import { type PreviewOptions, previewOptions } from './options.ts';
 import { frontmatterModel, PropertiesWidget } from './properties.ts';
 import { DiagramWidget, ImageWidget, MathWidget } from './widgets.ts';
@@ -78,6 +79,7 @@ function fenceBody(node: SyntaxNode, state: EditorState): string {
 function widgetFor(
   node: SyntaxNode,
   state: EditorState,
+  tree: Tree,
   options: PreviewOptions,
 ): WidgetType | null {
   const top = node.parent?.name === 'Document';
@@ -89,7 +91,7 @@ function widgetFor(
       return new TableWidget(
         model,
         state.doc.sliceString(node.from, node.to),
-        syntaxTree(state),
+        tree,
         state.doc,
         active && active.table === node.from ? active : null,
       );
@@ -127,6 +129,7 @@ function widgetFor(
 /** Widgets for every block overlapping one of `ranges` that the reveal rule does not show as source. */
 function buildWidgetsIn(
   state: EditorState,
+  tree: Tree,
   ranges: readonly { from: number; to: number }[],
   revealed: readonly RevealRange[],
 ): Range<Decoration>[] {
@@ -135,7 +138,7 @@ function buildWidgetsIn(
   const out: Range<Decoration>[] = [];
   const seen = new Set<number>();
   for (const range of ranges) {
-    syntaxTree(state).iterate({
+    tree.iterate({
       from: range.from,
       to: range.to,
       enter(node) {
@@ -143,7 +146,7 @@ function buildWidgetsIn(
         if (seen.has(node.from)) return false;
         seen.add(node.from);
         if (revealed.some((r) => r.from < node.to && r.to > node.from)) return false;
-        const widget = widgetFor(node.node, state, options);
+        const widget = widgetFor(node.node, state, tree, options);
         if (!widget) return false;
         const from = doc.lineAt(node.from).from;
         const to = doc.lineAt(node.to).to;
@@ -187,8 +190,8 @@ export function changedRegion(oldTree: Tree, newTree: Tree): { from: number; to:
   return { from: prefixEnd, to: Math.max(prefixEnd, suffixStart) };
 }
 
-function blockReveal(state: EditorState): RevealRange[] {
-  return revealRanges(state).filter((r) => r.block);
+function blockReveal(state: EditorState, tree: Tree): RevealRange[] {
+  return revealRanges(state, tree).filter((r) => r.block);
 }
 
 function sameRanges(a: readonly RevealRange[], b: readonly RevealRange[]): boolean {
@@ -196,9 +199,10 @@ function sameRanges(a: readonly RevealRange[], b: readonly RevealRange[]): boole
 }
 
 function fullBuild(state: EditorState): BlockState {
-  const revealed = blockReveal(state);
+  const tree = syntaxTree(state);
+  const revealed = blockReveal(state, tree);
   const deco = Decoration.set(
-    buildWidgetsIn(state, [{ from: 0, to: state.doc.length }], revealed),
+    buildWidgetsIn(state, tree, [{ from: 0, to: state.doc.length }], revealed),
     true,
   );
   return { deco, revealed };
@@ -212,7 +216,9 @@ function fullBuild(state: EditorState): BlockState {
  * and only the blocks Lezer reparsed, the blocks whose reveal state
  * flipped, and the tables that gained or lost the active cell are
  * rebuilt. A keystroke in a 1 MB document therefore costs a walk over the
- * reparsed blocks, not over every block. A widget spans whole lines
+ * reparsed blocks, not over every block. Blocks past the point where a
+ * parse cut short by its time budget stopped keep the widgets they have
+ * until the parse gets there. A widget spans whole lines
  * because block replacements must; a table indented in a list or prefixed
  * by `>` loses that prefix visually while it is a widget.
  */
@@ -228,27 +234,43 @@ export const blockWidgetsField = StateField.define<BlockState>({
       const region = changedRegion(oldTree, newTree);
       if (region) dirty.push(region);
     }
-    const revealed = blockReveal(tr.state);
+    // The tables the open cell moves into or out of. Those are rebuilt now,
+    // from a parse that reaches them if this transaction's did not: kept as
+    // they were, they would go on showing the cell's editor in the cell the
+    // reader has just left, and none in the one they are typing into.
+    const tables: number[] = [];
+    if (tr.effects.some((e) => e.is(setActiveCell))) {
+      const oldActive = tr.startState.field(activeCellField, false) ?? null;
+      const newActive = tr.state.field(activeCellField);
+      if (oldActive) tables.push(tr.changes.mapPos(oldActive.table, -1));
+      if (newActive) tables.push(newActive.table);
+    }
+    const tree = tables.length > 0 ? treeReaching(tr.state, Math.max(...tables)) : newTree;
+    const revealed = blockReveal(tr.state, tree);
     if (!sameRanges(revealed, value.revealed)) {
       for (const r of value.revealed)
         dirty.push({ from: tr.changes.mapPos(r.from, -1), to: tr.changes.mapPos(r.to, 1) });
       for (const r of revealed) dirty.push(r);
     }
-    const oldActive = tr.startState.field(activeCellField, false) ?? null;
-    const newActive = tr.state.field(activeCellField);
-    if (tr.effects.some((e) => e.is(setActiveCell))) {
-      if (oldActive) dirty.push(point(tr.changes.mapPos(oldActive.table, -1)));
-      if (newActive) dirty.push(point(newActive.table));
-    }
-    if (dirty.length === 0) return { deco, revealed };
+    for (const table of tables) dirty.push(point(table));
+    // A parse cut short by its time budget says nothing about the blocks past
+    // where it stopped: that they are not in the tree is not that they are
+    // not in the document. Rebuilding one from that tree would take its
+    // widget away, and with a table the cell being typed in. They keep the
+    // widgets they have, mapped through the change, until the parse gets to
+    // them, which `changedRegion` then reports like any other change.
     const doc = tr.state.doc;
-    const ranges = dirty.map((d) => ({
-      from: doc.lineAt(Math.min(d.from, doc.length)).from,
-      to: doc.lineAt(Math.min(d.to, doc.length)).to,
-    }));
+    const end = parsedTo(tree, tr.state);
+    const ranges: { from: number; to: number }[] = [];
+    for (const d of dirty) {
+      const from = doc.lineAt(Math.min(d.from, doc.length)).from;
+      const to = Math.min(end, doc.lineAt(Math.min(d.to, doc.length)).to);
+      if (from <= to) ranges.push({ from, to });
+    }
+    if (ranges.length === 0) return { deco, revealed };
     deco = deco.update({
       filter: (from, to) => !ranges.some((r) => from <= r.to && to >= r.from),
-      add: buildWidgetsIn(tr.state, ranges, revealed),
+      add: buildWidgetsIn(tr.state, tree, ranges, revealed),
       sort: true,
     });
     return { deco, revealed };
