@@ -42,6 +42,9 @@ impl Desk for Empty {
     ) -> mcp::Ask<SnapshotInfo> {
         unreachable!("nothing here gets that far")
     }
+    fn open(&self, _path: std::path::PathBuf, _window: Option<String>) -> mcp::Ask<mcp::Opened> {
+        unreachable!("nothing here gets that far")
+    }
 }
 
 struct Reached {

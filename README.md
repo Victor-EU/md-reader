@@ -44,10 +44,16 @@ docs/             Design, plan, ADRs
 
 The app runs an MCP server on `127.0.0.1` while it is open: the documents
 you have in front of you, what you have marked in them, what has changed
-in them, and a way to write one back under a name you will see in the
-history. See [design section 9](docs/markdown-app-design.md) for what it
-is for and [ADR 0028](docs/adr/0028-wp-3.1-mcp-server.md) for how it
-works.
+in them, a way to write one back under a name you will see in the
+history, and a way to put a file in front of you that was not open. See
+[design section 9](docs/markdown-app-design.md) for what it is for,
+[ADR 0028](docs/adr/0028-wp-3.1-mcp-server.md) for how it works, and
+[ADR 0039](docs/adr/0039-an-agent-opens-a-file.md) for `open_document`.
+
+An agent that has written a file and wants you to see it calls
+`open_document` with the path; the tab opens, the window comes forward,
+and the other tools reach the document from then on. Without the server,
+`open -a Markdown path.md` does the first half of that from a shell.
 
 The port is different on every launch and the bearer token is not, so
 neither belongs in a client's configuration. `Copy Agent Client

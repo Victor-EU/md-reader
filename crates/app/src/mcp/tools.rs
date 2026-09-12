@@ -1,4 +1,4 @@
-//! The five tools and the resources of design 9.
+//! The six tools and the resources of design 9 (and ADR 0039).
 //!
 //! Everything here is a thin adapter over [`Desk`]: the tools decide what
 //! an agent may ask for and how the answer reads, and nothing else.
@@ -72,6 +72,17 @@ pub struct Write {
     pub agent_name: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct OpenWhere {
+    /// Absolute path of a file on this machine. It need not be open yet;
+    /// opening it is the point.
+    pub path: String,
+    /// The label of the window to open it in, as an earlier
+    /// `open_document` gave it. Leave it out for the window that already
+    /// has the file, or else the one in front.
+    pub window: Option<String>,
+}
+
 // --- what they give back ------------------------------------------------
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -116,6 +127,16 @@ pub struct Written {
     pub snapshot_id: String,
     #[schemars(description = "Size of the file after the write, in bytes")]
     pub byte_len: u64,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct Opened {
+    pub path: String,
+    /// The window it is in. Pass it back to `open_document` to put the
+    /// next file beside this one.
+    pub window: String,
+    /// What the tab calls it.
+    pub name: String,
 }
 
 // --- the tools ----------------------------------------------------------
@@ -235,6 +256,36 @@ impl Server {
             Err(error) => Ok(refuse(&error)),
         }
     }
+
+    #[tool(
+        name = "open_document",
+        description = "Open a file in front of the reader: a tab on it, in a window that comes forward. Returns once the tab is there, so `read_document` and the rest reach it from then on. The path must be absolute and the file must exist; write it first if it does not. This is the one tool that is not limited to what is already open."
+    )]
+    async fn open_document(
+        &self,
+        Parameters(open): Parameters<OpenWhere>,
+    ) -> Result<Result<Json<Opened>, CallToolResult>, ErrorData> {
+        let path = PathBuf::from(&open.path);
+        if !path.is_absolute() {
+            return Ok(Err(tool_error(&format!(
+                "{} is not an absolute path; there is no directory to take it from",
+                open.path
+            ))));
+        }
+        let window = open.window.map(|label| label.trim().to_owned());
+        match self
+            .desk
+            .open(path, window.filter(|label| !label.is_empty()))
+            .await
+        {
+            Ok(opened) => Ok(Ok(Json(Opened {
+                path: open.path,
+                window: opened.window,
+                name: opened.name,
+            }))),
+            Err(error) => Ok(refuse(&error)),
+        }
+    }
 }
 
 // --- the resources ------------------------------------------------------
@@ -256,7 +307,8 @@ impl ServerHandler for Server {
              highlights, colours, and short comments in a closed vocabulary — and \
              `list_annotations` is those marks as records rather than as syntax; a comment is \
              the reader speaking to you. `write_document` puts a version in their history under \
-             your name and shows them what moved.",
+             your name and shows them what moved. `open_document` puts a file in front of them \
+             that was not open before.",
         )
     }
 

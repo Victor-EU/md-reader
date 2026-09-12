@@ -2086,20 +2086,22 @@ export class Workspace {
   /**
    * Answer one question the MCP server put to this window.
    *
-   * Four of its five tools are questions about a buffer, and a buffer is
+   * Four of its six tools are questions about a buffer, and a buffer is
    * not something Rust has: the text is the editor's, and the marks and
    * the blocks come out of a parse tree that only lives here. So the
    * server asks and this answers, which costs nothing at all until
-   * somebody asks.
+   * somebody asks. The one that is not a question, `open`, is the one
+   * that takes time: it is answered when the tab is there (ADR 0039).
    *
    * `failed` is a real answer and not a thrown error. A window that has
    * since closed the tab knows something the server needs to hear, and
    * the alternative is the server waiting out its whole timeout for it.
    */
-  agentAnswer(request: AgentRequest): AgentAnswer {
+  agentAnswer(request: AgentRequest): AgentAnswer | Promise<AgentAnswer> {
     if (request.ask === 'documents') {
       return { answer: 'documents', documents: this.openDocuments() };
     }
+    if (request.ask === 'open') return this.agentOpen(request.path);
     const doc = this.docFor(request.path);
     if (!doc || doc.ephemeral) {
       return {
@@ -2126,6 +2128,25 @@ export class Workspace {
       old: flattenBlocks(parser.parse(request.against), request.against),
       new: doc.blocksFor(doc.state.doc, (text) => flattenBlocks(parser.parse(text), text)),
     };
+  }
+
+  /**
+   * Open a file because an agent asked, the way a double-click opens one.
+   *
+   * Answered once the tab exists, so the agent's next question finds
+   * the document open rather than racing the load. A file this window
+   * could not open is a `failed` with the reason the status bar would
+   * have shown, which is the reason the model should read.
+   */
+  private async agentOpen(path: string): Promise<AgentAnswer> {
+    const opened = await this.openPath(path);
+    if (!opened) {
+      return {
+        answer: 'failed',
+        message: this.status || `${basename(path)} could not be opened`,
+      };
+    }
+    return { answer: 'opened', name: this.docFor(path)?.label ?? basename(path) };
   }
 
   /**
@@ -2161,7 +2182,9 @@ export class Workspace {
     onStatus: (cb: (status: AgentStatus) => void) => void,
   ): void {
     onAsk((ask) => {
-      void this.options.commands.answerAgent(ask.id, this.agentAnswer(ask.request));
+      void Promise.resolve(this.agentAnswer(ask.request)).then((answer) =>
+        this.options.commands.answerAgent(ask.id, answer),
+      );
     });
     onStatus((status) => {
       this.agent = status;

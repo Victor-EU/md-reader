@@ -7,7 +7,7 @@ import { Workspace } from './workspace.svelte.ts';
 /**
  * The window's half of the MCP server (design 9, plan WP 3.1).
  *
- * The server is in Rust and four of its five tools are questions about a
+ * The server is in Rust and four of its six tools are questions about a
  * buffer, which is not a thing Rust has. These are the answers, driven
  * the way the real ones are: through the fake's `askAgent`, which emits
  * the same event Rust emits and waits for the same `answerAgent` call.
@@ -114,6 +114,32 @@ describe('what the window tells an agent', () => {
       'The migration can be done in ==one sprint==<!-- rewrite: too ambitious, say two weeks -->.',
       'Costs are unchanged.',
     ]);
+  });
+
+  it('opens a file it is asked to, and answers once the tab is there', async () => {
+    const answer = await ipc.askAgent({ ask: 'open', path: '/a/notes.md' });
+    expect(answer).toEqual({ answer: 'opened', name: 'notes.md' });
+    expect(workspace.tabs.map((tab) => workspace.pathOf(tab))).toEqual([
+      '/a/brief.md',
+      '/a/notes.md',
+    ]);
+    const read = await ipc.askAgent({ ask: 'read', path: '/a/notes.md' });
+    expect(read).toEqual({ answer: 'text', text: 'Notes.\n', dirty: false });
+  });
+
+  it('brings a tab it already has forward rather than opening a second one', async () => {
+    await workspace.openPath('/a/notes.md');
+    await workspace.openPath('/a/brief.md');
+    const answer = await ipc.askAgent({ ask: 'open', path: '/a/notes.md' });
+    expect(answer).toEqual({ answer: 'opened', name: 'notes.md' });
+    expect(workspace.tabs).toHaveLength(2);
+    expect(workspace.activeTab && workspace.pathOf(workspace.activeTab)).toBe('/a/notes.md');
+  });
+
+  it('says why a file could not be opened, rather than going quiet', async () => {
+    const answer = await ipc.askAgent({ ask: 'open', path: '/a/missing.md' });
+    expect(answer.answer).toBe('failed');
+    expect(workspace.tabs).toHaveLength(1);
   });
 
   it('says so when nothing here has that document, rather than going quiet', async () => {

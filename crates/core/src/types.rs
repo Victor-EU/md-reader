@@ -259,12 +259,14 @@ pub struct SearchDone {
 
 // --- what an agent asks the window (design 9, plan WP 3.1) --------------
 //
-// The MCP server runs in Rust and four of its five tools are questions
-// about a buffer: what it holds now, what the reader marked in it, what
+// The MCP server runs in Rust and most of its tools are questions about
+// a buffer: what it holds now, what the reader marked in it, what
 // changed in it since a version. None of those are on disk and none of
 // them are Rust's — the buffer is the editor's, and the marks and the
 // blocks come out of a parse tree only the frontend has. So the server
 // asks the window that has the document open, and these are the words.
+// One of them is not a question but a request: open this file, which
+// only a window can do, and which it answers once the tab is there.
 //
 // The alternative was a mirror: the window pushing its buffer, its
 // annotations and its blocks into Rust whenever they settle, so the
@@ -407,6 +409,11 @@ pub enum AgentRequest {
         path: PathBuf,
         against: String,
     },
+    /// Open a tab on the file and bring it in front. The one request
+    /// that is about a document the window does not have yet.
+    Open {
+        path: PathBuf,
+    },
 }
 
 impl AgentRequest {
@@ -417,9 +424,10 @@ impl AgentRequest {
     pub fn path(&self) -> Option<&std::path::Path> {
         match self {
             Self::Documents => None,
-            Self::Read { path } | Self::Annotations { path } | Self::Changes { path, .. } => {
-                Some(path)
-            }
+            Self::Read { path }
+            | Self::Annotations { path }
+            | Self::Changes { path, .. }
+            | Self::Open { path } => Some(path),
         }
     }
 }
@@ -448,6 +456,10 @@ pub enum AgentAnswer {
     Changes {
         old: Vec<Block>,
         new: Vec<Block>,
+    },
+    /// The tab is open. `name` is what it is called there.
+    Opened {
+        name: String,
     },
     Failed {
         message: String,

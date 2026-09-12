@@ -1627,6 +1627,57 @@ impl mcp::Desk for Desktop {
             Ok(info)
         })
     }
+
+    fn open(&self, path: PathBuf, window: Option<String>) -> mcp::Ask<mcp::Opened> {
+        let app = self.app.clone();
+        Box::pin(async move {
+            if !path.is_file() {
+                return Err(Error::Unavailable {
+                    what: path.display().to_string(),
+                    message: "there is no file there to open; write it first".to_owned(),
+                });
+            }
+            // A name nobody answers to is told what the names are.
+            if let Some(label) = &window
+                && app.get_webview_window(label).is_none()
+            {
+                let mut have = labels(&app);
+                have.sort();
+                return Err(Error::Unavailable {
+                    what: format!("the window {label}"),
+                    message: format!(
+                        "no window has that label; the windows there are: {}",
+                        have.join(", ")
+                    ),
+                });
+            }
+            // The same routing a double-clicked file gets (`deliver`):
+            // the window that has it, else the one asked for, else the
+            // one in front. A document lives in one window (design
+            // 6.5), so a file that is open somewhere comes forward
+            // there whatever window was named, and the answer says so.
+            let label = match window_for(&app, &path).await {
+                Some(has) => has,
+                None => window.unwrap_or_else(|| front(&app)),
+            };
+            let answer =
+                ask_window(&app, &label, AgentRequest::Open { path: path.clone() }).await?;
+            let AgentAnswer::Opened { name } = answer else {
+                return Err(Error::Unavailable {
+                    what: path.display().to_string(),
+                    message: "the window answered a different question".to_owned(),
+                });
+            };
+            // The tab is there; now the reader should be looking at it.
+            if let Some(window) = app.get_webview_window(&label) {
+                let _unused = window.set_focus();
+            }
+            Ok(mcp::Opened {
+                window: label,
+                name,
+            })
+        })
+    }
 }
 
 /// Change what the status bar says and tell every window.

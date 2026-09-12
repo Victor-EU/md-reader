@@ -10,7 +10,7 @@
 //!
 //! ## Where the answers come from
 //!
-//! Four of the five tools ask about a buffer: what it holds now, what
+//! Four of the six tools ask about a buffer: what it holds now, what
 //! the reader marked in it, what changed in it since a version. None of
 //! those live in Rust. The buffer is the editor's, and the annotations
 //! and the blocks come out of a `Lezer` parse tree that only the
@@ -33,6 +33,12 @@
 //! anything else the reader runs; the scope is here because a markdown
 //! app's MCP server has no business being a general file reader, and
 //! because the smaller the surface the shorter the argument about it.
+//!
+//! `open_document` is how the scope grows, and it grows the only way it
+//! should: the file is put in front of the reader, as a tab in a window
+//! that comes forward, and it is open from then on for the same reason
+//! a double-clicked file is (ADR 0039). An agent that wants a file it
+//! cannot see has to show it to the reader to get it.
 
 pub mod bridge;
 pub mod serve;
@@ -110,6 +116,27 @@ pub trait Desk: Send + Sync + 'static {
     /// # Errors
     /// Anything a save can fail with, plus a path outside what is open.
     fn write(&self, path: PathBuf, content: String, agent: String) -> Ask<SnapshotInfo>;
+
+    /// Open a tab on `path` and bring the window forward.
+    ///
+    /// `window` is a label from an earlier [`Opened`]; without one, the
+    /// window that already has the file, else the one in front. The
+    /// answer comes back once the tab is there, so an agent that reads
+    /// the document next finds it open.
+    ///
+    /// # Errors
+    /// A path that is not a file, a label no window answers to, or a
+    /// window that could not open it and said why.
+    fn open(&self, path: PathBuf, window: Option<String>) -> Ask<Opened>;
+}
+
+/// Where an [`Desk::open`] landed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Opened {
+    /// The label of the window the tab is in.
+    pub window: String,
+    /// What the tab calls it.
+    pub name: String,
 }
 
 /// The questions that are out with the windows, waiting.

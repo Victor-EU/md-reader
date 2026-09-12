@@ -4,7 +4,7 @@ import type { Annotation } from '@markdown/markdown';
 /**
  * What a window tells an agent about a document (design 9, plan WP 3.1).
  *
- * The MCP server is in Rust and four of its five tools are questions
+ * The MCP server is in Rust and four of its six tools are questions
  * about a buffer: what it holds, what the reader marked in it, what
  * changed in it. None of those are Rust's to answer — the buffer is the
  * editor's and the marks come out of a parse tree that only lives here —

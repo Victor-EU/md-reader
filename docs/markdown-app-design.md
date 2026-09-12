@@ -358,6 +358,7 @@ Three channels, in order of ambition.
    - `list_annotations(path)`: highlights, colors, strikethroughs, and comments as structured records with kind, anchor text, and position.
    - `changes_since(path, snapshot_id)`: the semantic diff.
    - `write_document(path, content, agent_name)`: goes through the same merge path as an external write. The snapshot is attributed to the agent by name and the gutter markers appear immediately.
+   - `open_document(path, window?)`: a tab on the file, in a window that comes forward, answered once the tab is there. The one tool that reaches a file nobody had open, and it does so by showing it to the reader (ADR 0039).
    - Resources: each open document as `doc://<path>`.
 
    This turns a highlight into something an agent can query. It also gives the app a reliable author for attribution, which plain file watching cannot provide.

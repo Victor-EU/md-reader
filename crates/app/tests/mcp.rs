@@ -196,6 +196,7 @@ impl Desk for Window {
         Box::pin(async move {
             Ok(match request {
                 AgentRequest::Documents => unreachable!("documents has its own method"),
+                AgentRequest::Open { .. } => unreachable!("open has its own method"),
                 AgentRequest::Read { .. } => AgentAnswer::Text {
                     text: buffer,
                     dirty,
@@ -237,6 +238,49 @@ impl Desk for Window {
             }
             Ok(info)
         });
+        Box::pin(async move { done })
+    }
+
+    fn open(&self, path: PathBuf, window: Option<String>) -> mcp::Ask<mcp::Opened> {
+        // The fixture is one window, called what the app's first one is.
+        if let Some(label) = window.filter(|label| label != "main") {
+            return Box::pin(async move {
+                Err(Error::Unavailable {
+                    what: format!("the window {label}"),
+                    message: "no window has that label; the windows there are: main".to_owned(),
+                })
+            });
+        }
+        let done = std::fs::read_to_string(&path).map_or_else(
+            |_| {
+                Err(Error::Unavailable {
+                    what: path.display().to_string(),
+                    message: "there is no file there to open; write it first".to_owned(),
+                })
+            },
+            |text| {
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let mut open = self.open.lock().expect("open");
+                if !open
+                    .iter()
+                    .any(|doc| doc.path.as_deref() == Some(path.as_path()))
+                {
+                    open.push(Open {
+                        path: Some(path.clone()),
+                        name: name.clone(),
+                        text,
+                        dirty: false,
+                    });
+                }
+                Ok(mcp::Opened {
+                    window: "main".to_owned(),
+                    name,
+                })
+            },
+        );
         Box::pin(async move { done })
     }
 }
@@ -305,10 +349,11 @@ async fn every_tool_is_offered_with_a_description() {
             "changes_since",
             "list_annotations",
             "list_documents",
+            "open_document",
             "read_document",
             "write_document",
         ],
-        "design 9 names five tools"
+        "design 9 names five tools and ADR 0039 a sixth"
     );
     for tool in &tools {
         let description = tool.description.as_deref().unwrap_or("");
@@ -571,6 +616,64 @@ async fn an_agent_reads_the_annotations_and_leaves_a_version() {
         window.latest(&brief).expect("a version").agent.as_deref(),
         Some("claude")
     );
+    client.cancel().await.expect("close");
+}
+
+#[tokio::test]
+async fn a_file_nobody_had_open_is_opened_and_then_read() {
+    let window = Window::new();
+    let path = window.path("later.md");
+    std::fs::write(&path, "# Later\n\nNot open yet.\n").expect("fixture");
+    let client = connect(Arc::clone(&window)).await;
+
+    let before = refusal(&client, "read_document", json!({ "path": path })).await;
+    assert!(before.contains("no window has it open"), "{before}");
+
+    let opened = call(&client, "open_document", json!({ "path": path })).await;
+    assert_eq!(opened["window"], "main");
+    assert_eq!(opened["name"], "later.md");
+
+    let text = call(&client, "read_document", json!({ "path": path })).await;
+    assert_eq!(text["content"], "# Later\n\nNot open yet.\n");
+    assert_eq!(text["dirty"], false);
+
+    // Opening it again in the window it is in is not a second tab.
+    let again = call(
+        &client,
+        "open_document",
+        json!({ "path": path, "window": "main" }),
+    )
+    .await;
+    assert_eq!(again["window"], "main");
+    assert_eq!(window.open.lock().expect("open").len(), 1);
+    client.cancel().await.expect("close");
+}
+
+#[tokio::test]
+async fn what_open_document_refuses_says_what_to_do_instead() {
+    let window = Window::new();
+    let missing = window.path("missing.md");
+    let there = window.open_file("there.md", "Here.\n");
+    let client = connect(window).await;
+
+    let relative = refusal(
+        &client,
+        "open_document",
+        json!({ "path": "notes/brief.md" }),
+    )
+    .await;
+    assert!(relative.contains("not an absolute path"), "{relative}");
+
+    let gone = refusal(&client, "open_document", json!({ "path": missing })).await;
+    assert!(gone.contains("write it first"), "{gone}");
+
+    let nowhere = refusal(
+        &client,
+        "open_document",
+        json!({ "path": there, "window": "window-9" }),
+    )
+    .await;
+    assert!(nowhere.contains("the windows there are: main"), "{nowhere}");
     client.cancel().await.expect("close");
 }
 

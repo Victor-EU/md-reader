@@ -352,7 +352,9 @@ export type AgentAnswer = { answer: "documents"; documents: AgentDocument[] } | 
  *  holds the parse trees; the alignment is Rust's, the same one the
  *  gutter and Review are drawn from (design 7.3).
  */
-{ answer: "changes"; old: Block[]; new: Block[] } | { answer: "failed"; message: string };
+{ answer: "changes"; old: Block[]; new: Block[] } | 
+/**  The tab is open. `name` is what it is called there. */
+{ answer: "opened"; name: string } | { answer: "failed"; message: string };
 
 /**
  *  One question on its way to a window, with the number its answer comes
@@ -406,7 +408,12 @@ export type AgentRequest =
  *  old version out of the history and sends the text, because the
  *  window has no way to open a snapshot of its own.
  */
-{ ask: "changes"; path: string; against: string };
+{ ask: "changes"; path: string; against: string } | 
+/**
+ *  Open a tab on the file and bring it in front. The one request
+ *  that is about a document the window does not have yet.
+ */
+{ ask: "open"; path: string };
 
 /**  What the status bar says about the server (plan WP 3.1). */
 export type AgentStatus = {

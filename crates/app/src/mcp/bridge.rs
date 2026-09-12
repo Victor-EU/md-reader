@@ -382,6 +382,9 @@ mod tests {
         ) -> mcp::Ask<SnapshotInfo> {
             unreachable!("not in this test")
         }
+        fn open(&self, _path: PathBuf, _window: Option<String>) -> mcp::Ask<mcp::Opened> {
+            unreachable!("not in this test")
+        }
     }
 
     /// Everything the bridge has written so far.
