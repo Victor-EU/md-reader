@@ -12,10 +12,16 @@
 //! either in it would be either wrong tomorrow or a secret in a dotfile;
 //! a configuration with neither is right forever.
 //!
-//! It forwards and does not interpret, with two exceptions, both of them
-//! headers the transport needs and the client cannot know about: the
-//! session id the server hands out at `initialize`, and the protocol
-//! version the two of them settled on.
+//! It forwards and does not interpret, with three exceptions, all of
+//! them the transport's business rather than the client's. Two are
+//! headers the client cannot know about: the session id the server
+//! hands out at `initialize`, and the protocol version the two of them
+//! settled on. The third is the session's life: the server lets one go
+//! after five idle minutes, and a client on a pipe has no way to know
+//! or to start another, so the bridge keeps the client's `initialize`
+//! and starts one itself; and when stdin ends the bridge says so to the
+//! server, so a client that has quit is not counted for those five
+//! minutes as still connected.
 //!
 //! One direction only. The streamable HTTP transport also has a GET
 //! stream for messages a server starts — sampling, elicitation, roots —
@@ -46,6 +52,12 @@ struct Bridge {
     session: Mutex<Option<HeaderValue>>,
     /// What the two of them settled on, echoed back the same way.
     version: Mutex<Option<HeaderValue>>,
+    /// The client's own `initialize`, kept to start a session again with
+    /// when the server has let the one it had go.
+    hello: Mutex<Option<String>>,
+    /// Held while a session is being started again, so two messages that
+    /// find it gone together start one between them and not two.
+    reviving: Mutex<()>,
     out: Out,
 }
 
@@ -64,6 +76,8 @@ impl Bridge {
             endpoint,
             session: Mutex::new(None),
             version: Mutex::new(None),
+            hello: Mutex::new(None),
+            reviving: Mutex::new(()),
             out,
         }
     }
@@ -107,7 +121,8 @@ pub fn run(identifier: &str) -> i32 {
     ))))
 }
 
-/// Every line of stdin, forwarded.
+/// Every line of stdin, forwarded, and the server told when there are
+/// no more.
 ///
 /// One task per line, so a tool call that takes a second does not hold
 /// up the notification behind it. A client is required to wait for the
@@ -139,27 +154,121 @@ async fn pump(bridge: Arc<Bridge>) -> i32 {
     for task in tasks {
         let _finished = task.await;
     }
+    goodbye(&bridge).await;
     0
 }
 
 /// One message there and back.
+///
+/// The one thing done here that is not forwarding: a server that no
+/// longer knows the session — it lets one go after five idle minutes —
+/// answers 404, and the transport asks a client that sees one to start
+/// another session and carry on. The client on the pipe cannot see it,
+/// so it is done here with the `initialize` it sent at the start, and
+/// the message is sent again on the new session. Writing the 404 to
+/// stderr, which is what happened before, left the client waiting for
+/// an answer that was never coming.
 async fn forward(bridge: &Bridge, message: String) -> Result<(), String> {
+    if is_initialize(&message) {
+        *bridge.hello.lock().await = Some(message.clone());
+    }
+    let session = bridge.session.lock().await.clone();
+    let mut response = post(bridge, &message, session.as_ref()).await?;
+    if response.status() == StatusCode::NOT_FOUND && session.is_some() {
+        revive(bridge, session.as_ref()).await?;
+        let fresh = bridge.session.lock().await.clone();
+        response = post(bridge, &message, fresh.as_ref()).await?;
+    }
+    relay(bridge, response).await
+}
+
+/// Whether a message is the client's `initialize`, the one kept.
+fn is_initialize(message: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(message).is_ok_and(|value| {
+        value.get("method").and_then(serde_json::Value::as_str) == Some("initialize")
+    })
+}
+
+/// What a client sends once it has read the `initialize` answer.
+const INITIALIZED: &str = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+
+/// The server has let the session go. Start another with the client's
+/// own `initialize`, and say nothing to the pipe: the client had its
+/// answer to that long ago, and what it is waiting for is the answer to
+/// the message that found this out.
+///
+/// One at a time, and once per lost session: two messages sent close
+/// together both find it gone, and the second has to use the session
+/// the first started rather than start a third.
+async fn revive(bridge: &Bridge, stale: Option<&HeaderValue>) -> Result<(), String> {
+    let _one_at_a_time = bridge.reviving.lock().await;
+    if bridge.session.lock().await.as_ref() != stale {
+        return Ok(());
+    }
+    let hello = bridge.hello.lock().await.clone().ok_or_else(|| {
+        "the server has let the session go, and there was no initialize to start another with"
+            .to_owned()
+    })?;
+    let response = post(bridge, &hello, None).await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(refused(status, &collect(&mut response.into_body()).await));
+    }
+    let fresh = bridge.session.lock().await.clone();
+    let response = post(bridge, INITIALIZED, fresh.as_ref()).await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        return Err(refused(status, &collect(&mut response.into_body()).await));
+    }
+    Ok(())
+}
+
+/// What the server answers with.
+type Answer = hyper::Response<hyper::body::Incoming>;
+
+/// One message to the server, with the headers the transport wants: the
+/// session as given, because starting one again means sending
+/// `initialize` without one, and the version the two settled on. What
+/// the answer carries of either is kept.
+async fn post(
+    bridge: &Bridge,
+    message: &str,
+    session: Option<&HeaderValue>,
+) -> Result<Answer, String> {
     let mut request = Request::builder()
         .method("POST")
         .uri(&bridge.endpoint.url)
         .header(CONTENT_TYPE, "application/json")
         .header(ACCEPT, "application/json, text/event-stream")
         .header(AUTHORIZATION, format!("Bearer {}", bridge.endpoint.token));
-    if let Some(session) = bridge.session.lock().await.clone() {
+    if let Some(session) = session {
         request = request.header(SESSION, session);
     }
     if let Some(version) = bridge.version.lock().await.clone() {
         request = request.header(VERSION, version);
     }
     let request = request
-        .body(http_body_util::Full::new(Bytes::from(message)))
+        .body(http_body_util::Full::new(Bytes::from(message.to_owned())))
         .map_err(|error| error.to_string())?;
+    let response = send(bridge, request).await?;
 
+    // Before anything reaches stdout: a client that reads the
+    // `initialize` response may send the next message immediately, and
+    // that message needs these.
+    if let Some(session) = response.headers().get(SESSION) {
+        *bridge.session.lock().await = Some(session.clone());
+    }
+    if let Some(version) = response.headers().get(VERSION) {
+        *bridge.version.lock().await = Some(version.clone());
+    }
+    Ok(response)
+}
+
+/// One request, on a connection of its own.
+async fn send(
+    bridge: &Bridge,
+    request: Request<http_body_util::Full<Bytes>>,
+) -> Result<Answer, String> {
     let stream = tokio::net::TcpStream::connect(("127.0.0.1", bridge.endpoint.port))
         .await
         .map_err(|error| {
@@ -175,21 +284,14 @@ async fn forward(bridge: &Bridge, message: String) -> Result<(), String> {
     tokio::spawn(async move {
         let _closed = connection.await;
     });
-    let response = sender
+    sender
         .send_request(request)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())
+}
 
-    // Before anything reaches stdout: a client that reads the
-    // `initialize` response may send the next message immediately, and
-    // that message needs these.
-    if let Some(session) = response.headers().get(SESSION) {
-        *bridge.session.lock().await = Some(session.clone());
-    }
-    if let Some(version) = response.headers().get(VERSION) {
-        *bridge.version.lock().await = Some(version.clone());
-    }
-
+/// The answer, onto the pipe.
+async fn relay(bridge: &Bridge, response: Answer) -> Result<(), String> {
     let status = response.status();
     let sse = response
         .headers()
@@ -213,6 +315,29 @@ async fn forward(bridge: &Bridge, message: String) -> Result<(), String> {
     }
     say(bridge, &whole).await;
     Ok(())
+}
+
+/// The client has gone; tell the server so. Otherwise the session stays
+/// open on its side for the five minutes it gives a client that
+/// vanished, and the status bar counts a client that is not there. A
+/// `DELETE` with the session id is how a streamable HTTP client says it
+/// is done; a bridge that never got as far as `initialize` has nothing
+/// to say. Best effort, because the app may already have quit, and
+/// there is nobody left to tell either way.
+async fn goodbye(bridge: &Bridge) {
+    let Some(session) = bridge.session.lock().await.clone() else {
+        return;
+    };
+    let Ok(request) = Request::builder()
+        .method("DELETE")
+        .uri(&bridge.endpoint.url)
+        .header(AUTHORIZATION, format!("Bearer {}", bridge.endpoint.token))
+        .header(SESSION, session)
+        .body(http_body_util::Full::new(Bytes::new()))
+    else {
+        return;
+    };
+    let _answered = send(bridge, request).await;
 }
 
 fn refused(status: StatusCode, body: &str) -> String {
@@ -338,6 +463,7 @@ pub fn endpoint_for(identifier: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use markdown_core::{AgentAnswer, AgentDocument, AgentRequest, Error, SnapshotInfo};
 
@@ -450,6 +576,88 @@ mod tests {
         }
         assert!(lines[0].contains("markdown-app"), "{}", lines[0]);
         assert!(lines[1].contains("brief.md"), "{}", lines[1]);
+    }
+
+    const HELLO: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}"#;
+    const CALL: &str = r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_documents","arguments":{}}}"#;
+
+    /// A server on a port, and the count of sessions it is holding.
+    fn served(running: Arc<mcp::serve::Running>) -> (Bridge, Arc<mcp::serve::Running>) {
+        let (listener, port) = mcp::bind().expect("bind");
+        let token = markdown_core::new_token();
+        let desk: Arc<dyn Desk> = Arc::new(One);
+        let counted = Arc::clone(&running);
+        let served = Arc::new(std::sync::Mutex::new(token.clone()));
+        tokio::spawn(async move { mcp::serve::serve(listener, served, desk, running).await });
+        let bridge = Bridge::new(
+            Endpoint::new(port, token),
+            Out::Kept(Mutex::new(Vec::new())),
+        );
+        (bridge, counted)
+    }
+
+    /// A bridge that ends should not leave a session behind. It did: the
+    /// server was told nothing when stdin closed, so each restart of a
+    /// client was one more session, counted on the status bar for the
+    /// five minutes until the transport's reaper had it.
+    #[tokio::test]
+    async fn a_bridge_that_ends_takes_its_session_with_it() {
+        let (bridge, counted) = served(Arc::new(mcp::serve::Running::default()));
+        goodbye(&bridge).await;
+        assert_eq!(
+            counted.clients().await,
+            0,
+            "nothing to say before initialize"
+        );
+        forward(&bridge, HELLO.to_owned())
+            .await
+            .expect("initialize");
+        assert_eq!(counted.clients().await, 1);
+        goodbye(&bridge).await;
+        assert_eq!(
+            counted.clients().await,
+            0,
+            "gone the moment the bridge says so, not five minutes later"
+        );
+    }
+
+    /// A client that sits idle longer than the server keeps a session,
+    /// which is five minutes, and then calls a tool must get its answer.
+    /// It did not: the server answered 404, the bridge wrote that to
+    /// stderr, and the client waited for a reply that never came.
+    #[tokio::test]
+    async fn a_session_the_server_has_let_go_is_started_again_under_the_client() {
+        let (bridge, counted) = served(Arc::new(mcp::serve::Running::letting_go_after(
+            Duration::from_millis(100),
+        )));
+        forward(&bridge, HELLO.to_owned())
+            .await
+            .expect("initialize");
+        forward(&bridge, INITIALIZED.to_owned())
+            .await
+            .expect("initialized");
+        let first = bridge.session.lock().await.clone();
+        assert!(first.is_some());
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while counted.clients().await != 0 {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the idle session is let go");
+
+        forward(&bridge, CALL.to_owned())
+            .await
+            .expect("the call after the session went");
+        let lines = kept(&bridge).await;
+        assert_eq!(
+            lines.len(),
+            2,
+            "the initialize answer and the call's, and nothing for the session started in between: {lines:#?}"
+        );
+        assert!(lines[1].contains("brief.md"), "{}", lines[1]);
+        assert_ne!(bridge.session.lock().await.clone(), first, "a new session");
+        assert_eq!(counted.clients().await, 1, "one session, not two");
     }
 
     /// Rotating the token has to reach the server that is already

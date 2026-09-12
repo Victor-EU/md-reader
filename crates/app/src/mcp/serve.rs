@@ -71,6 +71,19 @@ pub struct Running {
 }
 
 impl Running {
+    /// A server that lets a session go after `idle` without a request on
+    /// it. The transport's own figure is five minutes, and that is the
+    /// one the app runs with; a test has not got five minutes.
+    #[must_use]
+    pub fn letting_go_after(idle: Duration) -> Self {
+        let mut sessions = LocalSessionManager::default();
+        sessions.session_config.keep_alive = Some(idle);
+        Self {
+            sessions: Arc::new(sessions),
+            ..Self::default()
+        }
+    }
+
     /// How many MCP sessions are open. What the status bar calls
     /// connected clients, because that is what one is.
     pub async fn clients(&self) -> u32 {

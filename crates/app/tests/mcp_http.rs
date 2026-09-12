@@ -6,6 +6,7 @@
 //! answers a request can get before it reaches a tool.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use http_body_util::BodyExt as _;
 use hyper::body::Bytes;
@@ -68,10 +69,14 @@ impl Reached {
 }
 
 fn listening() -> Reached {
+    listening_with(Arc::new(mcp::serve::Running::default()))
+}
+
+/// A server whose session table the test can look at.
+fn listening_with(running: Arc<mcp::serve::Running>) -> Reached {
     let (listener, port) = mcp::bind().expect("bind");
     let token = markdown_core::new_token();
     let desk: Arc<dyn Desk> = Arc::new(Empty);
-    let running = Arc::new(mcp::serve::Running::default());
     let served: mcp::serve::Token = Arc::new(std::sync::Mutex::new(token.clone()));
     let held = Arc::clone(&served);
     tokio::spawn(async move { mcp::serve::serve(listener, held, desk, running).await });
@@ -89,6 +94,24 @@ async fn post(
     headers: &[(&str, String)],
     body: &str,
 ) -> (hyper::StatusCode, String) {
+    let response = request(at, path, headers, body).await;
+    let status = response.status();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("body")
+        .to_bytes();
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The same, with the answer whole: for a case about its headers.
+async fn request(
+    at: &Reached,
+    path: &str,
+    headers: &[(&str, String)],
+    body: &str,
+) -> hyper::Response<hyper::body::Incoming> {
     let stream = tokio::net::TcpStream::connect(("127.0.0.1", at.port))
         .await
         .expect("connect");
@@ -106,22 +129,14 @@ async fn post(
     for (name, value) in headers {
         request = request.header(*name, value.clone());
     }
-    let response = sender
+    sender
         .send_request(
             request
                 .body(http_body_util::Full::new(Bytes::from(body.to_owned())))
                 .expect("request"),
         )
         .await
-        .expect("send");
-    let status = response.status();
-    let bytes = response
-        .into_body()
-        .collect()
-        .await
-        .expect("body")
-        .to_bytes();
-    (status, String::from_utf8_lossy(&bytes).into_owned())
+        .expect("send")
 }
 
 fn initialize() -> &'static str {
@@ -130,6 +145,65 @@ fn initialize() -> &'static str {
 
 fn bearer(token: &str) -> Vec<(&'static str, String)> {
     vec![("authorization", format!("Bearer {token}"))]
+}
+
+/// A client that goes away without a `DELETE` — killed, rather than
+/// ended — is counted until the transport's reaper has its session. The
+/// number the status bar shows is the session table's, so the reaper has
+/// to reach that table, the bar has to be told when it does, and a
+/// client that comes back after that has to be told to start over.
+#[tokio::test]
+async fn a_session_left_idle_is_let_go_and_the_bar_is_told() {
+    let running = Arc::new(mcp::serve::Running::letting_go_after(
+        Duration::from_millis(100),
+    ));
+    let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
+    running.on_change(move |count| {
+        let _sent = told.send(count);
+    });
+    let at = listening_with(Arc::clone(&running));
+
+    let answer = request(&at, "/mcp", &bearer(&at.token), initialize()).await;
+    assert!(answer.status().is_success(), "{}", answer.status());
+    let session = answer
+        .headers()
+        .get("mcp-session-id")
+        .expect("a session id")
+        .to_str()
+        .expect("ascii")
+        .to_owned();
+    drop(answer);
+    assert_eq!(running.clients().await, 1);
+    assert_eq!(heard.recv().await, Some(1), "the bar hears of the client");
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while running.clients().await != 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the idle session is still counted");
+
+    // The bar is told on the next request from anybody, or a minute on.
+    let mut late = bearer(&at.token);
+    late.push(("mcp-session-id", session));
+    let (status, body) = post(
+        &at,
+        "/mcp",
+        &late,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+    )
+    .await;
+    assert_eq!(
+        status,
+        hyper::StatusCode::NOT_FOUND,
+        "the session is gone, and the client is told to start over: {body}"
+    );
+    assert_eq!(
+        heard.recv().await,
+        Some(0),
+        "the bar hears the client has gone"
+    );
 }
 
 #[tokio::test]

@@ -130,6 +130,18 @@ pub struct Bar {
     /// The title and enabled state each was last given, so an unchanged
     /// item is not written to. Every write is a hop to the main thread.
     state: HashMap<String, (String, bool)>,
+    /// The window whose description this is: the last to send one, which
+    /// is the last to have had the keyboard. Where a chosen item goes
+    /// when no window has the keyboard now.
+    owner: Option<String>,
+}
+
+impl Bar {
+    /// The window whose menus the bar is showing.
+    #[must_use]
+    pub fn owner(&self) -> Option<&str> {
+        self.owner.as_deref()
+    }
 }
 
 /// What the shape of a description is, for that comparison.
@@ -143,11 +155,17 @@ fn shape(sections: &[MenuSection]) -> Vec<String> {
         .collect()
 }
 
-/// Draw this description of the menu bar.
+/// Draw this description of the menu bar, sent by the window `label`.
 ///
 /// # Errors
 /// Fails when a menu item cannot be built or installed.
-pub fn apply(app: &AppHandle, bar: &mut Bar, sections: &[MenuSection]) -> tauri::Result<()> {
+pub fn apply(
+    app: &AppHandle,
+    bar: &mut Bar,
+    label: &str,
+    sections: &[MenuSection],
+) -> tauri::Result<()> {
+    bar.owner = Some(label.to_owned());
     let wanted = shape(sections);
     if bar.shape != wanted {
         let (menu, items) = build(app, sections)?;
@@ -272,13 +290,22 @@ fn install(_menu: &Menu<Wry>) -> tauri::Result<()> {
 /// app's commands, and belongs to the window in front — the bar is the
 /// whole app's on macOS, and what it shows is whatever that window last
 /// described.
-pub fn chosen(app: &AppHandle, event: &MenuEvent) {
+///
+/// When no window has the keyboard — an assistive client chose the item
+/// while another app was in front — it goes to `owner`, the window whose
+/// description the bar is showing. It used to be dropped, and an item
+/// that is on the screen has to do something when chosen; what it does
+/// is what that window said it does.
+pub fn chosen(app: &AppHandle, event: &MenuEvent, owner: Option<&str>) {
     let id = event.id().as_ref();
     if id == QUIT {
         app.exit(0);
         return;
     }
-    let Some(label) = focused(app) else {
+    let Some(label) = target(focused(app), owner, |label| {
+        app.get_webview_window(label).is_some()
+    }) else {
+        eprintln!("no window to give the menu command {id} to");
         return;
     };
     if let Err(error) = MenuCommandEvent(id.to_owned()).emit_to(app, &label) {
@@ -291,6 +318,16 @@ fn focused(app: &AppHandle) -> Option<String> {
         .into_iter()
         .find(|(_, window)| window.is_focused().unwrap_or(false))
         .map(|(label, _)| label)
+}
+
+/// The window a chosen item is for: the one with the keyboard, else the
+/// one whose menus are showing, so long as it is still there.
+fn target(
+    focused: Option<String>,
+    owner: Option<&str>,
+    exists: impl Fn(&str) -> bool,
+) -> Option<String> {
+    focused.or_else(|| owner.filter(|label| exists(label)).map(str::to_owned))
 }
 
 #[cfg(test)]
@@ -311,6 +348,31 @@ mod tests {
             title: "File".to_owned(),
             items,
         }]
+    }
+
+    #[test]
+    fn a_chosen_item_goes_to_the_keyboard_s_window_else_the_one_whose_menu_it_is() {
+        let there = |label: &str| label == "main" || label == "window-2";
+        assert_eq!(
+            target(Some("window-2".to_owned()), Some("main"), there).as_deref(),
+            Some("window-2"),
+            "the window with the keyboard"
+        );
+        assert_eq!(
+            target(None, Some("main"), there).as_deref(),
+            Some("main"),
+            "no window has the keyboard: the one that drew the bar"
+        );
+        assert_eq!(
+            target(None, Some("window-3"), there),
+            None,
+            "the window that drew the bar has since closed"
+        );
+        assert_eq!(
+            target(None, None, there),
+            None,
+            "nothing has drawn a bar yet"
+        );
     }
 
     #[test]

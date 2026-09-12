@@ -1279,9 +1279,10 @@ fn before_exit(app: &tauri::AppHandle, api: &tauri::ExitRequestApi) {
 fn set_menu(
     app: tauri::AppHandle,
     services: tauri::State<'_, Services>,
+    window: tauri::WebviewWindow,
     sections: Vec<MenuSection>,
 ) {
-    if let Err(error) = menu::apply(&app, &mut locked(&services.menu), &sections) {
+    if let Err(error) = menu::apply(&app, &mut locked(&services.menu), window.label(), &sections) {
         eprintln!("could not draw the menu bar: {error}");
     }
 }
@@ -2087,7 +2088,15 @@ pub fn run(context: tauri::Context) {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
-        .on_menu_event(|app, event| menu::chosen(app, &event))
+        .on_menu_event(|app, event| {
+            // Whose menus the bar is showing, for an item chosen while no
+            // window has the keyboard. Read and let go before the item
+            // is delivered, so the lock is not held across the emit.
+            let owner = app
+                .try_state::<Services>()
+                .and_then(|services| locked(&services.menu).owner().map(str::to_owned));
+            menu::chosen(app, &event, owner.as_deref());
+        })
         .on_window_event(|window, event| match event {
             tauri::WindowEvent::CloseRequested { api, .. } => before_close(window, api),
             // A window that has gone takes its workspace with it, and its
