@@ -18,18 +18,27 @@ that built it. Enrollment is $99 a year and takes anywhere from a day to
 several weeks; an organization enrollment also needs a D-U-N-S number,
 which is its own wait.
 
-**Status: not started as far as this repository knows.** The plan put it
-in Phase 0 for exactly this reason. Until it is done, `release.yml`
-produces an unsigned macOS bundle and says so in a workflow warning; the
-`.dmg` will open only after a right-click → Open, and only on machines
-where somebody chooses to trust it.
+**Status: enrolled.** The Developer ID Application certificate was
+issued on 2026-09-12 to `Victor ZHANG (LWM57544W2)` — the surname in
+capitals, as Apple wrote it, and the identity secret has to match it.
+Without the certificate secrets, `release.yml` produces an unsigned macOS
+bundle and says so in a workflow warning; the `.dmg` will open only
+after a right-click → Open, and only on machines where somebody chooses
+to trust it.
 
-Once enrolled:
+The steps, for the next certificate (they expire after five years):
 
 1. In the Apple Developer portal, create a **Developer ID Application**
-   certificate and download it.
-2. Export it from Keychain Access as a `.p12` with a password.
-3. In App Store Connect → Users and Access → Integrations → App Store
+   certificate (G2 Sub-CA) from a signing request made in Keychain Access
+   on the Mac that will export it, and download it.
+2. On a Mac without Xcode, `security find-identity -v -p codesigning`
+   then reports *0 valid identities*: the certificate is issued by
+   Apple's **G2** intermediate, and macOS ships only the 2012 one. Install
+   `DeveloperIDG2CA.cer` from <https://www.apple.com/certificateauthority/>
+   and the identity turns valid.
+3. Export it from Keychain Access (login → My Certificates) as a `.p12`
+   with a password.
+4. In App Store Connect → Users and Access → Integrations → App Store
    Connect API, create a key with the **Developer** role and download the
    `.p8`. Note the Key ID and the Issuer ID; the `.p8` can be downloaded
    once and never again.
@@ -79,7 +88,7 @@ Setting the secrets, once `gh` is authenticated against the repository:
 
 ```bash
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.config/mdreader/updater.key
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
+printf '' | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD   # --body "" waits on stdin
 gh secret set APPLE_CERTIFICATE < <(base64 -i DeveloperID.p12)
 gh secret set APPLE_API_KEY_BASE64 < <(base64 -i AuthKey_XXXXXXXXXX.p8)
 ```
